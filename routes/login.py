@@ -18,7 +18,7 @@ from utils.loggers import auth_logger, api_logger, db_logger, security_logger
 from utils.production_logging import CorrelationIDGenerator
 from utils.request_context import RequestTracker, track_request
 
-router = APIRouter(prefix = "/api", tags=["login"])
+router = APIRouter(prefix = "/api/v1", tags=["Authentication & User Management"])
 security = HTTPBearer()
 
 @router.post("/login", response_model=TokenResponse)
