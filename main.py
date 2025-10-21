@@ -101,6 +101,17 @@ async def health_check() -> Dict[str, Any]:
         "environment": settings.app.environment
     }
 
+@app.get("/api/v1/health", tags=["Health"])
+async def api_health_check() -> Dict[str, Any]:
+    """API versioned health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "version": settings.app.version,
+        "environment": settings.app.environment,
+        "api_version": "v1"
+    }
+
 @app.get("/health/detailed", tags=["Health"])
 async def detailed_health_check() -> Dict[str, Any]:
     """Detailed health check with system status"""
@@ -172,8 +183,11 @@ async def root() -> Dict[str, Any]:
         "version": settings.app.version,
         "description": settings.app.description,
         "environment": settings.app.environment,
+        "api_version": "v1",
+        "api_base_url": "/api/v1",
         "docs_url": "/docs" if settings.app.environment != "production" else "disabled",
-        "health_check": "/health"
+        "health_check": "/health",
+        "api_health_check": "/api/v1/health"
     }
 
 # Request logging middleware

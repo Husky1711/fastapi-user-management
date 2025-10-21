@@ -106,23 +106,52 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 ### Authentication
 | Method | Endpoint | Description | Rate Limit |
 |--------|----------|-------------|------------|
-| `POST` | `/api/login` | User login | 10/min, 100/hour |
-| `POST` | `/api/signup` | User registration | 5/min, 50/hour |
-| `POST` | `/api/refresh` | Refresh access token | 20/min, 200/hour |
+| `POST` | `/api/v1/login` | User login | 10/min, 100/hour |
+| `POST` | `/api/v1/signup` | User registration | 5/min, 50/hour |
+| `POST` | `/api/v1/refresh` | Refresh access token | 20/min, 200/hour |
+| `POST` | `/api/v1/logout` | User logout | 10/min, 100/hour |
 
 ### User Management
 | Method | Endpoint | Description | Rate Limit |
 |--------|----------|-------------|------------|
-| `GET` | `/api/users` | Get all users (Admin) | 5/min, 50/hour |
-| `GET` | `/api/users/{id}` | Get user by ID | 20/min, 200/hour |
-| `GET` | `/api/sessions` | Get user sessions | 10/min, 100/hour |
-| `DELETE` | `/api/sessions/{id}` | Revoke session | 5/min, 50/hour |
+| `GET` | `/api/v1/users` | Get all users (Role-based) | 5/min, 50/hour |
+| `GET` | `/api/v1/users/{id}` | Get user by ID | 20/min, 200/hour |
+| `GET` | `/api/v1/sessions` | Get user sessions | 10/min, 100/hour |
+| `DELETE` | `/api/v1/sessions/{id}` | Revoke session | 5/min, 50/hour |
 
-### System
+### System & Health
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/hello` | Health check |
-| `GET` | `/docs` | API documentation |
+| `GET` | `/` | Root endpoint with API info |
+| `GET` | `/health` | Basic health check |
+| `GET` | `/api/v1/health` | Versioned API health check |
+| `GET` | `/health/detailed` | Detailed health with services |
+| `GET` | `/health/ready` | Kubernetes readiness probe |
+| `GET` | `/health/live` | Kubernetes liveness probe |
+| `GET` | `/docs` | API documentation (Swagger UI) |
+| `GET` | `/redoc` | Alternative API documentation |
+
+## 🔄 **API Versioning**
+
+This API uses semantic versioning with the `/api/v1/` prefix for all endpoints. This ensures backward compatibility and allows for future API evolution.
+
+### Version Strategy
+- **Current Version**: `v1` (all endpoints under `/api/v1/`)
+- **Future Versions**: `v2`, `v3`, etc. will be added as needed
+- **Backward Compatibility**: Old versions will be maintained for a reasonable period
+- **Deprecation Policy**: 6-month notice before removing old versions
+
+### Versioned Endpoints
+All API endpoints are prefixed with `/api/v1/`:
+- Authentication: `/api/v1/login`, `/api/v1/signup`, `/api/v1/refresh`, `/api/v1/logout`
+- User Management: `/api/v1/users`, `/api/v1/users/{id}`, `/api/v1/sessions`
+- Health Checks: `/api/v1/health`
+
+### Non-Versioned Endpoints
+System-level endpoints remain unversioned:
+- Root: `/`
+- Health: `/health`, `/health/detailed`, `/health/ready`, `/health/live`
+- Documentation: `/docs`, `/redoc`
 
 ## ⚙️ **Configuration**
 
@@ -226,7 +255,7 @@ Retry-After: 60
   "ip_address": "192.168.1.1",
   "correlation_id": "req-12345",
   "duration_ms": 150.5,
-  "endpoint": "/api/login"
+  "endpoint": "/api/v1/login"
 }
 ```
 
@@ -234,17 +263,40 @@ Retry-After: 60
 
 ### Manual Testing
 ```bash
-# Health check
-curl http://localhost:9000/hello
+# Root endpoint
+curl http://localhost:9000/
+
+# Health checks
+curl http://localhost:9000/health
+curl http://localhost:9000/api/v1/health
 
 # User login
-curl -X POST http://localhost:9000/api/login \
+curl -X POST http://localhost:9000/api/v1/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "testuser", "password": "password123"}'
+  -d '{"username": "testadmin", "password": "admin123"}'
+
+# User signup
+curl -X POST http://localhost:9000/api/v1/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username": "newuser", "password": "Password123", "email": "newuser@example.com"}'
 
 # Get users (requires JWT token)
-curl -X GET http://localhost:9000/api/users \
+curl -X GET http://localhost:9000/api/v1/users \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Get user by ID
+curl -X GET http://localhost:9000/api/v1/users/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Refresh token
+curl -X POST http://localhost:9000/api/v1/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "YOUR_REFRESH_TOKEN"}'
+
+# Logout
+curl -X POST http://localhost:9000/api/v1/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "YOUR_REFRESH_TOKEN"}'
 ```
 
 ### Test Users
