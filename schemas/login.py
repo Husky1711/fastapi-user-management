@@ -72,6 +72,7 @@ class TokenResponse(BaseModel):
     refresh_token: str = Field(..., description="JWT refresh token")
     token_type: TokenType = Field(default=TokenType.BEARER, description="Token type")
     expires_in: int = Field(..., description="Access token expiration time in seconds")
+    session_info: Optional[Dict[str, Any]] = Field(None, description="Session management information")
 
 class SessionInfo(BaseModel):
     """Schema for user session information"""

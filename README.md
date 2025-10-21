@@ -54,6 +54,296 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+## 🔄 **User Access Control Flow Diagram**
+
+### **Role Hierarchy & Permissions**
+
+```
+👑 Super Admin
+├── 🏢 Organization Admin
+│   ├── 👨‍💼 Admin
+│   │   └── 👤 User
+│   └── 👤 User
+└── 👤 User (Direct)
+```
+
+### **What Each Role Can See**
+
+| Role | `/users` Endpoint | `/users/{id}` Endpoint | `/sessions` Endpoint | Organization Access |
+|------|------------------|------------------------|---------------------|-------------------|
+| **👑 Super Admin** | ✅ All users grouped by organization | ✅ Any user from any organization | ✅ All sessions | ✅ All organizations |
+| **🏢 Organization Admin** | ✅ Admins & users in own organization | ✅ Users in own organization | ✅ Sessions in own organization | ✅ Own organization only |
+| **👨‍💼 Admin** | ✅ Users in own organization | ✅ Users in own organization | ✅ Sessions in own organization | ✅ Own organization only |
+| **👤 User** | ✅ Own profile only | ✅ Own profile only | ✅ Own sessions only | ❌ No organization access |
+
+### **Data Visibility Flow**
+
+```
+User Login → Authentication → Role Check → Data Access
+
+👑 Super Admin:
+├── 📊 All Organizations Data
+├── 👥 All Users Data  
+├── 🔐 All Sessions Data
+└── ⚙️ System Management
+
+🏢 Organization Admin:
+├── 📊 Own Organization Data
+├── 👥 Admins & Users in Org
+├── 🔐 Sessions in Org
+└── ⚙️ Organization Management
+
+👨‍💼 Admin:
+├── 📊 Own Organization Data
+├── 👥 Users in Org
+├── 🔐 User Sessions in Org
+└── ⚙️ User Management
+
+👤 User:
+├── 📊 Own Profile Data
+├── 👥 Own Profile Only
+├── 🔐 Own Sessions Only
+└── ⚙️ Basic Operations
+```
+
+### **Multi-Tenant Organization Structure**
+
+```
+🏢 System
+├── 🏢 Organization 1 (TechCorp)
+│   ├── 👨‍💼 Admin 1
+│   ├── 👤 User 1
+│   └── 👤 User 2
+├── 🏢 Organization 2 (FinanceInc)
+│   ├── 👨‍💼 Admin 2
+│   ├── 👤 User 1
+│   └── 👤 User 2
+├── 🏢 Organization 3 (HealthOrg)
+│   ├── 👨‍💼 Admin 3
+│   └── 👤 User 1
+└── 🏢 Organization 4 (EduCorp)
+    ├── 👨‍💼 Admin 4
+    ├── 👤 User 1
+    └── 👤 User 2
+
+👑 Super Admin can access ALL organizations
+```
+
+### **Session Management Strategies**
+
+```
+User Login → Session Strategy → Action
+
+✅ allow_multiple:     Allow unlimited sessions
+🔄 replace_all:        Replace all existing sessions  
+🔄 replace_same_device: Replace sessions from same device
+❌ deny_if_exists:     Deny login if sessions exist
+📊 limit_sessions:     Limit to max sessions (default: 5)
+```
+
+### **API Response Examples**
+
+#### **Super Admin Response (`/users`)**
+```json
+{
+  "1": {
+    "organization_id": 1,
+    "users": [
+      {"id": 1, "username": "admin1", "role": "admin", "organization_id": 1},
+      {"id": 2, "username": "user1", "role": "user", "organization_id": 1}
+    ]
+  },
+  "2": {
+    "organization_id": 2,
+    "users": [
+      {"id": 3, "username": "admin2", "role": "admin", "organization_id": 2},
+      {"id": 4, "username": "user2", "role": "user", "organization_id": 2}
+    ]
+  }
+}
+```
+
+#### **Organization Admin Response (`/users`)**
+```json
+{
+  "organization_id": 1,
+  "users": [
+    {"id": 1, "username": "admin1", "role": "admin", "organization_id": 1},
+    {"id": 2, "username": "user1", "role": "user", "organization_id": 1}
+  ]
+}
+```
+
+#### **Regular User Response (`/users`)**
+```json
+{
+  "id": 2,
+  "username": "user1",
+  "email": "user1@example.com",
+  "role": "user",
+  "organization_id": 1,
+  "status": "active"
+}
+```
+
+### **Visual Flow Diagrams**
+
+#### **Role-Based Access Control Flow**
+```mermaid
+graph TD
+    A[👑 Super Admin] --> B[🏢 Organization Admin]
+    B --> C[👨‍💼 Admin]
+    C --> D[👤 User]
+    
+    A --> A1[📊 All Organizations]
+    A --> A2[👥 All Users]
+    A --> A3[🔐 All Sessions]
+    A --> A4[⚙️ System Management]
+    
+    B --> B1[📊 Own Organization]
+    B --> B2[👥 Admins & Users in Org]
+    B --> B3[🔐 Sessions in Org]
+    B --> B4[⚙️ Organization Management]
+    
+    C --> C1[📊 Own Organization]
+    C --> C2[👥 Users in Org]
+    C --> C3[🔐 User Sessions in Org]
+    C --> C4[⚙️ User Management]
+    
+    D --> D1[📊 Own Profile]
+    D --> D2[👥 Own Profile Only]
+    D --> D3[🔐 Own Sessions Only]
+    D --> D4[⚙️ Basic Operations]
+```
+
+#### **Multi-Tenant Organization Structure**
+```mermaid
+graph TD
+    System[🏢 System] --> Org1[🏢 Organization 1<br/>TechCorp]
+    System --> Org2[🏢 Organization 2<br/>FinanceInc]
+    System --> Org3[🏢 Organization 3<br/>HealthOrg]
+    System --> Org4[🏢 Organization 4<br/>EduCorp]
+    
+    Org1 --> Org1Admin[👨‍💼 Admin 1]
+    Org1 --> Org1User1[👤 User 1]
+    Org1 --> Org1User2[👤 User 2]
+    
+    Org2 --> Org2Admin[👨‍💼 Admin 2]
+    Org2 --> Org2User1[👤 User 1]
+    Org2 --> Org2User2[👤 User 2]
+    
+    Org3 --> Org3Admin[👨‍💼 Admin 3]
+    Org3 --> Org3User1[👤 User 1]
+    
+    Org4 --> Org4Admin[👨‍💼 Admin 4]
+    Org4 --> Org4User1[👤 User 1]
+    Org4 --> Org4User2[👤 User 2]
+    
+    SuperAdmin[👑 Super Admin] -.->|Can Access| Org1
+    SuperAdmin -.->|Can Access| Org2
+    SuperAdmin -.->|Can Access| Org3
+    SuperAdmin -.->|Can Access| Org4
+```
+
+#### **Session Management Flow**
+```mermaid
+graph LR
+    Login[User Login] --> Strategy{Session Strategy}
+    
+    Strategy -->|allow_multiple| AM[✅ Allow Multiple Sessions]
+    Strategy -->|replace_all| RA[🔄 Replace All Sessions]
+    Strategy -->|replace_same_device| RSD[🔄 Replace Same Device]
+    Strategy -->|deny_if_exists| DIE[❌ Deny If Sessions Exist]
+    Strategy -->|limit_sessions| LS[📊 Limit to Max Sessions]
+    
+    AM --> AM1[Unlimited Sessions]
+    RA --> RA1[Revoke All Existing]
+    RSD --> RSD1[Revoke Same Device Only]
+    DIE --> DIE1[Block New Login]
+    LS --> LS1[Enforce Session Limit]
+```
+
+### **Practical Examples**
+
+#### **Scenario 1: Super Admin Login**
+```bash
+# Super Admin logs in
+POST /api/v1/login
+{
+  "username": "superadmin",
+  "password": "admin123"
+}
+
+# Gets access to ALL organizations
+GET /api/v1/users
+# Response: All users grouped by organization (Org 1, Org 2, Org 3, etc.)
+```
+
+#### **Scenario 2: Organization Admin Login**
+```bash
+# Organization Admin logs in
+POST /api/v1/login
+{
+  "username": "orgadmin_techcorp",
+  "password": "admin123"
+}
+
+# Gets access to ONLY TechCorp organization
+GET /api/v1/users
+# Response: Only TechCorp users (admins + users)
+```
+
+#### **Scenario 3: Regular Admin Login**
+```bash
+# Admin logs in
+POST /api/v1/login
+{
+  "username": "admin_techcorp",
+  "password": "admin123"
+}
+
+# Gets access to TechCorp users only
+GET /api/v1/users
+# Response: Only TechCorp users (no other admins)
+```
+
+#### **Scenario 4: Regular User Login**
+```bash
+# User logs in
+POST /api/v1/login
+{
+  "username": "user_techcorp",
+  "password": "user123"
+}
+
+# Gets access to own profile only
+GET /api/v1/users
+# Response: Only their own profile data
+```
+
+### **Session Management Examples**
+
+#### **Allow Multiple Sessions**
+```bash
+# User can login from multiple devices
+POST /api/v1/login-with-session-control?session_strategy=allow_multiple
+# Result: All previous sessions remain active
+```
+
+#### **Replace All Sessions**
+```bash
+# User login replaces all existing sessions
+POST /api/v1/login-with-session-control?session_strategy=replace_all
+# Result: All previous sessions are revoked
+```
+
+#### **Deny If Sessions Exist**
+```bash
+# User tries to login when already logged in
+POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
+# Result: Login denied with 400 Bad Request
+```
+
 ## 🚀 **Quick Start**
 
 ### Prerequisites
