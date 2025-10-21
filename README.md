@@ -14,7 +14,10 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 - **Role-based access control (RBAC)** with hierarchical permissions
 - **Multi-tenant architecture** supporting organizations and users
 - **Secure password hashing** with SHA-256
-- **Session management** with token rotation
+- **Advanced session management** with 5 different strategies
+- **Auto-refresh token service** for seamless user experience
+- **Enhanced login service** with session control options
+- **Token rotation** and session cleanup
 
 ### 🛡️ **Security & Rate Limiting**
 - **Redis-based rate limiting** with sliding window algorithm
@@ -65,6 +68,79 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 │   │   └── 👤 User
 │   └── 👤 User
 └── 👤 User (Direct)
+```
+
+#### **Simplified Organizational Structure**
+```mermaid
+graph TD
+    SA[👑 Super Admin<br/>System Administrator] --> OA1[🏢 Organization/Client Admin 1<br/>Organization Manager]
+    SA --> OA2[🏢 Organization/Client Admin 2<br/>Organization Manager]
+    
+    OA1 --> A1[👨‍💼 Admin 1<br/>Department Admin]
+    OA1 --> U1[👤 User 1<br/>Organization User]
+    
+    OA2 --> U2[👤 User 2<br/>Organization User]
+    
+    A1 --> U3[👤 User 3<br/>Department User]
+    
+    SA -.->|Direct Access| U4[👤 Direct User<br/>System User]
+    
+    classDef superAdmin fill:#e74c3c,stroke:#c0392b,stroke-width:4px,color:#fff
+    classDef orgAdmin fill:#3498db,stroke:#2980b9,stroke-width:3px,color:#fff
+    classDef admin fill:#9b59b6,stroke:#8e44ad,stroke-width:2px,color:#fff
+    classDef user fill:#27ae60,stroke:#229954,stroke-width:2px,color:#fff
+    
+    class SA superAdmin
+    class OA1,OA2 orgAdmin
+    class A1 admin
+    class U1,U2,U3,U4 user
+```
+
+#### **Access Control Matrix**
+```mermaid
+graph LR
+    subgraph "👑 Super Admin Access"
+        SA1[All Organizations]
+        SA2[All Users]
+        SA3[All Sessions]
+        SA4[System Settings]
+    end
+    
+    subgraph "🏢 Organization Admin Access"
+        OA1[Own Organization]
+        OA2[Org Admins & Users]
+        OA3[Org Sessions]
+        OA4[Org Settings]
+    end
+    
+    subgraph "👨‍💼 Admin Access"
+        A1[Own Organization]
+        A2[Org Users Only]
+        A3[User Sessions]
+        A4[User Management]
+    end
+    
+    subgraph "👤 User Access"
+        U1[Own Profile]
+        U2[Own Sessions]
+        U3[Basic Operations]
+        U4[Limited Access]
+    end
+    
+    SA1 --> OA1
+    SA2 --> OA2
+    SA3 --> OA3
+    SA4 --> OA4
+    
+    OA1 --> A1
+    OA2 --> A2
+    OA3 --> A3
+    OA4 --> A4
+    
+    A1 --> U1
+    A2 --> U2
+    A3 --> U3
+    A4 --> U4
 ```
 
 ### **What Each Role Can See**
@@ -397,9 +473,11 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
 | Method | Endpoint | Description | Rate Limit |
 |--------|----------|-------------|------------|
 | `POST` | `/api/v1/login` | User login | 10/min, 100/hour |
+| `POST` | `/api/v1/login-with-session-control` | Enhanced login with session management | 10/min, 100/hour |
 | `POST` | `/api/v1/signup` | User registration | 5/min, 50/hour |
 | `POST` | `/api/v1/refresh` | Refresh access token | 20/min, 200/hour |
 | `POST` | `/api/v1/logout` | User logout | 10/min, 100/hour |
+| `POST` | `/api/v1/logout-all` | Logout from all sessions | 5/min, 50/hour |
 
 ### User Management
 | Method | Endpoint | Description | Rate Limit |
@@ -407,7 +485,9 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
 | `GET` | `/api/v1/users` | Get all users (Role-based) | 5/min, 50/hour |
 | `GET` | `/api/v1/users/{id}` | Get user by ID | 20/min, 200/hour |
 | `GET` | `/api/v1/sessions` | Get user sessions | 10/min, 100/hour |
-| `DELETE` | `/api/v1/sessions/{id}` | Revoke session | 5/min, 50/hour |
+| `GET` | `/api/v1/sessions/info` | Get detailed session information | 10/min, 100/hour |
+| `POST` | `/api/v1/sessions/revoke-others` | Revoke all other sessions | 5/min, 50/hour |
+| `DELETE` | `/api/v1/sessions/{id}` | Revoke specific session | 5/min, 50/hour |
 
 ### System & Health
 | Method | Endpoint | Description |
@@ -420,6 +500,55 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
 | `GET` | `/health/live` | Kubernetes liveness probe |
 | `GET` | `/docs` | API documentation (Swagger UI) |
 | `GET` | `/redoc` | Alternative API documentation |
+
+## 🔄 **Enhanced Session Management**
+
+### **Session Management Strategies**
+
+The system supports 5 different session management strategies that can be configured per login:
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `allow_multiple` | Allow unlimited sessions | Personal devices, trusted environments |
+| `replace_all` | Replace all existing sessions (default) | Security-focused, single-device usage |
+| `replace_same_device` | Replace sessions from same device | Device-specific security |
+| `deny_if_exists` | Deny login if sessions exist | Maximum security, one session only |
+| `limit_sessions` | Limit to max sessions per user | Balanced approach with configurable limits |
+
+### **Auto-Refresh Token Service**
+
+The system includes an intelligent auto-refresh service that:
+
+- **Automatically refreshes** access tokens before expiration
+- **Seamless user experience** without login interruptions
+- **Background token management** with configurable intervals
+- **Client-side integration** with JavaScript examples
+- **Server-side middleware** for automatic token handling
+
+### **Session Management Endpoints**
+
+```bash
+# Enhanced login with session control
+POST /api/v1/login-with-session-control?session_strategy=replace_all
+{
+  "username": "user",
+  "password": "password"
+}
+
+# Get detailed session information
+GET /api/v1/sessions/info
+Authorization: Bearer <token>
+
+# Revoke all other sessions (keep current)
+POST /api/v1/sessions/revoke-others
+Authorization: Bearer <token>
+
+# Logout from all sessions
+POST /api/v1/logout-all
+{
+  "refresh_token": "your_refresh_token"
+}
+```
 
 ## 🔄 **API Versioning**
 
@@ -587,6 +716,24 @@ curl -X POST http://localhost:9000/api/v1/refresh \
 curl -X POST http://localhost:9000/api/v1/logout \
   -H "Content-Type: application/json" \
   -d '{"refresh_token": "YOUR_REFRESH_TOKEN"}'
+
+# Enhanced login with session control
+curl -X POST "http://localhost:9000/api/v1/login-with-session-control?session_strategy=replace_all" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testadmin", "password": "admin123"}'
+
+# Get session information
+curl -X GET http://localhost:9000/api/v1/sessions/info \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Revoke all other sessions
+curl -X POST http://localhost:9000/api/v1/sessions/revoke-others \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Logout from all sessions
+curl -X POST http://localhost:9000/api/v1/logout-all \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "YOUR_REFRESH_TOKEN"}'
 ```
 
 ### Test Users
@@ -634,12 +781,18 @@ fastapi-user-management/
 ├── services/              # Business logic
 │   ├── auth_service.py   # Authentication service
 │   ├── user_service.py   # User management
-│   └── rate_limit_service.py # Rate limiting
+│   ├── rate_limit_service.py # Rate limiting
+│   ├── enhanced_login_service.py # Enhanced login with session management
+│   ├── auto_refresh_service.py # Auto-refresh token service
+│   ├── logout_service.py # Enhanced logout service
+│   └── refresh_token_service.py # Refresh token management
 ├── utils/                 # Utilities
 │   ├── database.py       # Database configuration
 │   ├── jwt_config.py     # JWT utilities
 │   ├── redis_config.py   # Redis configuration
 │   ├── logger.py         # Logging setup
+│   ├── auto_refresh_middleware.py # Auto-refresh middleware
+│   ├── security_middleware.py # Security middleware
 │   └── loggers/          # Specialized loggers
 ├── logs/                  # Log files (auto-generated)
 ├── .env                   # Environment variables
