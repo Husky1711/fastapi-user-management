@@ -5,7 +5,7 @@ Using Pydantic Settings for type-safe configuration
 """
 
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
@@ -49,6 +49,67 @@ class JWTSettings(BaseSettings):
     
     class Config:
         env_prefix = "JWT_"
+
+class SessionSettings(BaseSettings):
+    """Session management configuration settings"""
+    
+    # Default session strategy
+    default_strategy: str = Field("replace_all", description="Default session management strategy")
+    
+    # Available strategies
+    available_strategies: List[str] = Field(
+        default=["allow_multiple", "replace_all", "replace_same_device", "deny_if_exists", "limit_sessions"],
+        description="Available session management strategies"
+    )
+    
+    # Session limits
+    max_sessions_per_user: int = Field(5, description="Maximum sessions per user")
+    max_sessions_per_device: int = Field(2, description="Maximum sessions per device")
+    
+    # Session timeouts
+    access_token_expire_minutes: int = Field(5, description="Access token expiration in minutes")
+    refresh_token_expire_hours: int = Field(24, description="Refresh token expiration in hours")
+    session_timeout_hours: int = Field(24, description="Overall session timeout in hours")
+    
+    # Auto cleanup settings
+    auto_cleanup_enabled: bool = Field(True, description="Enable automatic session cleanup")
+    cleanup_interval_hours: int = Field(1, description="Session cleanup interval in hours")
+    cleanup_expired_sessions: bool = Field(True, description="Clean up expired sessions")
+    cleanup_inactive_sessions: bool = Field(True, description="Clean up inactive sessions")
+    
+    # Security settings
+    allow_multiple_sessions: bool = Field(True, description="Allow multiple sessions per user")
+    require_device_confirmation: bool = Field(False, description="Require device confirmation for new sessions")
+    track_device_changes: bool = Field(True, description="Track device changes for security")
+    alert_on_suspicious_activity: bool = Field(True, description="Alert on suspicious session activity")
+    
+    # User experience settings
+    show_session_warning: bool = Field(True, description="Show warning when approaching session limit")
+    allow_user_session_management: bool = Field(True, description="Allow users to manage their sessions")
+    remember_device: bool = Field(True, description="Remember device for easier login")
+    
+    # Environment-specific overrides
+    development_strategy: str = Field("allow_multiple", description="Strategy for development environment")
+    production_strategy: str = Field("replace_all", description="Strategy for production environment")
+    staging_strategy: str = Field("limit_sessions", description="Strategy for staging environment")
+    
+    @field_validator('default_strategy')
+    @classmethod
+    def validate_strategy(cls, v):
+        valid_strategies = ["allow_multiple", "replace_all", "replace_same_device", "deny_if_exists", "limit_sessions"]
+        if v not in valid_strategies:
+            raise ValueError(f'Strategy must be one of: {valid_strategies}')
+        return v
+    
+    @field_validator('max_sessions_per_user')
+    @classmethod
+    def validate_max_sessions(cls, v):
+        if v < 1 or v > 20:
+            raise ValueError('Max sessions per user must be between 1 and 20')
+        return v
+    
+    class Config:
+        env_prefix = "SESSION_"
 
 class RateLimitSettings(BaseSettings):
     """Rate limiting configuration settings"""
@@ -154,6 +215,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
+    session: SessionSettings = Field(default_factory=SessionSettings)
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
