@@ -5,6 +5,7 @@ from datetime import datetime
 from services.user_service import UserService
 from services.auth_service import AuthService
 from services.refresh_token_service import RefreshTokenService
+from services.logout_service import LogoutService
 from schemas.login import (
     UserSigninRequest, UserSignupRequest, TokenResponse, UserResponse, 
     RefreshTokenRequest, SessionInfo, UsersListResponse, SuperAdminUsersResponse,
@@ -229,16 +230,81 @@ async def refresh_token(
         )
 
 @router.post("/logout", response_model=LogoutResponse)
-async def logout(refresh_data: RefreshTokenRequest, db: Session = Depends(get_db)):
-    """Logout endpoint - revoke refresh token"""
-    success = RefreshTokenService.revoke_token(db, refresh_data.refresh_token)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid refresh token"
+async def logout(
+    refresh_data: RefreshTokenRequest, 
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("logout"))
+):
+    """Enhanced logout endpoint with Redis cache cleanup"""
+    try:
+        # Get user from refresh token for additional cleanup
+        user = LogoutService.get_user_from_refresh_token(db, refresh_data.refresh_token)
+        
+        # Perform logout with Redis cleanup
+        success = LogoutService.logout_user(
+            db=db,
+            refresh_token=refresh_data.refresh_token,
+            user_id=user.id if user else None
         )
-    
-    return LogoutResponse(message="Successfully logged out")
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid refresh token"
+            )
+        
+        return LogoutResponse(message="Successfully logged out")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Logout endpoint error: {str(e)}",
+            error=str(e),
+            event_type="logout_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.post("/logout-all", response_model=SuccessResponse)
+async def logout_all_sessions(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("logout_all"))
+):
+    """Logout from all sessions with Redis cache cleanup"""
+    try:
+        # Get current user
+        user = AuthService.get_current_user(db, credentials.credentials)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Logout from all sessions
+        revoked_count = LogoutService.logout_all_user_sessions(db, user.id)
+        
+        return SuccessResponse(
+            message=f"Successfully logged out from {revoked_count} sessions"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Logout all sessions error: {str(e)}",
+            user_id=user.id if 'user' in locals() else None,
+            error=str(e),
+            event_type="logout_all_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
 
 @router.get("/sessions", response_model=list[SessionInfo])
 async def get_user_sessions(
