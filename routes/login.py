@@ -5,7 +5,12 @@ from datetime import datetime
 from services.user_service import UserService
 from services.auth_service import AuthService
 from services.refresh_token_service import RefreshTokenService
-from schemas.login import userSignin, userSignup, Token, userResponse, RefreshTokenRequest, SessionInfo
+from schemas.login import (
+    UserSigninRequest, UserSignupRequest, TokenResponse, UserResponse, 
+    RefreshTokenRequest, SessionInfo, UsersListResponse, SuperAdminUsersResponse,
+    UserDetailResponse, ErrorResponse, SuccessResponse, LogoutResponse,
+    HealthCheckResponse, RateLimitResponse, UserRole, UserStatus
+)
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
 from models.user_model import User, RefreshToken
@@ -16,9 +21,9 @@ from utils.request_context import RequestTracker, track_request
 router = APIRouter(prefix = "/api", tags=["login"])
 security = HTTPBearer()
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=TokenResponse)
 async def login(
-    credentials: userSignin, 
+    credentials: UserSigninRequest, 
     request: Request, 
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("login", require_auth=False))
@@ -78,11 +83,12 @@ async def login(
             correlation_id=correlation_id
         )
         
-        return {
-            "access_token": access_token, 
-            "refresh_token": refresh_token,
-            "token_type": "bearer"
-        }
+        return TokenResponse(
+            access_token=access_token, 
+            refresh_token=refresh_token,
+            token_type="bearer",
+            expires_in=300  # 5 minutes
+        )
         
     except HTTPException:
         raise
@@ -101,9 +107,9 @@ async def login(
             detail="Internal server error"
         )
 
-@router.post("/signup", response_model=userResponse)
+@router.post("/signup", response_model=UserResponse)
 async def signup(
-    user: userSignup, 
+    user: UserSignupRequest, 
     request: Request,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("signup", require_auth=False))
@@ -147,13 +153,17 @@ async def signup(
         )
         
         # Return user info (without password)
-        return {
-            "id": new_user.id,
-            "username": new_user.username,
-            "email": new_user.email,
-            "status": new_user.status,
-            "phone_number": new_user.phone_number
-        }
+        return UserResponse(
+            id=new_user.id,
+            username=new_user.username,
+            email=new_user.email,
+            role=new_user.role,
+            organization_id=new_user.organization_id,
+            status=new_user.status,
+            phone_number=new_user.phone_number,
+            created_at=new_user.created_at,
+            last_login=new_user.last_login
+        )
         
     except ValueError as e:
         # Log failed signup
@@ -185,7 +195,7 @@ async def signup(
             detail="Internal server error"
         )
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     refresh_data: RefreshTokenRequest, 
     request: Request, 
@@ -204,11 +214,12 @@ async def refresh_token(
             db, refresh_data.refresh_token, device_info, ip_address, user_agent
         )
         
-        return {
-            "access_token": access_token,
-            "refresh_token": new_refresh_token,
-            "token_type": "bearer"
-        }
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            token_type="bearer",
+            expires_in=300  # 5 minutes
+        )
         
     except ValueError as e:
         raise HTTPException(
@@ -217,7 +228,7 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-@router.post("/logout")
+@router.post("/logout", response_model=LogoutResponse)
 async def logout(refresh_data: RefreshTokenRequest, db: Session = Depends(get_db)):
     """Logout endpoint - revoke refresh token"""
     success = RefreshTokenService.revoke_token(db, refresh_data.refresh_token)
@@ -227,7 +238,7 @@ async def logout(refresh_data: RefreshTokenRequest, db: Session = Depends(get_db
             detail="Invalid refresh token"
         )
     
-    return {"message": "Successfully logged out"}
+    return LogoutResponse(message="Successfully logged out")
 
 @router.get("/sessions", response_model=list[SessionInfo])
 async def get_user_sessions(
@@ -290,7 +301,16 @@ async def revoke_session(
     session.revoked_at = datetime.utcnow()
     db.commit()
     
-    return {"message": "Session revoked successfully"}
+    return SuccessResponse(message="Session revoked successfully")
+
+@router.get("/health", response_model=HealthCheckResponse)
+async def health_check():
+    """Health check endpoint"""
+    return HealthCheckResponse(
+        status="healthy",
+        version="1.0.0",
+        environment="development"
+    )
 
 @router.get("/users")
 async def get_all_users(
