@@ -6,6 +6,7 @@ from enum import Enum
 # Enums for better type safety
 class UserRole(str, Enum):
     SUPER_ADMIN = "super_admin"
+    ORGANIZATION_ADMIN = "organization_admin"
     ADMIN = "admin"
     USER = "user"
 
@@ -27,8 +28,9 @@ class UserSignupRequest(BaseModel):
     
     @validator('username')
     def validate_username(cls, v):
-        if not v.isalnum():
-            raise ValueError('Username must contain only alphanumeric characters')
+        # Allow alphanumeric characters and underscores
+        if not v.replace('_', '').isalnum():
+            raise ValueError('Username must contain only alphanumeric characters and underscores')
         return v.lower()
     
     @validator('password')
@@ -185,3 +187,180 @@ class UserSearchParams(BaseModel):
     
     class Config:
         use_enum_values = True
+
+# Admin User Creation Schemas
+class AdminCreateUserRequest(BaseModel):
+    """Schema for admin user creation request"""
+    username: str = Field(..., min_length=3, max_length=50, description="Username must be 3-50 characters")
+    email: EmailStr = Field(..., description="Valid email address")
+    password: Optional[str] = Field(None, min_length=8, max_length=100, description="Password (optional if auto_generate_password is True)")
+    role: UserRole = Field(default=UserRole.USER, description="User role to assign")
+    organization_id: Optional[int] = Field(None, description="Organization ID (inherited from creator if not specified)")
+    phone_number: Optional[str] = Field(None, description="Phone number")
+    send_welcome_email: bool = Field(default=True, description="Send welcome email to new user")
+    auto_generate_password: bool = Field(default=True, description="Auto-generate secure password")
+    
+    @validator('username')
+    def validate_username(cls, v):
+        # Allow alphanumeric characters and underscores
+        if not v.replace('_', '').isalnum():
+            raise ValueError('Username must contain only alphanumeric characters and underscores')
+        return v.lower()
+    
+    @validator('password')
+    def validate_password(cls, v):
+        if v is not None:
+            if not any(c.isupper() for c in v):
+                raise ValueError('Password must contain at least one uppercase letter')
+            if not any(c.islower() for c in v):
+                raise ValueError('Password must contain at least one lowercase letter')
+            if not any(c.isdigit() for c in v):
+                raise ValueError('Password must contain at least one digit')
+        return v
+    
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        if v is not None and not v.isdigit():
+            raise ValueError('Phone number must contain only digits')
+        return v
+    
+    class Config:
+        use_enum_values = True
+
+class AdminCreateUserResponse(BaseModel):
+    """Schema for admin user creation response"""
+    success: bool = Field(..., description="Whether user creation was successful")
+    message: str = Field(..., description="Success or error message")
+    user: Optional[UserResponse] = Field(None, description="Created user details")
+    generated_password: Optional[str] = Field(None, description="Auto-generated password (if applicable)")
+    email_sent: bool = Field(default=False, description="Whether welcome email was sent")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+    
+    class Config:
+        use_enum_values = True
+
+# Password Reset Schemas
+class PasswordResetRequest(BaseModel):
+    """Schema for password reset request"""
+    email: EmailStr = Field(..., description="Email address to send reset link")
+    
+    class Config:
+        use_enum_values = True
+
+class PasswordResetResponse(BaseModel):
+    """Schema for password reset response"""
+    success: bool = Field(..., description="Whether reset request was successful")
+    message: str = Field(..., description="Success or error message")
+    reset_token: Optional[str] = Field(None, description="Reset token (for testing)")
+    expires_in_minutes: int = Field(default=15, description="Token expiration time in minutes")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Request timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+    
+    class Config:
+        use_enum_values = True
+
+class PasswordResetConfirm(BaseModel):
+    """Schema for password reset confirmation"""
+    token: str = Field(..., min_length=32, max_length=64, description="Reset token")
+    new_password: str = Field(..., min_length=8, max_length=100, description="New password")
+    
+    @validator('new_password')
+    def validate_password(cls, v):
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+        return v
+    
+    class Config:
+        use_enum_values = True
+
+class PasswordResetConfirmResponse(BaseModel):
+    """Schema for password reset confirmation response"""
+    success: bool = Field(..., description="Whether password reset was successful")
+    message: str = Field(..., description="Success or error message")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Reset timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+    
+    class Config:
+        use_enum_values = True
+
+# User Profile Update Schemas
+class UserProfileUpdate(BaseModel):
+    """Schema for user profile update"""
+    email: Optional[EmailStr] = Field(None, description="New email address")
+    phone_number: Optional[str] = Field(None, description="New phone number")
+    
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        if v is not None and not v.isdigit():
+            raise ValueError('Phone number must contain only digits')
+        return v
+    
+    class Config:
+        use_enum_values = True
+
+class UserProfileUpdateResponse(BaseModel):
+    """Schema for user profile update response"""
+    success: bool = Field(..., description="Whether profile update was successful")
+    message: str = Field(..., description="Success or error message")
+    user: Optional[UserResponse] = Field(None, description="Updated user details")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Update timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+    
+    class Config:
+        use_enum_values = True
+
+class PasswordChangeRequest(BaseModel):
+    """Schema for password change request"""
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., min_length=8, max_length=100, description="New password")
+    
+    @validator('new_password')
+    def validate_password(cls, v):
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+        return v
+    
+    class Config:
+        use_enum_values = True
+
+class PasswordChangeResponse(BaseModel):
+    """Schema for password change response"""
+    success: bool = Field(..., description="Whether password change was successful")
+    message: str = Field(..., description="Success or error message")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Change timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+    
+    class Config:
+        use_enum_values = True
+
+# Role Hierarchy Validation Schema
+class RoleHierarchyValidator:
+    """Utility class for role hierarchy validation"""
+    
+    # Define role hierarchy - who can create which roles
+    ROLE_HIERARCHY = {
+        "super_admin": ["organization_admin", "admin", "user"],
+        "organization_admin": ["admin", "user"],
+        "admin": ["user"],
+        "user": []  # Users cannot create anyone
+    }
+    
+    @classmethod
+    def can_create_role(cls, creator_role: str, target_role: str) -> bool:
+        """Check if creator can create user with target role"""
+        allowed_roles = cls.ROLE_HIERARCHY.get(creator_role, [])
+        return target_role in allowed_roles
+    
+    @classmethod
+    def get_allowed_roles(cls, creator_role: str) -> List[str]:
+        """Get list of roles that creator can assign"""
+        return cls.ROLE_HIERARCHY.get(creator_role, [])

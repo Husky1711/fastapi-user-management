@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 # Import routers
 from routes.login import router as login_router
+from routes.production_endpoints import router as production_router
 
 # Import utilities
 from utils.loggers import app_logger, security_logger
@@ -89,6 +90,7 @@ setup_error_handlers(app)
 
 # Include routers
 app.include_router(login_router)
+app.include_router(production_router)
 
 # Health check endpoints
 @app.get("/health", tags=["Health"])

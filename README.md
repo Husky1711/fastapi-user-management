@@ -44,6 +44,16 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 - **Connection pooling** with configurable settings
 - **Database migrations** support
 - **User and session management** models
+- **Complete schema dump** available (`database_schema.sql`)
+
+### 🏢 **Production Features**
+- **Password History Tracking** - Prevent password reuse with configurable history limits
+- **Comprehensive Audit Logging** - Complete audit trail for compliance (SOX, GDPR, HIPAA)
+- **Advanced Session Management** - Device fingerprinting, session statistics, cleanup
+- **Granular Permissions** - Resource-specific permissions with time limits
+- **User Groups Management** - Organization-based group management
+- **API Key Management** - Secure API key generation and validation
+- **Production API Endpoints** - Enterprise-grade endpoints for all features
 
 ## 🏗️ **Architecture**
 
@@ -420,6 +430,57 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
 # Result: Login denied with 400 Bad Request
 ```
 
+## 🧪 **Testing**
+
+### **Test Suite**
+The project includes comprehensive test suites for all production features:
+
+- **`simple_production_test.py`** - Quick verification of core production features
+- **`comprehensive_test_suite.py`** - Full test suite for all production features
+
+### **Test Results**
+```
+============================================================
+SIMPLE PRODUCTION FEATURES TEST
+============================================================
+
+1. Testing Authentication...
+   [PASS] Authentication successful
+
+2. Testing 6 Core Endpoints...
+   [PASS] Audit Logs: 24 records
+   [PASS] Sessions: 13 records
+   [PASS] Permissions: 0 records
+   [PASS] Groups: 0 records
+   [PASS] API Keys: 0 records
+   [PASS] Password History: 3 records
+
+3. Testing Password Change...
+   [PASS] Password change successful
+
+============================================================
+TEST SUMMARY
+============================================================
+Tests Passed: 7/7 (100.0%)
+*** EXCELLENT: Core production features are working! ***
+```
+
+### **Running Tests**
+```bash
+# Run simple production test
+python simple_production_test.py
+
+# Run comprehensive test suite
+python comprehensive_test_suite.py
+```
+
+### **API Documentation**
+- **Interactive Docs**: Visit `/docs` for Swagger UI
+- **Alternative Docs**: Visit `/redoc` for ReDoc interface
+- **Complete API Reference**: See `API_REFERENCE.md` for comprehensive endpoint documentation
+
+---
+
 ## 🚀 **Quick Start**
 
 ### Prerequisites
@@ -467,7 +528,90 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
    uvicorn main:app --reload --host 0.0.0.0 --port 9000
    ```
 
-## 📋 **API Endpoints**
+---
+
+## 🗄️ **Database Schema**
+
+### **Schema Overview**
+The system uses MySQL 8.0+ with a comprehensive schema designed for production use. A complete schema dump is available for easy database setup and migration.
+
+### **Available Schema Files**
+- **`database_schema.sql`** - Complete MySQL schema dump (created with `mysqldump`)
+  - Contains all table structures, indexes, and constraints
+  - No data included (schema-only dump)
+  - Ready for production deployment
+
+### **Core Tables**
+| Table | Purpose | Key Features |
+|-------|---------|--------------|
+| `users` | Core user data | Role-based access, organization isolation |
+| `organizations` | Multi-tenant organizations | Client/company management |
+| `refresh_tokens` | JWT refresh token storage | Secure token management |
+| `user_sessions` | Advanced session tracking | Device fingerprinting, statistics |
+| `audit_logs` | Comprehensive audit trail | Compliance logging (SOX, GDPR, HIPAA) |
+| `password_history` | Password change tracking | Prevent password reuse |
+| `user_permissions` | Granular permissions | Resource-specific access control |
+| `user_groups` | User group management | Organization-based groups |
+| `user_group_memberships` | Group membership tracking | Many-to-many relationships |
+| `api_keys` | API key management | Secure programmatic access |
+
+### **Database Setup**
+```bash
+# Create database
+mysql -u root -p
+CREATE DATABASE fastapi_users;
+
+# Import schema
+mysql -u root -p fastapi_users < database_schema.sql
+
+# Verify tables
+mysql -u root -p fastapi_users
+SHOW TABLES;
+```
+
+### **Schema Features**
+- **No Foreign Key Constraints** - Uses indexes for performance
+- **Comprehensive Indexing** - Optimized for production queries
+- **Multi-tenant Ready** - Organization-based data isolation
+- **Audit Trail** - Complete logging for compliance
+- **Session Management** - Advanced session tracking
+- **Security Focused** - Password history, API keys, permissions
+
+---
+
+## 📋 **Production API Endpoints**
+
+### **Audit & Compliance**
+- `GET /api/v1/audit/logs` - Get audit logs with filtering and pagination
+- `GET /api/v1/audit/statistics` - Get audit statistics and analytics
+
+### **Session Management**
+- `GET /api/v1/sessions` - Get user sessions with device information
+- `GET /api/v1/sessions/statistics` - Get session statistics
+- `POST /api/v1/sessions/cleanup` - Clean up expired sessions
+
+### **Permissions Management**
+- `GET /api/v1/permissions` - Get user permissions
+- `GET /api/v1/permissions/standard` - Get standard permissions list
+- `GET /api/v1/permissions/statistics` - Get permission statistics
+
+### **Groups Management**
+- `GET /api/v1/groups` - Get organization groups
+- `GET /api/v1/groups/{id}/members` - Get group members
+- `GET /api/v1/groups/statistics` - Get group statistics
+
+### **API Keys Management**
+- `GET /api/v1/api-keys` - Get user API keys
+- `GET /api/v1/api-keys/standard-permissions` - Get standard API permissions
+- `GET /api/v1/api-keys/statistics` - Get API key statistics
+
+### **Password History**
+- `GET /api/v1/password/history` - Get password history
+- `GET /api/v1/password/policy-stats` - Get password policy statistics
+
+---
+
+## 📋 **Core API Endpoints**
 
 ### Authentication
 | Method | Endpoint | Description | Rate Limit |
@@ -484,6 +628,7 @@ POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
 |--------|----------|-------------|------------|
 | `GET` | `/api/v1/users` | Get all users (Role-based) | 5/min, 50/hour |
 | `GET` | `/api/v1/users/{id}` | Get user by ID | 20/min, 200/hour |
+| `POST` | `/api/v1/admin/users/create` | Create new user (Admin only) | 5/min, 50/hour |
 | `GET` | `/api/v1/sessions` | Get user sessions | 10/min, 100/hour |
 | `GET` | `/api/v1/sessions/info` | Get detailed session information | 10/min, 100/hour |
 | `POST` | `/api/v1/sessions/revoke-others` | Revoke all other sessions | 5/min, 50/hour |
@@ -550,6 +695,195 @@ POST /api/v1/logout-all
 }
 ```
 
+## 👥 **Admin User Creation API**
+
+### **Overview**
+
+The Admin User Creation API allows authorized administrators to create new users in the system with proper role-based permissions and organization isolation.
+
+### **Who Can Use This API**
+
+| Role | Permissions | Organization Scope |
+|------|-------------|-------------------|
+| **Super Admin** | Can create: Organization Admin, Admin, User | Any organization |
+| **Organization Admin** | Can create: Admin, User | Own organization only |
+| **Admin** | Can create: User only | Own organization only |
+| **User** | Cannot create users | N/A (403 Forbidden) |
+
+### **Role Hierarchy**
+
+```
+Super Admin
+├── Organization Admin
+│   ├── Admin
+│   │   └── User
+│   └── User
+└── Admin
+    └── User
+```
+
+### **API Endpoint**
+
+```bash
+POST /api/v1/admin/users/create
+```
+
+**Headers:**
+```bash
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+```
+
+### **Request Schema**
+
+```json
+{
+  "username": "newuser",
+  "email": "newuser@example.com",
+  "password": "optional_if_auto_generate",
+  "role": "user",
+  "organization_id": "optional_inherited_from_creator",
+  "phone_number": "1234567890",
+  "send_welcome_email": true,
+  "auto_generate_password": true
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | string | Yes | Username (3-50 chars, alphanumeric) |
+| `email` | string | Yes | Valid email address |
+| `password` | string | No* | Password (required if `auto_generate_password` is false) |
+| `role` | string | No | User role (default: "user") |
+| `organization_id` | integer | No | Organization ID (inherited from creator if not specified) |
+| `phone_number` | string | No | Phone number (digits only) |
+| `send_welcome_email` | boolean | No | Send welcome email (default: true) |
+| `auto_generate_password` | boolean | No | Auto-generate secure password (default: true) |
+
+### **Success Response**
+
+```json
+{
+  "success": true,
+  "message": "User 'newuser' created successfully",
+  "user": {
+    "id": 35,
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "role": "user",
+    "organization_id": 1,
+    "status": "active",
+    "phone_number": "1234567890",
+    "created_at": "2025-10-22T23:30:00",
+    "last_login": null
+  },
+  "generated_password": "Kx9#mP2$vL8",
+  "email_sent": false,
+  "timestamp": "2025-10-22T23:30:00",
+  "correlation_id": "abc123-def456"
+}
+```
+
+### **Error Responses**
+
+#### **401 Unauthorized**
+```json
+{
+  "detail": "Could not validate credentials",
+  "status_code": 401
+}
+```
+
+#### **403 Forbidden**
+```json
+{
+  "detail": "Users cannot create other users. Admin privileges required.",
+  "status_code": 403
+}
+```
+
+#### **400 Bad Request - Duplicate Username**
+```json
+{
+  "detail": "Username 'newuser' already exists",
+  "status_code": 400
+}
+```
+
+#### **400 Bad Request - Role Permission**
+```json
+{
+  "detail": "Role 'admin' cannot create users with role 'super_admin'",
+  "status_code": 400
+}
+```
+
+### **Usage Examples**
+
+#### **Create User with Auto-Generated Password**
+```bash
+curl -X POST "http://localhost:9000/api/v1/admin/users/create" \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "role": "user",
+    "auto_generate_password": true,
+    "send_welcome_email": false
+  }'
+```
+
+#### **Create User with Custom Password**
+```bash
+curl -X POST "http://localhost:9000/api/v1/admin/users/create" \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "customuser",
+    "email": "customuser@example.com",
+    "password": "CustomPass123",
+    "role": "user",
+    "auto_generate_password": false,
+    "phone_number": "1234567890"
+  }'
+```
+
+#### **Create Admin User (Super Admin only)**
+```bash
+curl -X POST "http://localhost:9000/api/v1/admin/users/create" \
+  -H "Authorization: Bearer <super_admin_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newadmin",
+    "email": "newadmin@example.com",
+    "role": "admin",
+    "organization_id": 1,
+    "auto_generate_password": true
+  }'
+```
+
+### **Security Features**
+
+- **JWT Authentication**: Valid JWT token required
+- **Role-based Authorization**: Only admins can create users
+- **Organization Isolation**: Users can only create within their organization
+- **Password Security**: Auto-generated passwords with complexity requirements
+- **Input Validation**: Comprehensive validation for all fields
+- **Duplicate Prevention**: Username and email uniqueness checks
+- **Audit Logging**: All user creation events are logged
+- **Rate Limiting**: 5 requests per minute, 50 per hour
+
+### **Password Generation**
+
+When `auto_generate_password` is true, the system generates a secure password with:
+- **Length**: 12 characters (configurable)
+- **Character Sets**: Lowercase, uppercase, digits, special characters
+- **Requirements**: At least one character from each set
+- **Security**: Cryptographically secure random generation
+
 ## 🔄 **API Versioning**
 
 This API uses semantic versioning with the `/api/v1/` prefix for all endpoints. This ensures backward compatibility and allows for future API evolution.
@@ -563,7 +897,7 @@ This API uses semantic versioning with the `/api/v1/` prefix for all endpoints. 
 ### Versioned Endpoints
 All API endpoints are prefixed with `/api/v1/`:
 - Authentication: `/api/v1/login`, `/api/v1/signup`, `/api/v1/refresh`, `/api/v1/logout`
-- User Management: `/api/v1/users`, `/api/v1/users/{id}`, `/api/v1/sessions`
+- User Management: `/api/v1/users`, `/api/v1/users/{id}`, `/api/v1/admin/users/create`, `/api/v1/sessions`
 - Health Checks: `/api/v1/health`
 
 ### Non-Versioned Endpoints
@@ -775,7 +1109,8 @@ fastapi-user-management/
 ├── models/                # Database models
 │   └── user_model.py     # User and session models
 ├── routes/                # API routes
-│   └── login.py          # Authentication endpoints
+│   ├── login.py          # Authentication endpoints
+│   └── production_endpoints.py # Production API endpoints
 ├── schemas/               # Pydantic schemas
 │   └── login.py          # Request/response models
 ├── services/              # Business logic
@@ -785,7 +1120,15 @@ fastapi-user-management/
 │   ├── enhanced_login_service.py # Enhanced login with session management
 │   ├── auto_refresh_service.py # Auto-refresh token service
 │   ├── logout_service.py # Enhanced logout service
-│   └── refresh_token_service.py # Refresh token management
+│   ├── refresh_token_service.py # Refresh token management
+│   ├── password_history_service.py # Password history tracking
+│   ├── audit_log_service.py # Comprehensive audit logging
+│   ├── user_session_service.py # Advanced session management
+│   ├── user_permission_service.py # Granular permissions
+│   ├── user_group_service.py # User group management
+│   ├── api_key_service.py # API key management
+│   ├── password_reset_service.py # Password reset functionality
+│   └── profile_update_service.py # Profile management
 ├── utils/                 # Utilities
 │   ├── database.py       # Database configuration
 │   ├── jwt_config.py     # JWT utilities
@@ -793,13 +1136,26 @@ fastapi-user-management/
 │   ├── logger.py         # Logging setup
 │   ├── auto_refresh_middleware.py # Auto-refresh middleware
 │   ├── security_middleware.py # Security middleware
+│   ├── rate_limit_dependency.py # Rate limiting dependency
+│   ├── performance_monitor.py # Performance monitoring
+│   ├── production_logging.py # Production logging
+│   ├── request_context.py # Request context management
 │   └── loggers/          # Specialized loggers
+│       ├── api_logger.py # API request logging
+│       ├── auth_logger.py # Authentication logging
+│       ├── db_logger.py # Database logging
+│       └── security_logger.py # Security event logging
 ├── logs/                  # Log files (auto-generated)
 ├── .env                   # Environment variables
 ├── .gitignore            # Git ignore rules
 ├── config_manager.py     # Configuration helper
 ├── main.py               # Application entry point
-└── requirement.txt       # Python dependencies
+├── requirement.txt       # Python dependencies
+├── database_schema.sql   # Complete database schema dump
+├── API_REFERENCE.md     # Comprehensive API documentation
+├── simple_production_test.py # Quick production test
+├── comprehensive_test_suite.py # Full test suite
+└── api_demo.py          # API demonstration script
 ```
 
 ## 🤝 **Contributing**

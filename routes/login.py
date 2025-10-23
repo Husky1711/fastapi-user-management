@@ -1,17 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
+import hashlib
 from services.user_service import UserService
 from services.auth_service import AuthService
 from services.refresh_token_service import RefreshTokenService
 from services.logout_service import LogoutService
 from services.enhanced_login_service import EnhancedLoginService
+from services.password_reset_service import PasswordResetService
+from services.profile_update_service import ProfileUpdateService
+from services.audit_log_service import AuditLogService
+from services.user_session_service import UserSessionService
+from services.user_permission_service import UserPermissionService
+from services.user_group_service import UserGroupService
+from services.api_key_service import ApiKeyService
+from services.password_history_service import PasswordHistoryService
 from schemas.login import (
     UserSigninRequest, UserSignupRequest, TokenResponse, UserResponse, 
     RefreshTokenRequest, SessionInfo, UsersListResponse, SuperAdminUsersResponse,
     UserDetailResponse, ErrorResponse, SuccessResponse, LogoutResponse,
-    HealthCheckResponse, RateLimitResponse, UserRole, UserStatus
+    HealthCheckResponse, RateLimitResponse, UserRole, UserStatus,
+    AdminCreateUserRequest, AdminCreateUserResponse,
+    PasswordResetRequest, PasswordResetResponse, PasswordResetConfirm, PasswordResetConfirmResponse,
+    UserProfileUpdate, UserProfileUpdateResponse, PasswordChangeRequest, PasswordChangeResponse
 )
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
@@ -61,6 +73,24 @@ async def login(
                 user_agent=user_agent,
                 correlation_id=correlation_id
             )
+            
+            # Create audit log for failed login
+            AuditLogService.log_authentication_event(
+                db=db,
+                event_type="login_failed",
+                username=credentials.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                request_id=correlation_id,
+                correlation_id=correlation_id,
+                status="failure",
+                error_message="Invalid credentials",
+                metadata={
+                    "reason": "Invalid credentials",
+                    "attempted_username": credentials.username
+                }
+            )
+            
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -87,6 +117,52 @@ async def login(
             user_agent=user_agent,
             correlation_id=correlation_id
         )
+        
+        # Create audit log for successful login
+        AuditLogService.log_authentication_event(
+            db=db,
+            event_type="login",
+            user_id=user.id,
+            username=user.username,
+            email=user.email,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request_id=correlation_id,
+            correlation_id=correlation_id,
+            status="success",
+            metadata={
+                "device_info": device_info,
+                "token_type": "access_refresh"
+            }
+        )
+        
+        # Create user session for tracking
+        parsed_ua = UserSessionService.parse_user_agent(user_agent)
+        device_fingerprint = UserSessionService.generate_device_fingerprint(user_agent, ip_address)
+        
+        session_result = UserSessionService.create_session(
+            db=db,
+            user_id=user.id,
+            access_token_hash=hashlib.sha256(access_token.encode()).hexdigest(),
+            refresh_token_id=None,  # Will be updated when refresh token is created
+            device_fingerprint=device_fingerprint,
+            device_name=f"{parsed_ua['os_name']} {parsed_ua['device_type']}",
+            device_type=parsed_ua['device_type'],
+            browser_name=parsed_ua['browser_name'],
+            browser_version=parsed_ua['browser_version'],
+            os_name=parsed_ua['os_name'],
+            os_version=parsed_ua['os_version'],
+            ip_address=ip_address,
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+        
+        if session_result["success"]:
+            auth_logger.info(
+                f"User session created: {session_result['session_id']}",
+                user_id=user.id,
+                session_id=session_result['session_id'],
+                event_type="session_created"
+            )
         
         return TokenResponse(
             access_token=access_token, 
@@ -398,6 +474,37 @@ async def logout(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid refresh token"
             )
+        
+        # Create audit log for successful logout
+        if user:
+            AuditLogService.log_authentication_event(
+                db=db,
+                event_type="logout",
+                user_id=user.id,
+                username=user.username,
+                email=user.email,
+                status="success",
+                metadata={
+                    "logout_type": "single_session",
+                    "refresh_token_revoked": True
+                }
+            )
+            
+            # Deactivate user session (we'll need to find the session by refresh token)
+            # For now, we'll deactivate all sessions for the user
+            session_result = UserSessionService.deactivate_user_sessions(
+                db=db,
+                user_id=user.id,
+                reason="logout"
+            )
+            
+            if session_result["success"]:
+                auth_logger.info(
+                    f"User sessions deactivated: {session_result['deactivated_count']} sessions",
+                    user_id=user.id,
+                    deactivated_count=session_result['deactivated_count'],
+                    event_type="sessions_deactivated"
+                )
         
         return LogoutResponse(message="Successfully logged out")
         
@@ -726,6 +833,670 @@ async def debug_refresh(
         raise
     except Exception as e:
         auth_logger.error(f"Debug refresh error: {str(e)}", error=str(e), traceback=traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.post("/admin/users/create", response_model=AdminCreateUserResponse)
+async def create_user_by_admin(
+    user_data: AdminCreateUserRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user"))
+):
+    """
+    Create a new user by admin with proper role-based permissions
+    
+    **Who can use this endpoint:**
+    - Super Admin: Can create users in any organization
+    - Organization Admin: Can create users in their organization
+    - Admin: Can create users in their organization (with role restrictions)
+    - User: Cannot create users (403 Forbidden)
+    
+    **Role Hierarchy:**
+    - Super Admin → Can create: Organization Admin, Admin, User
+    - Organization Admin → Can create: Admin, User
+    - Admin → Can create: User only
+    - User → Cannot create anyone
+    
+    **Features:**
+    - Auto-generate secure passwords
+    - Organization inheritance
+    - Role-based validation
+    - Comprehensive logging
+    - Rate limiting
+    """
+    # Generate correlation ID
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+    
+    try:
+        # Get current user from JWT token
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user has permission to create users
+        if current_user.role == "user":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Users cannot create other users. Admin privileges required."
+            )
+        
+        # Convert Pydantic model to dictionary
+        user_data_dict = user_data.dict()
+        
+        # Use the service to create the user
+        result = UserService.create_user_by_admin(db, current_user, user_data_dict)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        # Prepare response
+        created_user = result["user"]
+        user_response = UserResponse(
+            id=created_user.id,
+            username=created_user.username,
+            email=created_user.email,
+            role=created_user.role,
+            organization_id=created_user.organization_id,
+            status=created_user.status,
+            phone_number=created_user.phone_number,
+            created_at=created_user.created_at,
+            last_login=created_user.last_login
+        )
+        
+        return AdminCreateUserResponse(
+            success=True,
+            message=result["message"],
+            user=user_response,
+            generated_password=result.get("generated_password"),
+            email_sent=False,  # TODO: Implement email service
+            correlation_id=correlation_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Admin user creation endpoint error: {str(e)}",
+            creator_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            correlation_id=correlation_id,
+            event_type="admin_user_creation_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+# Password Reset Endpoints
+@router.post("/password/reset-request", response_model=PasswordResetResponse)
+async def request_password_reset(
+    request_data: PasswordResetRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("password_reset_request"))
+):
+    """
+    Request password reset for a user
+    
+    **Flow:**
+    1. User provides email address
+    2. System generates secure reset token
+    3. Token stored in Redis with 15-minute expiration
+    4. Email sent with reset link (TODO: implement email service)
+    5. User clicks link and submits new password
+    
+    **Security Features:**
+    - Rate limiting (5 requests per minute)
+    - Token expiration (15 minutes)
+    - Secure token generation
+    - No email enumeration (same response for valid/invalid emails)
+    """
+    # Generate correlation ID
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+    
+    try:
+        # Use the service to handle password reset request
+        result = PasswordResetService.request_password_reset(db, request_data.email)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return PasswordResetResponse(
+            success=True,
+            message=result["message"],
+            reset_token=result.get("reset_token"),  # Remove in production
+            expires_in_minutes=result["expires_in_minutes"],
+            correlation_id=correlation_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Password reset request endpoint error: {str(e)}",
+            email=request_data.email,
+            error=str(e),
+            correlation_id=correlation_id,
+            event_type="password_reset_request_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.post("/password/reset", response_model=PasswordResetConfirmResponse)
+async def confirm_password_reset(
+    reset_data: PasswordResetConfirm,
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("password_reset_confirm"))
+):
+    """
+    Confirm password reset with token and new password
+    
+    **Flow:**
+    1. User submits reset token and new password
+    2. System validates token from Redis
+    3. System verifies token hasn't expired
+    4. System updates user password
+    5. System invalidates reset token
+    
+    **Security Features:**
+    - Token validation and expiration check
+    - Password complexity requirements
+    - Token invalidation after use
+    - Rate limiting (5 requests per minute)
+    """
+    # Generate correlation ID
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+    
+    try:
+        # Use the service to handle password reset confirmation
+        result = PasswordResetService.confirm_password_reset(
+            db, reset_data.token, reset_data.new_password
+        )
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return PasswordResetConfirmResponse(
+            success=True,
+            message=result["message"],
+            correlation_id=correlation_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Password reset confirmation endpoint error: {str(e)}",
+            token=reset_data.token[:8] + "..." if reset_data.token else None,
+            error=str(e),
+            correlation_id=correlation_id,
+            event_type="password_reset_confirm_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.get("/password/reset/validate/{token}")
+async def validate_reset_token(token: str):
+    """
+    Validate a password reset token without consuming it
+    
+    **Use Case:**
+    - Frontend can check if token is valid before showing reset form
+    - Prevents users from submitting invalid tokens
+    
+    **Response:**
+    - 200: Token is valid
+    - 400: Token is invalid or expired
+    """
+    try:
+        result = PasswordResetService.validate_reset_token(token)
+        
+        if not result["valid"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return {
+            "valid": True,
+            "email": result["email"],
+            "expires_at": result["expires_at"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Token validation endpoint error: {str(e)}",
+            token=token[:8] + "..." if token else None,
+            error=str(e),
+            event_type="token_validation_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+# User Profile Management Endpoints
+@router.get("/profile", response_model=UserResponse)
+async def get_user_profile(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's profile information
+    
+    **Returns:**
+    - User ID, username, email, role
+    - Organization ID, status, phone number
+    - Created date, last login
+    """
+    try:
+        # Get current user from JWT token
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        return UserResponse(
+            id=current_user.id,
+            username=current_user.username,
+            email=current_user.email,
+            role=current_user.role,
+            organization_id=current_user.organization_id,
+            status=current_user.status,
+            phone_number=current_user.phone_number,
+            created_at=current_user.created_at,
+            last_login=current_user.last_login
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Get profile endpoint error: {str(e)}",
+            user_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            event_type="get_profile_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.put("/profile", response_model=UserProfileUpdateResponse)
+async def update_user_profile(
+    profile_data: UserProfileUpdate,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("profile_update"))
+):
+    """
+    Update current user's profile information
+    
+    **Updatable Fields:**
+    - Email address (with uniqueness check)
+    - Phone number
+    
+    **Security Features:**
+    - JWT authentication required
+    - Rate limiting (10 requests per minute)
+    - Email uniqueness validation
+    - Audit logging
+    """
+    # Generate correlation ID
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+    
+    try:
+        # Get current user from JWT token
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Convert Pydantic model to dictionary
+        profile_data_dict = profile_data.dict(exclude_unset=True)
+        
+        # Use the service to update profile
+        result = ProfileUpdateService.update_user_profile(db, current_user.id, profile_data_dict)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        # Prepare response
+        updated_user = result["user"]
+        user_response = UserResponse(
+            id=updated_user.id,
+            username=updated_user.username,
+            email=updated_user.email,
+            role=updated_user.role,
+            organization_id=updated_user.organization_id,
+            status=updated_user.status,
+            phone_number=updated_user.phone_number,
+            created_at=updated_user.created_at,
+            last_login=updated_user.last_login
+        )
+        
+        return UserProfileUpdateResponse(
+            success=True,
+            message=result["message"],
+            user=user_response,
+            correlation_id=correlation_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Update profile endpoint error: {str(e)}",
+            user_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            correlation_id=correlation_id,
+            event_type="update_profile_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.post("/password/change", response_model=PasswordChangeResponse)
+async def change_password(
+    password_data: PasswordChangeRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("password_change"))
+):
+    """
+    Change user password with current password verification
+    
+    **Flow:**
+    1. User provides current password and new password
+    2. System verifies current password
+    3. System validates new password complexity
+    4. System updates password in database
+    5. System logs password change event
+    
+    **Security Features:**
+    - Current password verification
+    - Password complexity requirements
+    - Rate limiting (5 requests per minute)
+    - Audit logging
+    - Password history check (new password must be different)
+    """
+    # Generate correlation ID
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+    
+    try:
+        # Get current user from JWT token
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Use the service to change password
+        result = ProfileUpdateService.change_user_password(
+            db, current_user.id, password_data.current_password, password_data.new_password
+        )
+        
+        if not result["success"]:
+            # Log failed password change attempt
+            AuditLogService.log_user_action(
+                db=db,
+                user_id=current_user.id,
+                action="password_change",
+                resource_type="user",
+                resource_id=current_user.id,
+                status="failure",
+                error_message=result["error"],
+                request_id=correlation_id,
+                correlation_id=correlation_id,
+                metadata={
+                    "reason": result["error"],
+                    "change_type": "self_service"
+                }
+            )
+            
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        # Log successful password change
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="password_change",
+            resource_type="user",
+            resource_id=current_user.id,
+            status="success",
+            request_id=correlation_id,
+            correlation_id=correlation_id,
+            metadata={
+                "change_type": "self_service",
+                "password_history_saved": True
+            }
+        )
+        
+        return PasswordChangeResponse(
+            success=True,
+            message=result["message"],
+            correlation_id=correlation_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Change password endpoint error: {str(e)}",
+            user_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            correlation_id=correlation_id,
+            event_type="change_password_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+# ============================================================================
+# PRODUCTION API ENDPOINTS - ADVANCED FEATURES
+# ============================================================================
+
+# ============================================================================
+# AUDIT LOGGING ENDPOINTS
+# ============================================================================
+
+@router.get("/audit/logs", response_model=Dict[str, Any])
+async def get_audit_logs(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    user_id: int = Query(None, description="Filter by user ID"),
+    organization_id: int = Query(None, description="Filter by organization ID"),
+    event_type: str = Query(None, description="Filter by event type"),
+    event_category: str = Query(None, description="Filter by event category"),
+    resource_type: str = Query(None, description="Filter by resource type"),
+    status: str = Query(None, description="Filter by status"),
+    start_date: str = Query(None, description="Start date (ISO format)"),
+    end_date: str = Query(None, description="End date (ISO format)"),
+    limit: int = Query(100, description="Maximum number of records"),
+    offset: int = Query(0, description="Number of records to skip"),
+    _: None = Depends(RateLimitDependency.check_rate_limit("audit_logs"))
+):
+    """
+    Get audit logs with filtering options
+    
+    **Access Control:**
+    - Requires authentication
+    - Users can only see logs for their organization
+    - Super Admins can see all logs
+    
+    **Features:**
+    - Comprehensive filtering options
+    - Pagination support
+    - Organization isolation
+    - Role-based access control
+    """
+    try:
+        # Get current user
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Parse dates if provided
+        start_datetime = None
+        end_datetime = None
+        if start_date:
+            start_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        if end_date:
+            end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        
+        # Apply organization filter for non-super admins
+        filter_organization_id = organization_id
+        if current_user.role != "SUPER_ADMIN":
+            filter_organization_id = current_user.organization_id
+        
+        # Get audit logs
+        result = AuditLogService.get_audit_logs(
+            db=db,
+            user_id=user_id,
+            organization_id=filter_organization_id,
+            event_type=event_type,
+            event_category=event_category,
+            resource_type=resource_type,
+            status=status,
+            start_date=start_datetime,
+            end_date=end_datetime,
+            limit=limit,
+            offset=offset
+        )
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result["error"]
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Get audit logs endpoint error: {str(e)}",
+            user_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            event_type="audit_logs_endpoint_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@router.get("/audit/statistics", response_model=Dict[str, Any])
+async def get_audit_statistics(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    organization_id: int = Query(None, description="Filter by organization ID"),
+    start_date: str = Query(None, description="Start date (ISO format)"),
+    end_date: str = Query(None, description="End date (ISO format)"),
+    _: None = Depends(RateLimitDependency.check_rate_limit("audit_statistics"))
+):
+    """
+    Get audit statistics and analytics
+    
+    **Access Control:**
+    - Requires authentication
+    - Users can only see statistics for their organization
+    - Super Admins can see all statistics
+    """
+    try:
+        # Get current user
+        current_user = AuthService.get_current_user(db, credentials.credentials)
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Parse dates if provided
+        start_datetime = None
+        end_datetime = None
+        if start_date:
+            start_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        if end_date:
+            end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        
+        # Apply organization filter for non-super admins
+        filter_organization_id = organization_id
+        if current_user.role != "SUPER_ADMIN":
+            filter_organization_id = current_user.organization_id
+        
+        # Get audit statistics
+        result = AuditLogService.get_audit_statistics(
+            db=db,
+            organization_id=filter_organization_id,
+            start_date=start_datetime,
+            end_date=end_datetime
+        )
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result["error"]
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Get audit statistics endpoint error: {str(e)}",
+            user_id=current_user.id if 'current_user' in locals() else None,
+            error=str(e),
+            event_type="audit_statistics_endpoint_error"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"

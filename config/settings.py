@@ -111,6 +111,54 @@ class SessionSettings(BaseSettings):
     class Config:
         env_prefix = "SESSION_"
 
+class PasswordPolicySettings(BaseSettings):
+    """Password policy configuration settings"""
+    
+    # Password history settings
+    enable_password_history: bool = Field(True, description="Enable password history tracking")
+    password_history_limit: int = Field(5, description="Number of recent passwords to prevent reuse")
+    password_history_retention_days: int = Field(365, description="Days to retain password history")
+    
+    # Password complexity settings
+    min_password_length: int = Field(8, description="Minimum password length")
+    max_password_length: int = Field(100, description="Maximum password length")
+    require_uppercase: bool = Field(True, description="Require uppercase letters")
+    require_lowercase: bool = Field(True, description="Require lowercase letters")
+    require_digits: bool = Field(True, description="Require digits")
+    require_special_chars: bool = Field(False, description="Require special characters")
+    
+    # Password age settings
+    max_password_age_days: int = Field(90, description="Maximum password age in days")
+    password_expiry_warning_days: int = Field(7, description="Days before expiry to show warning")
+    
+    # Account lockout settings
+    max_login_attempts: int = Field(5, description="Maximum failed login attempts")
+    lockout_duration_minutes: int = Field(30, description="Account lockout duration in minutes")
+    
+    @field_validator('password_history_limit')
+    @classmethod
+    def validate_history_limit(cls, v):
+        if v < 1 or v > 20:
+            raise ValueError('Password history limit must be between 1 and 20')
+        return v
+    
+    @field_validator('min_password_length')
+    @classmethod
+    def validate_min_length(cls, v):
+        if v < 6 or v > 50:
+            raise ValueError('Minimum password length must be between 6 and 50')
+        return v
+    
+    @field_validator('max_password_age_days')
+    @classmethod
+    def validate_max_age(cls, v):
+        if v < 30 or v > 365:
+            raise ValueError('Maximum password age must be between 30 and 365 days')
+        return v
+    
+    class Config:
+        env_prefix = "PASSWORD_"
+
 class RateLimitSettings(BaseSettings):
     """Rate limiting configuration settings"""
     
@@ -216,6 +264,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
     session: SessionSettings = Field(default_factory=SessionSettings)
+    password_policy: PasswordPolicySettings = Field(default_factory=PasswordPolicySettings)
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
