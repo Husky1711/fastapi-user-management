@@ -196,18 +196,18 @@ def setup_error_handlers(app: FastAPI) -> None:
         request_id = getattr(request.state, 'request_id', 'unknown')
         
         security_logger.warning(
-            f"Validation Error: {exc.errors()}",
+            f"Validation Error: {str(exc.errors())}",
             path=request.url.path,
             method=request.method,
             request_id=request_id,
-            errors=exc.errors(),
+            errors=str(exc.errors()),
             event_type="validation_error"
         )
         
         return JSONResponse(
             status_code=422,
             content={
-                "detail": exc.errors(),
+                "detail": [{"field": str(error.get("loc", "")), "message": str(error.get("msg", "")), "type": str(error.get("type", ""))} for error in exc.errors()],
                 "status_code": 422,
                 "request_id": request_id,
                 "timestamp": time.time()
