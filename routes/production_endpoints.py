@@ -11,7 +11,7 @@ from services.user_session_service import UserSessionService
 from services.user_permission_service import UserPermissionService
 from services.user_group_service import UserGroupService
 from services.api_key_service import ApiKeyService
-from services.password_history_service import PasswordHistoryService
+from services.users import PasswordHistoryService
 from utils.rate_limit_dependency import RateLimitDependency
 from utils.database import get_db
 from utils.loggers import auth_logger

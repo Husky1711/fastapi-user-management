@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from utils.jwt_config import get_password_hash, verify_password
 from utils.loggers import auth_logger
-from services.password_history_service import PasswordHistoryService
+from .password_history_service import PasswordHistoryService
 from config.settings import settings
 
 class ProfileUpdateService:
@@ -240,4 +240,4 @@ class ProfileUpdateService:
             }
 
 # Import UserService at the end to avoid circular imports
-from services.user_service import UserService
+from .user_service import UserService

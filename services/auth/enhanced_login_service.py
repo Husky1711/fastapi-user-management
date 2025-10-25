@@ -89,7 +89,7 @@ class EnhancedLoginService:
             )
             
             # Update last login
-            from services.user_service import UserService
+            from services.users import UserService
             UserService.update_last_login(db, user.id)
             
             # Get updated session count

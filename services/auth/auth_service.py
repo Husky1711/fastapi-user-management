@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 from utils.jwt_config import create_access_token, create_user_token, verify_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from services.user_service import UserService
+from services.users import UserService
 from .refresh_token_service import RefreshTokenService
 from models.user_model import User
 
