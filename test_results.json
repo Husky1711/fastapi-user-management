@@ -1,0 +1,11 @@
+{
+  "authentication": {
+    "login": "FAIL: 401"
+  },
+  "user_management": {
+    "login": "FAIL: 401"
+  },
+  "production_endpoints": {
+    "login": "FAIL: 401"
+  }
+}

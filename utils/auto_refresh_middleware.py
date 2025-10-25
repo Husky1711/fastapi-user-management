@@ -130,7 +130,7 @@ class AutoRefreshMiddleware(BaseHTTPMiddleware):
                     return None
                 
                 # Call refresh service
-                from services.auth_service import AuthService
+                from services.auth import AuthService
                 from utils.database import get_db
                 
                 # This is a simplified version - in real implementation,
@@ -193,7 +193,7 @@ class BackgroundRefreshService:
                 
                 try:
                     # Attempt refresh
-                    from services.auth_service import AuthService
+                    from services.auth import AuthService
                     from utils.database import get_db
                     
                     new_access_token, new_refresh_token = AuthService.refresh_access_token(

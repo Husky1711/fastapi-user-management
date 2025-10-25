@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import hashlib
 from services.user_service import UserService
-from services.auth_service import AuthService
-from services.refresh_token_service import RefreshTokenService
-from services.logout_service import LogoutService
-from services.enhanced_login_service import EnhancedLoginService
+from services.auth import AuthService
+from services.auth import RefreshTokenService
+from services.auth import LogoutService
+from services.auth import EnhancedLoginService
 from services.password_reset_service import PasswordResetService
 from services.profile_update_service import ProfileUpdateService
 from services.audit_log_service import AuditLogService

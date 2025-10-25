@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
 from services.rate_limit_service import RateLimitService
-from services.auth_service import AuthService
+from services.auth import AuthService
 from utils.database import get_db
 from utils.redis_config import RedisClient
 from utils.loggers import api_logger

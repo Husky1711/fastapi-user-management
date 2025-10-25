@@ -6,7 +6,7 @@ Handles user logout with Redis cache cleanup
 
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from services.refresh_token_service import RefreshTokenService
+from .refresh_token_service import RefreshTokenService
 from utils.redis_config import RedisClient
 from utils.loggers import auth_logger, security_logger
 from models.user_model import User

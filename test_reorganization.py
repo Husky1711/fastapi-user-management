@@ -12,7 +12,7 @@ import time
 from typing import Dict, Any
 
 class ReorganizationTester:
-    def __init__(self, base_url: str = "http://localhost:9000"):
+    def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url
         self.session = requests.Session()
         self.auth_token = None
