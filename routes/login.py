@@ -3,19 +3,19 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import hashlib
-from services.user_service import UserService
+from services.users import UserService
 from services.auth import AuthService
 from services.auth import RefreshTokenService
 from services.auth import LogoutService
 from services.auth import EnhancedLoginService
-from services.password_reset_service import PasswordResetService
-from services.profile_update_service import ProfileUpdateService
+from services.users import PasswordResetService
+from services.users import ProfileUpdateService
 from services.audit_log_service import AuditLogService
 from services.user_session_service import UserSessionService
 from services.user_permission_service import UserPermissionService
 from services.user_group_service import UserGroupService
 from services.api_key_service import ApiKeyService
-from services.password_history_service import PasswordHistoryService
+from services.users import PasswordHistoryService
 from schemas.login import (
     UserSigninRequest, UserSignupRequest, TokenResponse, UserResponse, 
     RefreshTokenRequest, SessionInfo, UsersListResponse, SuperAdminUsersResponse,

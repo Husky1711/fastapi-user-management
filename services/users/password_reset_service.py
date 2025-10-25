@@ -9,7 +9,7 @@ import string
 from utils.loggers import auth_logger
 from utils.redis_config import RedisClient
 import json
-from services.password_history_service import PasswordHistoryService
+from .password_history_service import PasswordHistoryService
 from config.settings import settings
 
 class PasswordResetService:
@@ -248,4 +248,4 @@ class PasswordResetService:
             }
 
 # Import UserService at the end to avoid circular imports
-from services.user_service import UserService
+from .user_service import UserService
