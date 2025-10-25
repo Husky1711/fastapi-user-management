@@ -16,8 +16,13 @@ import json
 import time
 import random
 import string
+import sys
+import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 class ComprehensiveMigrationTester:
     def __init__(self, base_url: str = "http://localhost:8000"):
@@ -57,7 +62,7 @@ class ComprehensiveMigrationTester:
         print("=" * 50)
         
         # Test 1: Basic Login
-        login_data = {"username": "test_auth_user", "password": "FinalTestPass123"}
+        login_data = {"username": "test_auth_user", "password": "NewSecurePass123"}
         response = self.session.post(f"{self.base_url}/api/v1/login", json=login_data)
         success = response.status_code == 200
         self.log_test("Authentication", "Basic Login", success, 
@@ -117,7 +122,7 @@ class ComprehensiveMigrationTester:
         print("=" * 50)
         
         # Re-login for authenticated tests
-        login_data = {"username": "test_auth_user", "password": "FinalTestPass123"}
+        login_data = {"username": "test_auth_user", "password": "NewSecurePass123"}
         response = self.session.post(f"{self.base_url}/api/v1/login", json=login_data)
         
         if response.status_code == 200:

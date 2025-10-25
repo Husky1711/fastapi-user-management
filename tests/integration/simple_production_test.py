@@ -19,7 +19,7 @@ def test_production_features():
     print("\n1. Testing Authentication...")
     login_data = {
         "username": "test_fix_user",
-        "password": "BrandNewPassword123"
+        "password": "NewSecurePass123"
     }
     
     try:
@@ -76,7 +76,7 @@ def test_production_features():
     print(f"\n3. Testing Password Change...")
     try:
         password_data = {
-            "current_password": "BrandNewPassword123",
+            "current_password": "NewSecurePass123",
             "new_password": "AnotherNewPassword123"
         }
         

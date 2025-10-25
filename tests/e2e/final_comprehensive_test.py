@@ -21,7 +21,7 @@ def final_comprehensive_test():
     print('\n1. BASIC AUTHENTICATION')
     print('-' * 30)
     
-    login_data = {'username': 'test_auth_user', 'password': 'AnotherNewPass123'}
+    login_data = {'username': 'test_auth_user', 'password': 'NewSecurePass123'}
     response = session.post(f'{base_url}/api/v1/login', json=login_data)
     total_tests += 1
     if response.status_code == 200:
@@ -114,7 +114,7 @@ def final_comprehensive_test():
                 print(f'❌ {endpoint}: FAIL - {response.status_code}')
         
         # Test password change
-        password_data = {'current_password': 'AnotherNewPass123', 'new_password': 'FinalTestPass123'}
+        password_data = {'current_password': 'NewSecurePass123', 'new_password': 'AnotherNewPass123'}
         response = session.post(f'{base_url}/api/v1/password/change', json=password_data, headers=headers)
         total_tests += 1
         if response.status_code == 200:
