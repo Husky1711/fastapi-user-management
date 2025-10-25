@@ -9,8 +9,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Callable, Dict, Any
 from sqlalchemy.orm import Session
-from services.refresh_token_service import RefreshTokenService
-from services.auth_service import AuthService
+from .refresh_token_service import RefreshTokenService
+from .auth_service import AuthService
 from utils.redis_config import RedisClient
 from utils.loggers import auth_logger
 from config.settings import settings

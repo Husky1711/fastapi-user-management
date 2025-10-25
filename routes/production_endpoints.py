@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import json
 
-from services.auth_service import AuthService
+from services.auth import AuthService
 from services.audit_log_service import AuditLogService
 from services.user_session_service import UserSessionService
 from services.user_permission_service import UserPermissionService

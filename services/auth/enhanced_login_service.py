@@ -6,9 +6,9 @@ Handles multiple login scenarios and session control
 
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, List
-from services.auth_service import AuthService
-from services.refresh_token_service import RefreshTokenService
-from services.logout_service import LogoutService
+from .auth_service import AuthService
+from .refresh_token_service import RefreshTokenService
+from .logout_service import LogoutService
 from models.user_model import User, RefreshToken
 from utils.loggers import auth_logger, security_logger
 from config.settings import settings
