@@ -10,11 +10,11 @@ from services.auth import LogoutService
 from services.auth import EnhancedLoginService
 from services.users import PasswordResetService
 from services.users import ProfileUpdateService
-from services.audit_log_service import AuditLogService
-from services.user_session_service import UserSessionService
-from services.user_permission_service import UserPermissionService
-from services.user_group_service import UserGroupService
-from services.api_key_service import ApiKeyService
+from services.audit import AuditLogService
+from services.sessions import UserSessionService
+from services.permissions import UserPermissionService
+from services.permissions import UserGroupService
+from services.permissions import ApiKeyService
 from services.users import PasswordHistoryService
 from schemas.login import (
     UserSigninRequest, UserSignupRequest, TokenResponse, UserResponse, 
