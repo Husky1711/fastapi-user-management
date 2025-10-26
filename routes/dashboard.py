@@ -859,6 +859,406 @@ async def get_organization_admin_sessions_stats(
 
 
 # ============================================================================
+# SUPER ADMIN DASHBOARD (Phase 4)
+# ============================================================================
+
+@router.get("/super-admin/overview")
+async def get_super_admin_overview(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
+):
+    """
+    Get super admin's system-wide overview
+    
+    **Returns:**
+    - Total organizations, users, admins, sessions
+    - Active sessions count
+    - System health status
+    - Today's statistics
+    """
+    try:
+        # Verify JWT token and get user
+        user = AuthService.get_current_user(db, credentials.credentials)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is super admin
+        if user.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super admin access required"
+            )
+        
+        # Get all users in system
+        all_users = db.query(User).all()
+        total_users = len(all_users)
+        
+        # Count users by role
+        super_admin_count = len([u for u in all_users if u.role == "super_admin"])
+        org_admin_count = len([u for u in all_users if u.role == "organization_admin"])
+        admin_count = len([u for u in all_users if u.role == "admin"])
+        user_count = len([u for u in all_users if u.role == "user"])
+        
+        # Active users
+        active_users = len([u for u in all_users if u.status == "active"])
+        
+        # Get all active sessions
+        all_sessions = db.query(RefreshToken).filter(
+            RefreshToken.is_revoked == False
+        ).all()
+        active_sessions = len(all_sessions)
+        total_sessions = db.query(RefreshToken).count()
+        
+        # Count organizations (get unique org IDs)
+        org_ids = db.query(User.organization_id).distinct().all()
+        total_organizations = len([org[0] for org in org_ids if org[0] is not None])
+        
+        # Get today's statistics
+        today = datetime.utcnow().date()
+        today_start = datetime.combine(today, time.min)
+        tomorrow_start = today_start + timedelta(days=1)
+        
+        # Today's audit logs
+        total_audit_logs_today = db.query(AuditLog).filter(
+            AuditLog.created_at >= today_start,
+            AuditLog.created_at < tomorrow_start
+        ).count()
+        
+        # Today's logins
+        logins_today = db.query(AuditLog).filter(
+            AuditLog.action == "login",
+            AuditLog.status == "success",
+            AuditLog.created_at >= today_start,
+            AuditLog.created_at < tomorrow_start
+        ).count()
+        
+        # Today's new users
+        new_users_today = db.query(User).filter(
+            User.created_at >= today_start,
+            User.created_at < tomorrow_start
+        ).count()
+        
+        return {
+            "total_organizations": total_organizations,
+            "total_users": total_users,
+            "active_users": active_users,
+            "total_admins": org_admin_count + admin_count,
+            "total_sessions": total_sessions,
+            "active_sessions": active_sessions,
+            "users_by_role": {
+                "super_admin": super_admin_count,
+                "organization_admin": org_admin_count,
+                "admin": admin_count,
+                "user": user_count
+            },
+            "today_stats": {
+                "logins": logins_today,
+                "new_users": new_users_today,
+                "total_audit_logs": total_audit_logs_today
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(
+            f"Super admin dashboard overview error: {str(e)}",
+            user_id=user.id if 'user' in locals() else None,
+            error=str(e),
+            event_type="super_admin_dashboard_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/super-admin/users/stats")
+async def get_super_admin_users_stats(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
+):
+    """
+    Get system-wide user statistics
+    
+    **Returns:**
+    - Total users by role and status
+    - Users created today/this week/this month
+    - Recent users
+    """
+    try:
+        # Verify JWT token and get user
+        user = AuthService.get_current_user(db, credentials.credentials)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is super admin
+        if user.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super admin access required"
+            )
+        
+        # Get all users
+        all_users = db.query(User).all()
+        
+        # Count by role
+        super_admin_count = len([u for u in all_users if u.role == "super_admin"])
+        org_admin_count = len([u for u in all_users if u.role == "organization_admin"])
+        admin_count = len([u for u in all_users if u.role == "admin"])
+        user_count = len([u for u in all_users if u.role == "user"])
+        
+        # Count by status
+        active_count = len([u for u in all_users if u.status == "active"])
+        inactive_count = len([u for u in all_users if u.status == "inactive"])
+        locked_count = len([u for u in all_users if u.status == "locked"])
+        
+        # Get time ranges
+        today = datetime.utcnow().date()
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+        
+        today_start = datetime.combine(today, time.min)
+        week_start = datetime.combine(week_ago, time.min)
+        month_start = datetime.combine(month_ago, time.min)
+        tomorrow_start = today_start + timedelta(days=1)
+        
+        # Users created in time ranges
+        users_today = db.query(User).filter(
+            User.created_at >= today_start,
+            User.created_at < tomorrow_start
+        ).count()
+        
+        users_this_week = db.query(User).filter(
+            User.created_at >= week_start
+        ).count()
+        
+        users_this_month = db.query(User).filter(
+            User.created_at >= month_start
+        ).count()
+        
+        # Recent users (last 20)
+        recent_users = db.query(User).order_by(User.created_at.desc()).limit(20).all()
+        
+        recent_users_list = []
+        for u in recent_users:
+            recent_users_list.append({
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "role": u.role,
+                "status": u.status,
+                "organization_id": u.organization_id,
+                "created_at": u.created_at.isoformat() if u.created_at else None
+            })
+        
+        return {
+            "total_users": len(all_users),
+            "active_users": active_count,
+            "locked_users": locked_count,
+            "users_by_role": {
+                "super_admin": super_admin_count,
+                "organization_admin": org_admin_count,
+                "admin": admin_count,
+                "user": user_count
+            },
+            "users_by_status": {
+                "active": active_count,
+                "inactive": inactive_count,
+                "locked": locked_count
+            },
+            "users_today": users_today,
+            "users_this_week": users_this_week,
+            "users_this_month": users_this_month,
+            "recent_users": recent_users_list
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(
+            f"Super admin users stats error: {str(e)}",
+            user_id=user.id if 'user' in locals() else None,
+            error=str(e),
+            event_type="super_admin_users_stats_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/super-admin/organizations/stats")
+async def get_super_admin_organizations_stats(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
+):
+    """
+    Get organization statistics across the system
+    
+    **Returns:**
+    - Total organizations count
+    - Organizations by size
+    - Active vs inactive orgs
+    """
+    try:
+        # Verify JWT token and get user
+        user = AuthService.get_current_user(db, credentials.credentials)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is super admin
+        if user.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super admin access required"
+            )
+        
+        # Get all distinct organization IDs
+        org_ids = db.query(User.organization_id).distinct().all()
+        all_org_ids = [org[0] for org in org_ids if org[0] is not None]
+        total_organizations = len(all_org_ids)
+        
+        # Count organizations by size
+        small_orgs = 0  # < 10 users
+        medium_orgs = 0  # 10-100 users
+        large_orgs = 0  # > 100 users
+        
+        for org_id in all_org_ids:
+            user_count = db.query(User).filter(User.organization_id == org_id).count()
+            if user_count < 10:
+                small_orgs += 1
+            elif user_count <= 100:
+                medium_orgs += 1
+            else:
+                large_orgs += 1
+        
+        # Count organizations with at least one active user
+        active_orgs = 0
+        for org_id in all_org_ids:
+            active_users = db.query(User).filter(
+                User.organization_id == org_id,
+                User.status == "active"
+            ).count()
+            if active_users > 0:
+                active_orgs += 1
+        
+        return {
+            "total_organizations": total_organizations,
+            "active_organizations": active_orgs,
+            "inactive_organizations": total_organizations - active_orgs,
+            "organizations_by_size": {
+                "small": small_orgs,
+                "medium": medium_orgs,
+                "large": large_orgs
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(
+            f"Super admin organizations stats error: {str(e)}",
+            user_id=user.id if 'user' in locals() else None,
+            error=str(e),
+            event_type="super_admin_orgs_stats_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/super-admin/sessions/stats")
+async def get_super_admin_sessions_stats(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
+):
+    """
+    Get system-wide session statistics
+    
+    **Returns:**
+    - Total and active sessions
+    - Sessions by status
+    - Recent sessions
+    """
+    try:
+        # Verify JWT token and get user
+        user = AuthService.get_current_user(db, credentials.credentials)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is super admin
+        if user.role != "super_admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Super admin access required"
+            )
+        
+        # Get all sessions
+        all_sessions = db.query(RefreshToken).all()
+        total_sessions = len(all_sessions)
+        active_sessions = len([s for s in all_sessions if not s.is_revoked])
+        revoked_sessions = total_sessions - active_sessions
+        
+        # Recent sessions (last 30)
+        recent_sessions = db.query(RefreshToken).order_by(
+            RefreshToken.created_at.desc()
+        ).limit(30).all()
+        
+        recent_sessions_list = []
+        for s in recent_sessions:
+            recent_sessions_list.append({
+                "id": s.id,
+                "user_id": s.user_id,
+                "device_info": s.device_info or "Unknown",
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "is_revoked": s.is_revoked
+            })
+        
+        return {
+            "total_sessions": total_sessions,
+            "active_sessions": active_sessions,
+            "revoked_sessions": revoked_sessions,
+            "recent_sessions": recent_sessions_list
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(
+            f"Super admin sessions stats error: {str(e)}",
+            user_id=user.id if 'user' in locals() else None,
+            error=str(e),
+            event_type="super_admin_sessions_stats_error"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+# ============================================================================
 # ADD MORE DASHBOARD ENDPOINTS BELOW
 # ============================================================================
 
