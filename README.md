@@ -5,12 +5,17 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-black.svg)](https://black.readthedocs.io)
 
-A production-ready, enterprise-grade user management system built with FastAPI, featuring JWT authentication, Redis-based rate limiting, multi-tenant architecture, and comprehensive logging.
+A production-ready, enterprise-grade user management system built with FastAPI, featuring JWT authentication, Two-Factor Authentication (2FA), automated backups, email service integration, Redis-based rate limiting, multi-tenant architecture, and comprehensive logging.
 
 ## ✨ Features
 
 ### 🔐 **Authentication & Authorization**
 - **JWT-based authentication** with access & refresh tokens
+- **Two-Factor Authentication (2FA)** with TOTP support (Google Authenticator)
+- **QR code generation** for easy 2FA setup
+- **Backup codes** for account recovery
+- **Account lockout protection** after 5 failed attempts
+- **Login attempt tracking** with IP and device fingerprinting
 - **Role-based access control (RBAC)** with hierarchical permissions
 - **Multi-tenant architecture** supporting organizations and users
 - **Secure password hashing** with SHA-256
@@ -47,6 +52,8 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 - **Complete schema dump** available (`database_schema.sql`)
 
 ### 🏢 **Production Features**
+- **Email Service** - SMTP integration with welcome emails, password resets, and security alerts
+- **Automated Backups** - Daily MySQL backups with 30-day retention and restoration scripts
 - **Password History Tracking** - Prevent password reuse with configurable history limits
 - **Comprehensive Audit Logging** - Complete audit trail for compliance (SOX, GDPR, HIPAA)
 - **Advanced Session Management** - Device fingerprinting, session statistics, cleanup
@@ -504,7 +511,7 @@ python comprehensive_test_suite.py
 
 3. **Install dependencies**
    ```bash
-   pip install -r requirement.txt
+   pip install -r requirements.txt
    ```
 
 4. **Configure environment**
@@ -616,12 +623,20 @@ SHOW TABLES;
 ### Authentication
 | Method | Endpoint | Description | Rate Limit |
 |--------|----------|-------------|------------|
-| `POST` | `/api/v1/login` | User login | 10/min, 100/hour |
+| `POST` | `/api/v1/login` | User login (with 2FA support) | 10/min, 100/hour |
 | `POST` | `/api/v1/login-with-session-control` | Enhanced login with session management | 10/min, 100/hour |
 | `POST` | `/api/v1/signup` | User registration | 5/min, 50/hour |
 | `POST` | `/api/v1/refresh` | Refresh access token | 20/min, 200/hour |
 | `POST` | `/api/v1/logout` | User logout | 10/min, 100/hour |
 | `POST` | `/api/v1/logout-all` | Logout from all sessions | 5/min, 50/hour |
+
+### Two-Factor Authentication (2FA)
+| Method | Endpoint | Description | Rate Limit |
+|--------|----------|-------------|------------|
+| `POST` | `/api/v1/2fa/enable` | Enable 2FA for user | 5/min, 50/hour |
+| `POST` | `/api/v1/2fa/verify` | Verify 2FA code | 20/min, 200/hour |
+| `POST` | `/api/v1/2fa/disable` | Disable 2FA | 5/min, 50/hour |
+| `GET` | `/api/v1/2fa/status` | Get 2FA status | 20/min, 200/hour |
 
 ### User Management
 | Method | Endpoint | Description | Rate Limit |
@@ -1081,8 +1096,8 @@ curl -X POST http://localhost:9000/api/v1/logout-all \
 FROM python:3.10-slim
 
 WORKDIR /app
-COPY requirement.txt .
-RUN pip install -r requirement.txt
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 COPY . .
 EXPOSE 9000
@@ -1103,59 +1118,65 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]
 
 ```
 fastapi-user-management/
-├── config/                 # Configuration management
-│   ├── settings.py        # Centralized settings
-│   └── env_*.txt         # Environment templates
-├── models/                # Database models
-│   └── user_model.py     # User and session models
-├── routes/                # API routes
-│   ├── login.py          # Authentication endpoints
+├── config/                    # Configuration management
+│   └── settings.py           # Centralized settings
+├── models/                    # Database models
+│   └── user_model.py         # User and session models
+├── routes/                    # API routes
+│   ├── login.py              # Authentication endpoints
+│   ├── auth_2fa.py          # 2FA endpoints
 │   └── production_endpoints.py # Production API endpoints
-├── schemas/               # Pydantic schemas
-│   └── login.py          # Request/response models
-├── services/              # Business logic
-│   ├── auth_service.py   # Authentication service
-│   ├── user_service.py   # User management
-│   ├── rate_limit_service.py # Rate limiting
-│   ├── enhanced_login_service.py # Enhanced login with session management
-│   ├── auto_refresh_service.py # Auto-refresh token service
-│   ├── logout_service.py # Enhanced logout service
-│   ├── refresh_token_service.py # Refresh token management
-│   ├── password_history_service.py # Password history tracking
-│   ├── audit_log_service.py # Comprehensive audit logging
-│   ├── user_session_service.py # Advanced session management
-│   ├── user_permission_service.py # Granular permissions
-│   ├── user_group_service.py # User group management
-│   ├── api_key_service.py # API key management
-│   ├── password_reset_service.py # Password reset functionality
-│   └── profile_update_service.py # Profile management
-├── utils/                 # Utilities
-│   ├── database.py       # Database configuration
-│   ├── jwt_config.py     # JWT utilities
-│   ├── redis_config.py   # Redis configuration
-│   ├── logger.py         # Logging setup
-│   ├── auto_refresh_middleware.py # Auto-refresh middleware
-│   ├── security_middleware.py # Security middleware
-│   ├── rate_limit_dependency.py # Rate limiting dependency
-│   ├── performance_monitor.py # Performance monitoring
-│   ├── production_logging.py # Production logging
-│   ├── request_context.py # Request context management
-│   └── loggers/          # Specialized loggers
-│       ├── api_logger.py # API request logging
-│       ├── auth_logger.py # Authentication logging
-│       ├── db_logger.py # Database logging
-│       └── security_logger.py # Security event logging
-├── logs/                  # Log files (auto-generated)
-├── .env                   # Environment variables
-├── .gitignore            # Git ignore rules
-├── config_manager.py     # Configuration helper
-├── main.py               # Application entry point
-├── requirement.txt       # Python dependencies
-├── database_schema.sql   # Complete database schema dump
-├── API_REFERENCE.md     # Comprehensive API documentation
-├── simple_production_test.py # Quick production test
-├── comprehensive_test_suite.py # Full test suite
-└── api_demo.py          # API demonstration script
+├── schemas/                   # Pydantic schemas
+│   ├── login.py              # Request/response models
+│   └── auth_2fa.py           # 2FA request/response models
+├── services/                 # Business logic
+│   ├── auth/                 # Authentication services
+│   │   ├── auth_service.py
+│   │   ├── two_factor_service.py
+│   │   ├── login_attempt_service.py
+│   │   ├── enhanced_login_service.py
+│   │   └── logout_service.py
+│   ├── users/               # User management services
+│   │   ├── user_service.py
+│   │   ├── password_history_service.py
+│   │   ├── password_reset_service.py
+│   │   └── profile_update_service.py
+│   ├── sessions/            # Session services
+│   │   └── user_session_service.py
+│   ├── permissions/         # Permission services
+│   │   ├── user_permission_service.py
+│   │   ├── user_group_service.py
+│   │   └── api_key_service.py
+│   └── audit/               # Audit services
+│       └── audit_log_service.py
+├── utils/                     # Utilities
+│   ├── database.py          # Database configuration
+│   ├── email_service.py     # Email service (SMTP)
+│   ├── jwt_config.py        # JWT utilities
+│   ├── redis_config.py      # Redis configuration
+│   ├── logger.py            # Logging setup
+│   ├── auto_refresh_middleware.py
+│   ├── security_middleware.py
+│   ├── rate_limit_dependency.py
+│   └── loggers/             # Specialized loggers
+├── templates/                 # Email templates
+│   └── emails/              # HTML email templates
+├── scripts/                   # Utility scripts
+│   ├── backup_database.py  # Automated backups
+│   ├── restore_database.py # Database restoration
+│   └── migrate_2fa.py      # 2FA migration
+├── tests/                    # Test suite
+│   ├── unit/                # Unit tests
+│   ├── integration/         # Integration tests
+│   └── e2e/                 # End-to-end tests
+├── backups/                   # Database backups
+├── docs/                      # Documentation
+│   ├── API_REFERENCE.md
+│   └── PRODUCTION_RELEASE_PLAN.md
+├── logs/                      # Log files
+├── main.py                    # Application entry point
+├── requirements.txt          # Python dependencies
+└── pytest.ini                # Pytest configuration
 ```
 
 ## 🤝 **Contributing**
