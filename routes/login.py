@@ -8,6 +8,8 @@ from services.auth import AuthService
 from services.auth import RefreshTokenService
 from services.auth import LogoutService
 from services.auth import EnhancedLoginService
+from services.auth.login_attempt_service import LoginAttemptService
+from services.auth import TwoFactorService
 from services.users import PasswordResetService
 from services.users import ProfileUpdateService
 from services.audit import AuditLogService
@@ -63,8 +65,71 @@ async def login(
     )
     
     try:
+        # Check if user exists first
+        user = db.query(User).filter(User.username == credentials.username).first()
+        
+        # Record login attempt (even before authentication)
+        LoginAttemptService.record_login_attempt(
+            db=db,
+            username=credentials.username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            success=False,
+            failure_reason="Pending authentication",
+            user_id=user.id if user else None
+        )
+        
+        # Check if account is locked
+        if user and LoginAttemptService.is_account_locked(user):
+            lockout_info = LoginAttemptService.get_lockout_info(user)
+            
+            # Log failed login (locked account)
+            auth_logger.login_failure(
+                username=credentials.username,
+                ip_address=ip_address,
+                reason="Account locked",
+                user_agent=user_agent,
+                correlation_id=correlation_id
+            )
+            
+            # Record failed attempt
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=credentials.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Account locked",
+                user_id=user.id if user else None
+            )
+            
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=f"Account locked. Try again after {lockout_info['remaining_lockout_minutes']} minutes.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Authenticate user
         user = AuthService.authenticate_user(db, credentials.username, credentials.password)
         if not user:
+            # Get the user again to increment failed attempts
+            user = db.query(User).filter(User.username == credentials.username).first()
+            
+            if user:
+                # Increment failed attempts
+                LoginAttemptService.increment_failed_attempts(db, user)
+            
+            # Record failed login attempt
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=credentials.username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Invalid credentials",
+                user_id=user.id if user else None
+            )
+            
             # Log failed login
             auth_logger.login_failure(
                 username=credentials.username,
@@ -74,28 +139,24 @@ async def login(
                 correlation_id=correlation_id
             )
             
-            # Create audit log for failed login
-            AuditLogService.log_authentication_event(
-                db=db,
-                event_type="login_failed",
-                username=credentials.username,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                request_id=correlation_id,
-                correlation_id=correlation_id,
-                status="failure",
-                error_message="Invalid credentials",
-                metadata={
-                    "reason": "Invalid credentials",
-                    "attempted_username": credentials.username
-                }
-            )
-            
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        
+        # Reset failed attempts on successful authentication
+        LoginAttemptService.reset_failed_attempts(db, user)
+        
+        # Record successful login attempt
+        LoginAttemptService.record_login_attempt(
+            db=db,
+            username=user.username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            success=True,
+            user_id=user.id
+        )
         
         # Get device info for security
         device_info = f"{user_agent}"

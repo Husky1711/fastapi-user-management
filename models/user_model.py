@@ -49,6 +49,12 @@ class User(Base):
     login_attempts = Column(Integer, default=0)
     locked_until = Column(DateTime(timezone=True), nullable=True)
     
+    # 2FA fields
+    is_2fa_enabled = Column(Boolean, default=False, index=True)
+    two_factor_secret = Column(String(255), nullable=True)  # Encrypted 2FA secret
+    backup_codes = Column(JSON, nullable=True)  # Array of hashed backup codes
+    failed_login_attempts = Column(Integer, default=0)  # Track failed login attempts
+    
     # New fields for role-based system
     role = Column(String(20), default="user")  # super_admin, admin, user
     organization_id = Column(Integer, ForeignKey("organizations.id"), default=1)
@@ -116,6 +122,19 @@ class PasswordHistory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     changed_by = Column(Integer, nullable=True, index=True)  # user_id who changed it
     change_reason = Column(String(50), nullable=True, index=True)  # password_reset, password_change, admin_reset
+
+class LoginAttempt(Base):
+    """Track login attempts for security monitoring"""
+    __tablename__ = "login_attempts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    username = Column(String(255), nullable=False, index=True)
+    ip_address = Column(String(45), nullable=False, index=True)
+    user_agent = Column(Text, nullable=True)
+    success = Column(Boolean, default=False, index=True)
+    failure_reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 class UserPermission(Base):
     """Granular permission management beyond roles"""

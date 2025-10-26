@@ -14,11 +14,13 @@ from .enhanced_login_service import EnhancedLoginService
 from .logout_service import LogoutService
 from .refresh_token_service import RefreshTokenService
 from .auto_refresh_service import AutoRefreshTokenService
+from .two_factor_service import TwoFactorService
 
 __all__ = [
     "AuthService",
     "EnhancedLoginService", 
     "LogoutService",
     "RefreshTokenService",
-    "AutoRefreshTokenService"
+    "AutoRefreshTokenService",
+    "TwoFactorService"
 ]
