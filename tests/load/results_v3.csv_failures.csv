@@ -1,0 +1,4 @@
+Method,Name,Error,Occurrences
+POST,Admin Login,HTTPError('429 Client Error: Too Many Requests for url: Admin Login'),4
+POST,Super Admin Login,HTTPError('429 Client Error: Too Many Requests for url: Super Admin Login'),3
+POST,User Login,HTTPError('429 Client Error: Too Many Requests for url: User Login'),10

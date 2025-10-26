@@ -81,10 +81,12 @@ class UserService:
     @staticmethod
     def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
         """Authenticate user with username and password"""
+        # Get user from database
         user = UserService.get_user_by_username(db, username)
         if not user:
             return None
         
+        # Verify password (slow bcrypt operation, but necessary for security)
         if not verify_password(password, user.password):
             return None
         

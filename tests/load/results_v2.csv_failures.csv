@@ -1,0 +1,7 @@
+Method,Name,Error,Occurrences
+GET,User Profile,HTTPError('422 Client Error: Unprocessable Entity for url: User Profile'),126
+POST,Admin Login,HTTPError('429 Client Error: Too Many Requests for url: Admin Login'),3
+POST,Super Admin Login,HTTPError('429 Client Error: Too Many Requests for url: Super Admin Login'),2
+GET,Super Admin Overview,"ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None)",1
+GET,User Profile,HTTPError('429 Client Error: Too Many Requests for url: User Profile'),314
+POST,User Login,HTTPError('429 Client Error: Too Many Requests for url: User Login'),4

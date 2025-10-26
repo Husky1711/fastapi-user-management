@@ -305,6 +305,35 @@ class CacheService:
         except Exception as e:
             api_logger.error(f"Error clearing all cache: {str(e)}")
             return False
+    
+    # ==================== GENERIC CACHE METHODS ====================
+    
+    def get_cache(self, cache_key: str) -> Optional[Any]:
+        """Get generic cache entry"""
+        if not self.redis_client:
+            return None
+        
+        try:
+            cached_data = self.redis_client.get(cache_key)
+            if cached_data:
+                return json.loads(cached_data)
+            return None
+        except Exception as e:
+            api_logger.error(f"Error getting cache: {str(e)}")
+            return None
+    
+    def set_cache(self, cache_key: str, data: Any, ttl: int = 300) -> bool:
+        """Set generic cache entry"""
+        if not self.redis_client:
+            return False
+        
+        try:
+            cache_data = json.dumps(data)
+            self.redis_client.setex(cache_key, ttl, cache_data)
+            return True
+        except Exception as e:
+            api_logger.error(f"Error setting cache: {str(e)}")
+            return False
 
 
 # Global cache service instance
