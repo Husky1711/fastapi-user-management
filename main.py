@@ -94,6 +94,10 @@ app.include_router(login_router)
 app.include_router(production_router)
 app.include_router(auth_2fa_router)
 
+# Include dashboard router
+from routes.dashboard import router as dashboard_router
+app.include_router(dashboard_router)
+
 # Health check endpoints
 @app.get("/health", tags=["Health"])
 async def health_check() -> Dict[str, Any]:
