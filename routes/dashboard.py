@@ -19,6 +19,14 @@ from utils.rate_limit_dependency import RateLimitDependency
 from models.user_model import User, RefreshToken, AuditLog
 from utils.loggers import api_logger, auth_logger
 from schemas.login import UserResponse
+from schemas.dashboard import (
+    UserDashboardOverview,
+    UserActivityResponse,
+    UserSessionsResponse,
+    ProfileInfo,
+    ActivityItem,
+    SessionInfo
+)
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 security = HTTPBearer()
@@ -28,7 +36,7 @@ security = HTTPBearer()
 # USER DASHBOARD (Phase 1)
 # ============================================================================
 
-@router.get("/user/overview")
+@router.get("/user/overview", response_model=UserDashboardOverview)
 async def get_user_dashboard_overview(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -77,7 +85,10 @@ async def get_user_dashboard_overview(
                 "email": user.email,
                 "role": user.role,
                 "status": user.status,
-                "organization_id": user.organization_id
+                "organization_id": user.organization_id,
+                "phone_number": user.phone_number,
+                "is_2fa_enabled": getattr(user, 'is_2fa_enabled', False),
+                "failed_login_attempts": getattr(user, 'failed_login_attempts', 0)
             },
             "active_sessions": len(active_sessions),
             "last_login": last_login.isoformat() if last_login else None,
@@ -99,7 +110,7 @@ async def get_user_dashboard_overview(
         )
 
 
-@router.get("/user/activity")
+@router.get("/user/activity", response_model=UserActivityResponse)
 async def get_user_activity(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -198,7 +209,7 @@ async def get_user_activity(
         )
 
 
-@router.get("/user/sessions")
+@router.get("/user/sessions", response_model=UserSessionsResponse)
 async def get_user_sessions_dashboard(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
