@@ -156,10 +156,165 @@ class UserSessionsResponse(BaseModel):
 
 
 # ============================================================================
-# ADMIN DASHBOARD SCHEMAS (Phase 2 - To be added)
+# ADMIN DASHBOARD SCHEMAS (Phase 2)
 # ============================================================================
 
-# Placeholder for admin dashboard schemas
+class TodayStats(BaseModel):
+    """Today's statistics"""
+    logins: int
+    new_users: int
+    password_resets: int
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "logins": 50,
+                "new_users": 2,
+                "password_resets": 5
+            }
+        }
+
+
+class AdminDashboardOverview(BaseModel):
+    """Admin dashboard overview response"""
+    total_users: int
+    active_users: int
+    active_sessions: int
+    today_stats: TodayStats
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_users": 150,
+                "active_users": 120,
+                "active_sessions": 85,
+                "today_stats": {
+                    "logins": 50,
+                    "new_users": 2,
+                    "password_resets": 5
+                }
+            }
+        }
+
+
+class UsersByStatus(BaseModel):
+    """Users breakdown by status"""
+    active: int
+    inactive: int
+    locked: int
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "active": 120,
+                "inactive": 28,
+                "locked": 2
+            }
+        }
+
+
+class RecentUser(BaseModel):
+    """Recent user information"""
+    id: int
+    username: str
+    email: str
+    role: str
+    status: str
+    created_at: Optional[str] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": 1,
+                "username": "john_doe",
+                "email": "john@example.com",
+                "role": "user",
+                "status": "active",
+                "created_at": "2024-01-15T10:30:00Z"
+            }
+        }
+
+
+class AdminUsersStats(BaseModel):
+    """Admin users statistics response"""
+    total_users: int
+    active_users: int
+    locked_users: int
+    users_by_status: UsersByStatus
+    recent_users: List[RecentUser]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_users": 150,
+                "active_users": 120,
+                "locked_users": 2,
+                "users_by_status": {
+                    "active": 120,
+                    "inactive": 28,
+                    "locked": 2
+                },
+                "recent_users": [
+                    {
+                        "id": 1,
+                        "username": "john_doe",
+                        "email": "john@example.com",
+                        "role": "user",
+                        "status": "active",
+                        "created_at": "2024-01-15T10:30:00Z"
+                    }
+                ]
+            }
+        }
+
+
+class AdminActivityItem(BaseModel):
+    """Activity item for admin dashboard"""
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    action: Optional[str] = None
+    time: Optional[str] = None
+    status: Optional[str] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": 1,
+                "username": "john_doe",
+                "action": "login",
+                "time": "2024-01-15T10:30:00Z",
+                "status": "success"
+            }
+        }
+
+
+class AdminActivityStats(BaseModel):
+    """Admin activity statistics response"""
+    total_activity_today: int
+    activity_by_type: Dict[str, int]
+    recent_activity: List[AdminActivityItem]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_activity_today": 500,
+                "activity_by_type": {
+                    "login": 200,
+                    "logout": 150,
+                    "password_change": 50,
+                    "user_creation": 10
+                },
+                "recent_activity": [
+                    {
+                        "user_id": 1,
+                        "username": "john_doe",
+                        "action": "login",
+                        "time": "2024-01-15T10:30:00Z",
+                        "status": "success"
+                    }
+                ]
+            }
+        }
 
 
 # ============================================================================
