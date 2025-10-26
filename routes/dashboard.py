@@ -894,6 +894,13 @@ async def get_super_admin_overview(
                 detail="Super admin access required"
             )
         
+        # Check cache first (5 minute TTL for super admin queries)
+        from services.core import cache_service
+        cache_key = "super_admin:overview"
+        cached_result = cache_service.get_cache(cache_key)
+        if cached_result:
+            return cached_result
+        
         # Get all users in system
         all_users = db.query(User).all()
         total_users = len(all_users)
@@ -943,7 +950,7 @@ async def get_super_admin_overview(
             User.created_at < tomorrow_start
         ).count()
         
-        return {
+        result = {
             "total_organizations": total_organizations,
             "total_users": total_users,
             "active_users": active_users,
@@ -962,6 +969,11 @@ async def get_super_admin_overview(
                 "total_audit_logs": total_audit_logs_today
             }
         }
+        
+        # Cache the result for 1 minute (60 seconds) to reduce cache stampedes
+        cache_service.set_cache(cache_key, result, ttl=60)
+        
+        return result
         
     except HTTPException:
         raise

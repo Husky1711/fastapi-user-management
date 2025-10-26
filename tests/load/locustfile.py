@@ -35,7 +35,7 @@ class UserManagementUser(HttpUser):
     def view_profile(self):
         """View user profile (most common)"""
         if self.token:
-            self.client.get("/api/v1/users/profile", headers=self.headers, name="User Profile")
+            self.client.get("/api/v1/profile", headers=self.headers, name="User Profile")
     
     @task(2)
     def view_dashboard_overview(self):

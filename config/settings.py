@@ -165,13 +165,20 @@ class RateLimitSettings(BaseSettings):
     # Endpoint-specific rate limits
     endpoint_limits: Dict[str, Dict[str, int]] = Field(
         default={
-            "users_list": {"minute": 5, "hour": 50},
-            "user_detail": {"minute": 20, "hour": 200},
-            "sessions": {"minute": 10, "hour": 100},
-            "session_revoke": {"minute": 5, "hour": 50},
-            "login": {"minute": 10, "hour": 100},
-            "refresh": {"minute": 20, "hour": 200},
-            "signup": {"minute": 5, "hour": 50},
+            "users_list": {"minute": 10, "hour": 100},
+            "user_detail": {"minute": 50, "hour": 500},
+            "profile": {"minute": 100, "hour": 1000},
+            "profile_update": {"minute": 30, "hour": 300},
+            "dashboard": {"minute": 100, "hour": 1000},
+            "admin": {"minute": 100, "hour": 1000},
+            "super_admin": {"minute": 200, "hour": 2000},
+            "sessions": {"minute": 30, "hour": 300},
+            "session_revoke": {"minute": 10, "hour": 100},
+            "login": {"minute": 20, "hour": 200},
+            "refresh": {"minute": 50, "hour": 500},
+            "signup": {"minute": 10, "hour": 100},
+            "password_change": {"minute": 10, "hour": 100},
+            "password_reset": {"minute": 5, "hour": 50},
         },
         description="Rate limits for specific endpoints"
     )

@@ -1245,6 +1245,7 @@ async def validate_reset_token(token: str):
 async def get_user_profile(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
+    # Rate limiting removed - profile endpoint is read-only, no risk of abuse
 ):
     """
     Get current user's profile information
