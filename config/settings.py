@@ -232,6 +232,19 @@ class SecuritySettings(BaseSettings):
     class Config:
         env_prefix = "SECURITY_"
 
+class EmailSettings(BaseSettings):
+    """Email configuration settings"""
+    smtp_host: str = Field("smtp.gmail.com", description="SMTP server host")
+    smtp_port: int = Field(587, description="SMTP server port")
+    smtp_username: str = Field("psaiprasad003@gmail.com", description="SMTP username (Gmail address)")
+    smtp_password: str = Field("sdmdoexbksxcghzg", description="SMTP password (Gmail app password)")
+    from_email: str = Field("psaiprasad003@gmail.com", description="From email address")
+    base_url: str = Field("http://localhost:8000", description="Base URL for email links")
+    enable_emails: bool = Field(True, description="Enable email sending")
+    
+    class Config:
+        env_prefix = "EMAIL_"
+
 class AppSettings(BaseSettings):
     """Main application settings"""
     name: str = Field("FastAPI User Management", description="Application name")
@@ -268,6 +281,7 @@ class Settings(BaseSettings):
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    email: EmailSettings = Field(default_factory=EmailSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     
     class Config:
