@@ -790,6 +790,9 @@ async def get_user_by_id(
     _: None = Depends(RateLimitDependency.check_rate_limit("user_detail"))
 ):
     """Get specific user by ID based on current user's role and organization"""
+    # Import cache service
+    from services.core import cache_service
+    
     # Verify JWT token and get user info
     user = AuthService.get_current_user(db, credentials.credentials)
     if user is None:
@@ -798,6 +801,12 @@ async def get_user_by_id(
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Check cache first
+    cached_profile = cache_service.get_user_profile(user_id)
+    if cached_profile:
+        # Return cached profile
+        return cached_profile
     
     # Get role and organization info from JWT token
     from utils.jwt_config import verify_token
@@ -817,7 +826,8 @@ async def get_user_by_id(
             detail="User not found or access denied"
         )
     
-    return {
+    # Prepare response data
+    user_data = {
         "id": specific_user.id,
         "username": specific_user.username,
         "email": specific_user.email,
@@ -826,6 +836,11 @@ async def get_user_by_id(
         "status": specific_user.status,
         "phone_number": specific_user.phone_number
     }
+    
+    # Cache the profile for future requests
+    cache_service.set_user_profile(user_id, user_data)
+    
+    return user_data
 
 @router.post("/debug-login", response_model=TokenResponse)
 async def debug_login(
@@ -1320,6 +1335,10 @@ async def update_user_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=result["error"]
             )
+        
+        # Invalidate profile cache after update
+        from services.core import cache_service
+        cache_service.invalidate_user_profile(current_user.id)
         
         # Prepare response
         updated_user = result["user"]
