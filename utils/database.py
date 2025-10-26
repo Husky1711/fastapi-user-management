@@ -13,7 +13,8 @@ engine = create_engine(
     pool_size=settings.database.pool_size,
     max_overflow=settings.database.max_overflow,
     pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600,   # Recycle connections every hour
+    pool_recycle=settings.database.pool_recycle,  # Use setting
+    pool_timeout=settings.database.pool_timeout,  # Use setting
 )
 
 # Create SessionLocal class

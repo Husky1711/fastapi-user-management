@@ -14,8 +14,10 @@ class DatabaseSettings(BaseSettings):
     """Database configuration settings"""
     url: str = Field("mysql+pymysql://root:Sandhya%40332@localhost:3306/fastapi_users", description="Database connection URL")
     echo: bool = Field(False, description="Enable SQLAlchemy echo for debugging")
-    pool_size: int = Field(10, description="Database connection pool size")
-    max_overflow: int = Field(20, description="Maximum overflow connections")
+    pool_size: int = Field(20, description="Database connection pool size")
+    max_overflow: int = Field(40, description="Maximum overflow connections")
+    pool_timeout: int = Field(30, description="Seconds to wait for a connection")
+    pool_recycle: int = Field(3600, description="Seconds before connection is recycled")
     
     class Config:
         env_prefix = "DB_"
@@ -174,7 +176,7 @@ class RateLimitSettings(BaseSettings):
             "super_admin": {"minute": 200, "hour": 2000},
             "sessions": {"minute": 30, "hour": 300},
             "session_revoke": {"minute": 10, "hour": 100},
-            "login": {"minute": 20, "hour": 200},
+            "login": {"minute": 50, "hour": 500},
             "refresh": {"minute": 50, "hour": 500},
             "signup": {"minute": 10, "hour": 100},
             "password_change": {"minute": 10, "hour": 100},

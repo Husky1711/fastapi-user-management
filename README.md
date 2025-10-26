@@ -54,13 +54,15 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 ### 🏢 **Production Features**
 - **Email Service** - SMTP integration with welcome emails, password resets, and security alerts
 - **Automated Backups** - Daily MySQL backups with 30-day retention and restoration scripts
+- **Database Caching** - Redis-backed caching for profiles, sessions, permissions, and audit logs
+- **Dashboard APIs** - Role-based dashboards for Super Admin, Organization Admin, Admin, and User
 - **Password History Tracking** - Prevent password reuse with configurable history limits
 - **Comprehensive Audit Logging** - Complete audit trail for compliance (SOX, GDPR, HIPAA)
 - **Advanced Session Management** - Device fingerprinting, session statistics, cleanup
 - **Granular Permissions** - Resource-specific permissions with time limits
 - **User Groups Management** - Organization-based group management
 - **API Key Management** - Secure API key generation and validation
-- **Production API Endpoints** - Enterprise-grade endpoints for all features
+- **Load Testing** - Locust integration for performance testing and capacity planning
 
 ## 🏗️ **Architecture**
 
@@ -74,417 +76,79 @@ A production-ready, enterprise-grade user management system built with FastAPI, 
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🔄 **User Access Control Flow Diagram**
+## 🔄 **Access Control & Architecture**
 
-### **Role Hierarchy & Permissions**
-
-```
-👑 Super Admin
-├── 🏢 Organization Admin
-│   ├── 👨‍💼 Admin
-│   │   └── 👤 User
-│   └── 👤 User
-└── 👤 User (Direct)
-```
-
-#### **Simplified Organizational Structure**
+### **Role Hierarchy**
 ```mermaid
 graph TD
-    SA[👑 Super Admin<br/>System Administrator] --> OA1[🏢 Organization/Client Admin 1<br/>Organization Manager]
-    SA --> OA2[🏢 Organization/Client Admin 2<br/>Organization Manager]
+    SA[👑 Super Admin] --> OA[🏢 Organization Admin]
+    OA --> A[👨‍💼 Admin]
+    A --> U[👤 User]
     
-    OA1 --> A1[👨‍💼 Admin 1<br/>Department Admin]
-    OA1 --> U1[👤 User 1<br/>Organization User]
+    SA --> SA1[📊 All Organizations]
+    SA --> SA2[👥 All Users]
+    SA --> SA3[🔐 All Sessions]
     
-    OA2 --> U2[👤 User 2<br/>Organization User]
+    OA --> OA1[📊 Own Organization]
+    OA --> OA2[👥 Admins & Users in Org]
+    OA --> OA3[🔐 Sessions in Org]
     
-    A1 --> U3[👤 User 3<br/>Department User]
+    A --> A1[📊 Own Organization]
+    A --> A2[👥 Users in Org]
+    A --> A3[🔐 User Sessions]
     
-    SA -.->|Direct Access| U4[👤 Direct User<br/>System User]
-    
-    classDef superAdmin fill:#e74c3c,stroke:#c0392b,stroke-width:4px,color:#fff
-    classDef orgAdmin fill:#3498db,stroke:#2980b9,stroke-width:3px,color:#fff
-    classDef admin fill:#9b59b6,stroke:#8e44ad,stroke-width:2px,color:#fff
-    classDef user fill:#27ae60,stroke:#229954,stroke-width:2px,color:#fff
-    
-    class SA superAdmin
-    class OA1,OA2 orgAdmin
-    class A1 admin
-    class U1,U2,U3,U4 user
+    U --> U1[📊 Own Profile]
+    U --> U2[🔐 Own Sessions]
 ```
 
-#### **Access Control Matrix**
-```mermaid
-graph LR
-    subgraph "👑 Super Admin Access"
-        SA1[All Organizations]
-        SA2[All Users]
-        SA3[All Sessions]
-        SA4[System Settings]
-    end
-    
-    subgraph "🏢 Organization Admin Access"
-        OA1[Own Organization]
-        OA2[Org Admins & Users]
-        OA3[Org Sessions]
-        OA4[Org Settings]
-    end
-    
-    subgraph "👨‍💼 Admin Access"
-        A1[Own Organization]
-        A2[Org Users Only]
-        A3[User Sessions]
-        A4[User Management]
-    end
-    
-    subgraph "👤 User Access"
-        U1[Own Profile]
-        U2[Own Sessions]
-        U3[Basic Operations]
-        U4[Limited Access]
-    end
-    
-    SA1 --> OA1
-    SA2 --> OA2
-    SA3 --> OA3
-    SA4 --> OA4
-    
-    OA1 --> A1
-    OA2 --> A2
-    OA3 --> A3
-    OA4 --> A4
-    
-    A1 --> U1
-    A2 --> U2
-    A3 --> U3
-    A4 --> U4
-```
-
-### **What Each Role Can See**
-
-| Role | `/users` Endpoint | `/users/{id}` Endpoint | `/sessions` Endpoint | Organization Access |
-|------|------------------|------------------------|---------------------|-------------------|
-| **👑 Super Admin** | ✅ All users grouped by organization | ✅ Any user from any organization | ✅ All sessions | ✅ All organizations |
-| **🏢 Organization Admin** | ✅ Admins & users in own organization | ✅ Users in own organization | ✅ Sessions in own organization | ✅ Own organization only |
-| **👨‍💼 Admin** | ✅ Users in own organization | ✅ Users in own organization | ✅ Sessions in own organization | ✅ Own organization only |
-| **👤 User** | ✅ Own profile only | ✅ Own profile only | ✅ Own sessions only | ❌ No organization access |
-
-### **Data Visibility Flow**
-
-```
-User Login → Authentication → Role Check → Data Access
-
-👑 Super Admin:
-├── 📊 All Organizations Data
-├── 👥 All Users Data  
-├── 🔐 All Sessions Data
-└── ⚙️ System Management
-
-🏢 Organization Admin:
-├── 📊 Own Organization Data
-├── 👥 Admins & Users in Org
-├── 🔐 Sessions in Org
-└── ⚙️ Organization Management
-
-👨‍💼 Admin:
-├── 📊 Own Organization Data
-├── 👥 Users in Org
-├── 🔐 User Sessions in Org
-└── ⚙️ User Management
-
-👤 User:
-├── 📊 Own Profile Data
-├── 👥 Own Profile Only
-├── 🔐 Own Sessions Only
-└── ⚙️ Basic Operations
-```
-
-### **Multi-Tenant Organization Structure**
-
-```
-🏢 System
-├── 🏢 Organization 1 (TechCorp)
-│   ├── 👨‍💼 Admin 1
-│   ├── 👤 User 1
-│   └── 👤 User 2
-├── 🏢 Organization 2 (FinanceInc)
-│   ├── 👨‍💼 Admin 2
-│   ├── 👤 User 1
-│   └── 👤 User 2
-├── 🏢 Organization 3 (HealthOrg)
-│   ├── 👨‍💼 Admin 3
-│   └── 👤 User 1
-└── 🏢 Organization 4 (EduCorp)
-    ├── 👨‍💼 Admin 4
-    ├── 👤 User 1
-    └── 👤 User 2
-
-👑 Super Admin can access ALL organizations
-```
+### **Access Control Matrix**
+| Role | Users Access | Organization Access | Sessions Access |
+|------|--------------|-------------------|----------------|
+| **👑 Super Admin** | All users (grouped by org) | All organizations | All sessions |
+| **🏢 Organization Admin** | Admins & users in own org | Own organization only | Sessions in own org |
+| **👨‍💼 Admin** | Users in own org | Own organization only | User sessions in org |
+| **👤 User** | Own profile only | No access | Own sessions only |
 
 ### **Session Management Strategies**
-
-```
-User Login → Session Strategy → Action
-
-✅ allow_multiple:     Allow unlimited sessions
-🔄 replace_all:        Replace all existing sessions  
-🔄 replace_same_device: Replace sessions from same device
-❌ deny_if_exists:     Deny login if sessions exist
-📊 limit_sessions:     Limit to max sessions (default: 5)
-```
+| Strategy | Description |
+|----------|-------------|
+| `allow_multiple` | Allow unlimited sessions |
+| `replace_all` | Replace all existing sessions |
+| `replace_same_device` | Replace same device sessions only |
+| `deny_if_exists` | Deny login if sessions exist |
+| `limit_sessions` | Limit to max sessions (default: 5) |
 
 ### **API Response Examples**
 
-#### **Super Admin Response (`/users`)**
+#### **Super Admin Response** (`GET /api/v1/users`)
 ```json
 {
-  "1": {
-    "organization_id": 1,
-    "users": [
-      {"id": 1, "username": "admin1", "role": "admin", "organization_id": 1},
-      {"id": 2, "username": "user1", "role": "user", "organization_id": 1}
-    ]
-  },
-  "2": {
-    "organization_id": 2,
-    "users": [
-      {"id": 3, "username": "admin2", "role": "admin", "organization_id": 2},
-      {"id": 4, "username": "user2", "role": "user", "organization_id": 2}
-    ]
-  }
+  "1": {"organization_id": 1, "users": [{"id": 1, "username": "admin1"}]},
+  "2": {"organization_id": 2, "users": [{"id": 3, "username": "admin2"}]}
 }
 ```
 
-#### **Organization Admin Response (`/users`)**
+#### **Organization Admin Response** (`GET /api/v1/users`)
 ```json
 {
   "organization_id": 1,
   "users": [
-    {"id": 1, "username": "admin1", "role": "admin", "organization_id": 1},
-    {"id": 2, "username": "user1", "role": "user", "organization_id": 1}
+    {"id": 1, "username": "admin1", "role": "admin"},
+    {"id": 2, "username": "user1", "role": "user"}
   ]
 }
 ```
 
-#### **Regular User Response (`/users`)**
+#### **User Response** (`GET /api/v1/users`)
 ```json
 {
   "id": 2,
   "username": "user1",
   "email": "user1@example.com",
   "role": "user",
-  "organization_id": 1,
-  "status": "active"
+  "organization_id": 1
 }
 ```
-
-### **Visual Flow Diagrams**
-
-#### **Role-Based Access Control Flow**
-```mermaid
-graph TD
-    A[👑 Super Admin] --> B[🏢 Organization Admin]
-    B --> C[👨‍💼 Admin]
-    C --> D[👤 User]
-    
-    A --> A1[📊 All Organizations]
-    A --> A2[👥 All Users]
-    A --> A3[🔐 All Sessions]
-    A --> A4[⚙️ System Management]
-    
-    B --> B1[📊 Own Organization]
-    B --> B2[👥 Admins & Users in Org]
-    B --> B3[🔐 Sessions in Org]
-    B --> B4[⚙️ Organization Management]
-    
-    C --> C1[📊 Own Organization]
-    C --> C2[👥 Users in Org]
-    C --> C3[🔐 User Sessions in Org]
-    C --> C4[⚙️ User Management]
-    
-    D --> D1[📊 Own Profile]
-    D --> D2[👥 Own Profile Only]
-    D --> D3[🔐 Own Sessions Only]
-    D --> D4[⚙️ Basic Operations]
-```
-
-#### **Multi-Tenant Organization Structure**
-```mermaid
-graph TD
-    System[🏢 System] --> Org1[🏢 Organization 1<br/>TechCorp]
-    System --> Org2[🏢 Organization 2<br/>FinanceInc]
-    System --> Org3[🏢 Organization 3<br/>HealthOrg]
-    System --> Org4[🏢 Organization 4<br/>EduCorp]
-    
-    Org1 --> Org1Admin[👨‍💼 Admin 1]
-    Org1 --> Org1User1[👤 User 1]
-    Org1 --> Org1User2[👤 User 2]
-    
-    Org2 --> Org2Admin[👨‍💼 Admin 2]
-    Org2 --> Org2User1[👤 User 1]
-    Org2 --> Org2User2[👤 User 2]
-    
-    Org3 --> Org3Admin[👨‍💼 Admin 3]
-    Org3 --> Org3User1[👤 User 1]
-    
-    Org4 --> Org4Admin[👨‍💼 Admin 4]
-    Org4 --> Org4User1[👤 User 1]
-    Org4 --> Org4User2[👤 User 2]
-    
-    SuperAdmin[👑 Super Admin] -.->|Can Access| Org1
-    SuperAdmin -.->|Can Access| Org2
-    SuperAdmin -.->|Can Access| Org3
-    SuperAdmin -.->|Can Access| Org4
-```
-
-#### **Session Management Flow**
-```mermaid
-graph LR
-    Login[User Login] --> Strategy{Session Strategy}
-    
-    Strategy -->|allow_multiple| AM[✅ Allow Multiple Sessions]
-    Strategy -->|replace_all| RA[🔄 Replace All Sessions]
-    Strategy -->|replace_same_device| RSD[🔄 Replace Same Device]
-    Strategy -->|deny_if_exists| DIE[❌ Deny If Sessions Exist]
-    Strategy -->|limit_sessions| LS[📊 Limit to Max Sessions]
-    
-    AM --> AM1[Unlimited Sessions]
-    RA --> RA1[Revoke All Existing]
-    RSD --> RSD1[Revoke Same Device Only]
-    DIE --> DIE1[Block New Login]
-    LS --> LS1[Enforce Session Limit]
-```
-
-### **Practical Examples**
-
-#### **Scenario 1: Super Admin Login**
-```bash
-# Super Admin logs in
-POST /api/v1/login
-{
-  "username": "superadmin",
-  "password": "admin123"
-}
-
-# Gets access to ALL organizations
-GET /api/v1/users
-# Response: All users grouped by organization (Org 1, Org 2, Org 3, etc.)
-```
-
-#### **Scenario 2: Organization Admin Login**
-```bash
-# Organization Admin logs in
-POST /api/v1/login
-{
-  "username": "orgadmin_techcorp",
-  "password": "admin123"
-}
-
-# Gets access to ONLY TechCorp organization
-GET /api/v1/users
-# Response: Only TechCorp users (admins + users)
-```
-
-#### **Scenario 3: Regular Admin Login**
-```bash
-# Admin logs in
-POST /api/v1/login
-{
-  "username": "admin_techcorp",
-  "password": "admin123"
-}
-
-# Gets access to TechCorp users only
-GET /api/v1/users
-# Response: Only TechCorp users (no other admins)
-```
-
-#### **Scenario 4: Regular User Login**
-```bash
-# User logs in
-POST /api/v1/login
-{
-  "username": "user_techcorp",
-  "password": "user123"
-}
-
-# Gets access to own profile only
-GET /api/v1/users
-# Response: Only their own profile data
-```
-
-### **Session Management Examples**
-
-#### **Allow Multiple Sessions**
-```bash
-# User can login from multiple devices
-POST /api/v1/login-with-session-control?session_strategy=allow_multiple
-# Result: All previous sessions remain active
-```
-
-#### **Replace All Sessions**
-```bash
-# User login replaces all existing sessions
-POST /api/v1/login-with-session-control?session_strategy=replace_all
-# Result: All previous sessions are revoked
-```
-
-#### **Deny If Sessions Exist**
-```bash
-# User tries to login when already logged in
-POST /api/v1/login-with-session-control?session_strategy=deny_if_exists
-# Result: Login denied with 400 Bad Request
-```
-
-## 🧪 **Testing**
-
-### **Test Suite**
-The project includes comprehensive test suites for all production features:
-
-- **`simple_production_test.py`** - Quick verification of core production features
-- **`comprehensive_test_suite.py`** - Full test suite for all production features
-
-### **Test Results**
-```
-============================================================
-SIMPLE PRODUCTION FEATURES TEST
-============================================================
-
-1. Testing Authentication...
-   [PASS] Authentication successful
-
-2. Testing 6 Core Endpoints...
-   [PASS] Audit Logs: 24 records
-   [PASS] Sessions: 13 records
-   [PASS] Permissions: 0 records
-   [PASS] Groups: 0 records
-   [PASS] API Keys: 0 records
-   [PASS] Password History: 3 records
-
-3. Testing Password Change...
-   [PASS] Password change successful
-
-============================================================
-TEST SUMMARY
-============================================================
-Tests Passed: 7/7 (100.0%)
-*** EXCELLENT: Core production features are working! ***
-```
-
-### **Running Tests**
-```bash
-# Run simple production test
-python simple_production_test.py
-
-# Run comprehensive test suite
-python comprehensive_test_suite.py
-```
-
-### **API Documentation**
-- **Interactive Docs**: Visit `/docs` for Swagger UI
-- **Alternative Docs**: Visit `/redoc` for ReDoc interface
-- **Complete API Reference**: See `API_REFERENCE.md` for comprehensive endpoint documentation
 
 ---
 
@@ -586,35 +250,32 @@ SHOW TABLES;
 
 ---
 
-## 📋 **Production API Endpoints**
+## 📋 **API Endpoints**
 
-### **Audit & Compliance**
-- `GET /api/v1/audit/logs` - Get audit logs with filtering and pagination
-- `GET /api/v1/audit/statistics` - Get audit statistics and analytics
+### **Dashboard APIs**
+| Role | Endpoint | Description |
+|------|----------|-------------|
+| User | `GET /api/v1/dashboard/user/overview` | User dashboard overview |
+| User | `GET /api/v1/dashboard/user/activity` | User activity statistics |
+| User | `GET /api/v1/dashboard/user/sessions` | User active sessions |
+| Admin | `GET /api/v1/dashboard/admin/overview` | Admin dashboard overview |
+| Admin | `GET /api/v1/dashboard/admin/users/stats` | Organization user statistics |
+| Admin | `GET /api/v1/dashboard/admin/activity/stats` | Organization activity statistics |
+| Org Admin | `GET /api/v1/dashboard/organization-admin/overview` | Organization admin overview |
+| Org Admin | `GET /api/v1/dashboard/organization-admin/users/stats` | Organization users statistics |
+| Org Admin | `GET /api/v1/dashboard/organization-admin/sessions/stats` | Organization sessions statistics |
+| Super Admin | `GET /api/v1/dashboard/super-admin/overview` | System-wide overview (cached) |
+| Super Admin | `GET /api/v1/dashboard/super-admin/users/stats` | Global user statistics |
+| Super Admin | `GET /api/v1/dashboard/super-admin/organizations/stats` | Organization statistics |
+| Super Admin | `GET /api/v1/dashboard/super-admin/sessions/stats` | Global session statistics |
 
-### **Session Management**
-- `GET /api/v1/sessions` - Get user sessions with device information
-- `GET /api/v1/sessions/statistics` - Get session statistics
-- `POST /api/v1/sessions/cleanup` - Clean up expired sessions
-
-### **Permissions Management**
+### **Production Endpoints**
+- `GET /api/v1/audit/logs` - Get audit logs with filtering
+- `GET /api/v1/sessions` - Get user sessions with device info
 - `GET /api/v1/permissions` - Get user permissions
-- `GET /api/v1/permissions/standard` - Get standard permissions list
-- `GET /api/v1/permissions/statistics` - Get permission statistics
-
-### **Groups Management**
 - `GET /api/v1/groups` - Get organization groups
-- `GET /api/v1/groups/{id}/members` - Get group members
-- `GET /api/v1/groups/statistics` - Get group statistics
-
-### **API Keys Management**
 - `GET /api/v1/api-keys` - Get user API keys
-- `GET /api/v1/api-keys/standard-permissions` - Get standard API permissions
-- `GET /api/v1/api-keys/statistics` - Get API key statistics
-
-### **Password History**
 - `GET /api/v1/password/history` - Get password history
-- `GET /api/v1/password/policy-stats` - Get password policy statistics
 
 ---
 
@@ -1118,65 +779,63 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]
 
 ```
 fastapi-user-management/
-├── config/                    # Configuration management
-│   └── settings.py           # Centralized settings
-├── models/                    # Database models
-│   └── user_model.py         # User and session models
-├── routes/                    # API routes
-│   ├── login.py              # Authentication endpoints
-│   ├── auth_2fa.py          # 2FA endpoints
-│   └── production_endpoints.py # Production API endpoints
-├── schemas/                   # Pydantic schemas
-│   ├── login.py              # Request/response models
-│   └── auth_2fa.py           # 2FA request/response models
-├── services/                 # Business logic
-│   ├── auth/                 # Authentication services
+├── config/
+│   └── settings.py                  # Centralized configuration
+├── models/
+│   └── user_model.py                # Database models
+├── routes/
+│   ├── login.py                     # Authentication endpoints
+│   ├── auth_2fa.py                  # 2FA endpoints
+│   ├── dashboard.py                 # Dashboard APIs
+│   └── production_endpoints.py     # Production endpoints
+├── schemas/
+│   ├── login.py                     # Authentication schemas
+│   ├── auth_2fa.py                  # 2FA schemas
+│   └── dashboard.py                 # Dashboard schemas
+├── services/                         # Business logic
+│   ├── auth/                        # Auth services
 │   │   ├── auth_service.py
 │   │   ├── two_factor_service.py
 │   │   ├── login_attempt_service.py
 │   │   ├── enhanced_login_service.py
 │   │   └── logout_service.py
-│   ├── users/               # User management services
+│   ├── users/                       # User management
 │   │   ├── user_service.py
-│   │   ├── password_history_service.py
 │   │   ├── password_reset_service.py
 │   │   └── profile_update_service.py
-│   ├── sessions/            # Session services
+│   ├── sessions/                    # Session management
 │   │   └── user_session_service.py
-│   ├── permissions/         # Permission services
+│   ├── permissions/                 # Permissions
 │   │   ├── user_permission_service.py
-│   │   ├── user_group_service.py
-│   │   └── api_key_service.py
-│   └── audit/               # Audit services
-│       └── audit_log_service.py
-├── utils/                     # Utilities
-│   ├── database.py          # Database configuration
-│   ├── email_service.py     # Email service (SMTP)
-│   ├── jwt_config.py        # JWT utilities
-│   ├── redis_config.py      # Redis configuration
-│   ├── logger.py            # Logging setup
-│   ├── auto_refresh_middleware.py
-│   ├── security_middleware.py
-│   ├── rate_limit_dependency.py
-│   └── loggers/             # Specialized loggers
-├── templates/                 # Email templates
-│   └── emails/              # HTML email templates
-├── scripts/                   # Utility scripts
-│   ├── backup_database.py  # Automated backups
-│   ├── restore_database.py # Database restoration
-│   └── migrate_2fa.py      # 2FA migration
-├── tests/                    # Test suite
-│   ├── unit/                # Unit tests
-│   ├── integration/         # Integration tests
-│   └── e2e/                 # End-to-end tests
-├── backups/                   # Database backups
-├── docs/                      # Documentation
-│   ├── API_REFERENCE.md
-│   └── PRODUCTION_RELEASE_PLAN.md
-├── logs/                      # Log files
-├── main.py                    # Application entry point
-├── requirements.txt          # Python dependencies
-└── pytest.ini                # Pytest configuration
+│   │   └── user_group_service.py
+│   ├── audit/                       # Audit logging
+│   │   └── audit_log_service.py
+│   └── core/                        # Core services
+│       ├── cache_service.py        # Redis caching
+│       └── rate_limit_service.py   # Rate limiting
+├── utils/
+│   ├── database.py                  # DB configuration
+│   ├── email_service.py            # Email service
+│   ├── jwt_config.py               # JWT utilities
+│   ├── redis_config.py             # Redis config
+│   └── logger.py                   # Logging
+├── templates/
+│   └── emails/                     # Email templates
+├── scripts/
+│   ├── backup_database.py         # DB backups
+│   ├── restore_database.py        # DB restoration
+│   └── add_database_indexes_v2.py # DB optimization
+├── tests/
+│   ├── unit/                       # Unit tests
+│   ├── integration/                # Integration tests
+│   ├── e2e/                        # E2E tests
+│   └── load/                       # Load tests (Locust)
+├── backups/                         # DB backups
+├── docs/                            # Documentation
+├── logs/                            # Application logs
+├── main.py                          # Application entry point
+├── requirements.txt                # Python dependencies
+└── pytest.ini                      # Pytest config
 ```
 
 ## 🤝 **Contributing**
