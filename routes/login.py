@@ -233,6 +233,25 @@ async def signup(
             correlation_id=correlation_id
         )
         
+        # Send welcome email
+        try:
+            from utils.email_service import get_email_service
+            email_service = get_email_service()
+            email_service.send_welcome_email(
+                to_email=new_user.email,
+                username=new_user.username,
+                temp_password=None
+            )
+        except Exception as e:
+            # Log email error but don't fail signup
+            auth_logger.error(
+                f"Failed to send welcome email: {str(e)}",
+                user_id=new_user.id,
+                email=new_user.email,
+                error=str(e),
+                event_type="email_send_error"
+            )
+        
         # Return user info (without password)
         return UserResponse(
             id=new_user.id,
@@ -900,6 +919,30 @@ async def create_user_by_admin(
                 detail=result["error"]
             )
         
+        # Send welcome email to new user
+        email_sent = False
+        try:
+            from utils.email_service import get_email_service
+            email_service = get_email_service()
+            
+            created_user = result["user"]
+            temp_password = result.get("generated_password")
+            
+            email_service.send_welcome_email(
+                to_email=created_user.email,
+                username=created_user.username,
+                temp_password=temp_password
+            )
+            email_sent = True
+        except Exception as e:
+            auth_logger.error(
+                f"Failed to send welcome email: {str(e)}",
+                user_id=created_user.id if 'created_user' in locals() else None,
+                email=created_user.email if 'created_user' in locals() else None,
+                error=str(e),
+                event_type="welcome_email_error"
+            )
+        
         # Prepare response
         created_user = result["user"]
         user_response = UserResponse(
@@ -919,7 +962,7 @@ async def create_user_by_admin(
             message=result["message"],
             user=user_response,
             generated_password=result.get("generated_password"),
-            email_sent=False,  # TODO: Implement email service
+            email_sent=email_sent,
             correlation_id=correlation_id
         )
         
@@ -968,6 +1011,28 @@ async def request_password_reset(
     try:
         # Use the service to handle password reset request
         result = PasswordResetService.request_password_reset(db, request_data.email)
+        
+        # Send password reset email if user exists
+        if result["success"] and result.get("reset_token"):
+            try:
+                from utils.email_service import get_email_service
+                email_service = get_email_service()
+                
+                # Get username from database
+                user = db.query(User).filter(User.email == request_data.email).first()
+                if user:
+                    email_service.send_password_reset_email(
+                        to_email=request_data.email,
+                        reset_token=result["reset_token"],
+                        username=user.username
+                    )
+            except Exception as e:
+                auth_logger.error(
+                    f"Failed to send password reset email: {str(e)}",
+                    email=request_data.email,
+                    error=str(e),
+                    event_type="password_reset_email_error"
+                )
         
         if not result["success"]:
             raise HTTPException(
