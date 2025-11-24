@@ -12,7 +12,13 @@ from pathlib import Path
 
 class DatabaseSettings(BaseSettings):
     """Database configuration settings"""
-    url: str = Field("mysql+pymysql://root:Sandhya%40332@localhost:3306/fastapi_users", description="Database connection URL")
+    url: str = Field(
+        default_factory=lambda: os.getenv(
+            "DATABASE_URL",
+            "mysql+pymysql://root:Sandhya%40332@localhost:3306/fastapi_users",
+        ),
+        description="Database connection URL",
+    )
     echo: bool = Field(False, description="Enable SQLAlchemy echo for debugging")
     pool_size: int = Field(20, description="Database connection pool size")
     max_overflow: int = Field(40, description="Maximum overflow connections")

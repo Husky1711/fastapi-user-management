@@ -156,7 +156,7 @@ graph TD
 
 ### Prerequisites
 - Python 3.10+
-- MySQL 8.0+
+- MySQL 8.0+ (for legacy installs) or PostgreSQL (Neon/Render)
 - Redis 6.0+
 
 ### Installation
@@ -187,17 +187,57 @@ graph TD
    nano .env
    ```
 
-5. **Set up database**
-   ```bash
-   # Create MySQL database
-   mysql -u root -p
-   CREATE DATABASE fastapi_users;
-   ```
+5. **Configure database**
+   - **Neon (recommended)**
+     ```bash
+     npx neonctl@latest init                # authenticate & choose project
+     export DATABASE_URL="postgresql://..." # value provided by Neon
+     alembic upgrade head                   # apply schema
+     ```
+   - **MySQL (legacy)**
+     ```bash
+     mysql -u root -p
+     CREATE DATABASE fastapi_users;
+     ```
 
 6. **Run the application**
    ```bash
    uvicorn main:app --reload --host 0.0.0.0 --port 9000
    ```
+
+### ☁️ Deploying with Neon + Render
+1. **Provision Neon Postgres**
+   - Run `npx neonctl@latest init` in the repo root.
+   - Select/create a project and branch; copy the generated `DATABASE_URL`.
+2. **Set environment variables**
+   - Locally: add `DATABASE_URL` to `.env`.
+   - Render: in your FastAPI service → *Environment*, add the same `DATABASE_URL` (internal or pooled URL).
+3. **Run migrations**
+   - With the env var exported, run `alembic upgrade head` (locally or via a Render shell/worker).
+4. **Redeploy services**
+   - Redeploy the Render service so it picks up the Neon URL.
+5. **Verify**
+   - Connect with `psql "$DATABASE_URL"` or Neon’s SQL editor.
+   - Hit key API endpoints to confirm data is persisted in Neon.
+
+### 📦 Migrating existing MySQL data to Neon
+We ship a helper script that can create the Neon schema (using the SQLAlchemy models) and optionally copy rows from your legacy MySQL instance.
+
+```bash
+# Ensure virtualenv is active and dependencies installed
+python scripts/bootstrap_neon.py ^
+  --target-url postgresql://...neon.tech/neondb?sslmode=require
+
+# To copy existing data from MySQL to Neon in batches of 1k rows
+python scripts/bootstrap_neon.py ^
+  --source-url mysql+pymysql://root:pass@localhost:3306/fastapi_users ^
+  --target-url postgresql://...neon.tech/neondb?sslmode=require ^
+  --copy-data --batch-size 1000
+```
+
+Flags:
+- `--skip-delete` keeps any existing rows in Neon.
+- Environment fallbacks: `TARGET_DATABASE_URL`, `SOURCE_DATABASE_URL`, and `DATABASE_URL`.
 
 ---
 
