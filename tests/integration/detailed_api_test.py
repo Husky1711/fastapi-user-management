@@ -6,8 +6,10 @@ Detailed API Testing Script
 import requests
 import json
 
+from tests.config import API_BASE_URL
+
 def test_all_apis():
-    base_url = 'http://localhost:8000'
+    base_url = API_BASE_URL
     session = requests.Session()
     
     print('🔍 DETAILED API TESTING')

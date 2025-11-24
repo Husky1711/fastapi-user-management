@@ -14,7 +14,9 @@ from utils.database import SessionLocal
 from models.user_model import User
 from utils.jwt_config import get_password_hash
 
-BASE_URL = "http://localhost:8000"
+from tests.config import API_BASE_URL
+
+BASE_URL = API_BASE_URL
 
 
 def print_header(title: str):

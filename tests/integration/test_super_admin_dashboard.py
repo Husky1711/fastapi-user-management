@@ -13,7 +13,9 @@ sys.path.insert(0, str(project_root))
 import requests
 from typing import Dict, Any
 
-BASE_URL = "http://localhost:8000"
+from tests.config import API_BASE_URL
+
+BASE_URL = API_BASE_URL
 
 
 def print_header(title: str):

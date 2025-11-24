@@ -1,7 +1,14 @@
 from datetime import timedelta
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session
-from utils.jwt_config import create_access_token, create_user_token, verify_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from utils.jwt_config import (
+    create_access_token,
+    create_user_token,
+    verify_token,
+    get_password_hash,
+    verify_password as verify_password_hash,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
 from services.users import UserService
 from .refresh_token_service import RefreshTokenService
 from models.user_model import User
@@ -65,6 +72,16 @@ class AuthService:
         
         # Create new user
         return UserService.create_user(db, username, password, email, phone_number)
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """Hash a password using the project's hashing strategy"""
+        return get_password_hash(password)
+
+    @staticmethod
+    def verify_password(plain_password: str, hashed_password: str) -> bool:
+        """Verify a password using the project's hashing strategy"""
+        return verify_password_hash(plain_password, hashed_password)
     
     @staticmethod
     def refresh_access_token(db: Session, refresh_token: str, device_info: str = None, ip_address: str = None, user_agent: str = None) -> Tuple[str, str]:

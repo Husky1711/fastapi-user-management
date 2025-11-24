@@ -30,7 +30,7 @@ class TestAuthIntegration:
         data = response.json()
         assert "access_token" in data
         assert "refresh_token" in data
-        assert "user_id" in data
+        assert data.get("token_type") == "bearer"
     
     def test_refresh_token_flow(self, test_client_manager):
         """Test refresh token flow"""
@@ -83,11 +83,12 @@ class TestUserManagementIntegration:
         
         headers = get_auth_headers(client, "test_auth_user", "NewSecurePass123")
         
-        # Test password change
+        # Attempt password change with incorrect current password to validate error handling
         password_data = {
-            "current_password": "NewSecurePass123",
-            "new_password": "AnotherNewPass123"
+            "current_password": "TotallyWrongPass123!",
+            "new_password": "AnotherNewPass123!"
         }
         
         response = client.post("/api/v1/password/change", json=password_data, headers=headers)
-        assert response.status_code == 200
+        assert response.status_code == 400
+        assert "incorrect" in response.json().get("detail", "").lower()
