@@ -10,13 +10,17 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
+DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg://neondb_owner:npg_QvIBoUTWtM70"
+    "@ep-square-dawn-a1ozpk15-pooler.ap-southeast-1.aws.neon.tech/"
+    "neondb?sslmode=require&channel_binding=require"
+)
+
+
 class DatabaseSettings(BaseSettings):
     """Database configuration settings"""
     url: str = Field(
-        default_factory=lambda: os.getenv(
-            "DATABASE_URL",
-            "mysql+pymysql://root:Sandhya%40332@localhost:3306/fastapi_users",
-        ),
+        default_factory=lambda: os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL),
         description="Database connection URL",
     )
     echo: bool = Field(False, description="Enable SQLAlchemy echo for debugging")
