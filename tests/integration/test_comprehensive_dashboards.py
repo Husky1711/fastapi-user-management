@@ -14,7 +14,9 @@ sys.path.insert(0, str(project_root))
 import requests
 from typing import Dict, Any
 
-BASE_URL = "http://localhost:8000"
+from tests.config import API_BASE_URL
+
+BASE_URL = API_BASE_URL
 
 
 def print_section_header(title: str):
@@ -39,8 +41,14 @@ def print_result(test_name: str, passed: bool, details: str = ""):
         print(f"      {details}")
 
 
-def test_user_dashboard(username: str, password: str, results: list):
+def test_user_dashboard(
+    username: str = "test_dashboard_admin",
+    password: str = "TestDashboardPass123!",
+    results: list = None,
+):
     """Test User Dashboard endpoints"""
+    if results is None:
+        results = []
     
     print_subsection(f"Testing as {username} (User role)")
     
@@ -90,8 +98,14 @@ def test_user_dashboard(username: str, password: str, results: list):
     return results
 
 
-def test_admin_dashboard(username: str, password: str, results: list):
+def test_admin_dashboard(
+    username: str = "test_dashboard_admin",
+    password: str = "TestDashboardPass123!",
+    results: list = None,
+):
     """Test Admin Dashboard endpoints"""
+    if results is None:
+        results = []
     
     print_subsection(f"Testing as {username} (Admin role)")
     
@@ -129,8 +143,14 @@ def test_admin_dashboard(username: str, password: str, results: list):
     return results
 
 
-def test_org_admin_dashboard(username: str, password: str, results: list):
+def test_org_admin_dashboard(
+    username: str = "test_org_admin",
+    password: str = "TestOrgAdminPass123!",
+    results: list = None,
+):
     """Test Organization Admin Dashboard endpoints"""
+    if results is None:
+        results = []
     
     print_subsection(f"Testing as {username} (Organization Admin role)")
     
@@ -168,8 +188,10 @@ def test_org_admin_dashboard(username: str, password: str, results: list):
     return results
 
 
-def test_cross_role_access(results: list):
+def test_cross_role_access(results: list = None):
     """Test that users can't access dashboards they shouldn't"""
+    if results is None:
+        results = []
     
     print_subsection("Testing Cross-Role Access Control")
     
@@ -205,8 +227,10 @@ def test_cross_role_access(results: list):
     return results
 
 
-def test_data_isolation(results: list):
+def test_data_isolation(results: list = None):
     """Test that data is properly isolated by organization"""
+    if results is None:
+        results = []
     
     print_subsection("Testing Data Isolation (Organization-level)")
     

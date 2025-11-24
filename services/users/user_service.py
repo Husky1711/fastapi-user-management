@@ -6,10 +6,13 @@ from datetime import datetime
 from utils.jwt_config import get_password_hash, verify_password
 import secrets
 import string
+import re
 from schemas.login import RoleHierarchyValidator
 from utils.loggers import auth_logger
 
 class UserService:
+    _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
+    _EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     @staticmethod
     def create_user(db: Session, username: str, password: str, email: str, phone_number: str = None) -> User:
         """Create a new user in the database"""
@@ -137,6 +140,20 @@ class UserService:
         # Shuffle the password
         secrets.SystemRandom().shuffle(password)
         return ''.join(password)
+
+    @staticmethod
+    def validate_username(username: str) -> bool:
+        """Validate username using basic length/character rules"""
+        if not username:
+            return False
+        return bool(UserService._USERNAME_REGEX.match(username))
+
+    @staticmethod
+    def validate_email(email: str) -> bool:
+        """Validate email using a lightweight regex"""
+        if not email:
+            return False
+        return bool(UserService._EMAIL_REGEX.match(email))
     
     @staticmethod
     def create_user_by_admin(db: Session, creator_user: User, user_data: Dict[str, Any]) -> Dict[str, Any]:
