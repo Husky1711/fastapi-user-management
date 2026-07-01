@@ -1,0 +1,26 @@
+# ArgoCD Application — deploy a specific Git branch to Kubernetes
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fastapi-user-management
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: fastapi-user-management
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Husky1711/fastapi-user-management.git
+    targetRevision: feature/codespaces-local-db
+    path: deploy/helm/fastapi-user-management
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fastapi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

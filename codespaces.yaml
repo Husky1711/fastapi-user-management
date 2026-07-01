@@ -1,0 +1,32 @@
+# GitHub Codespaces definition — single source of truth for repo + branch.
+# Use this branch when creating a Codespace:
+#   https://github.com/codespaces/new?hide_repo_select=true&ref=feature/codespaces-local-db&repo=Husky1711%2Ffastapi-user-management
+
+repository:
+  url: https://github.com/Husky1711/fastapi-user-management.git
+  branch: feature/codespaces-local-db
+
+codespace:
+  create_url: https://github.com/codespaces/new?hide_repo_select=true&ref=feature/codespaces-local-db&repo=Husky1711%2Ffastapi-user-management
+  machine: standardLinux32gb
+
+application:
+  host: 0.0.0.0
+  port: 9000
+  docs_path: /docs
+
+database:
+  provider: local-mysql
+  # Optional cloud Postgres — set DATABASE_URL instead of DB__URL to use Neon
+  neon_optional: true
+  mysql:
+    host: localhost
+    port: 3306
+    database: fastapi_users
+    user: fastapi
+    password: fastapi
+    url: mysql+pymysql://fastapi:fastapi@localhost:3306/fastapi_users
+
+redis:
+  host: localhost
+  port: 6379

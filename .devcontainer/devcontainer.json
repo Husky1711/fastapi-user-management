@@ -1,0 +1,40 @@
+{
+  "name": "FastAPI User Management (Codespaces)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [9000, 3306, 6379],
+  "portsAttributes": {
+    "9000": {
+      "label": "FastAPI /docs",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    },
+    "3306": {
+      "label": "MySQL",
+      "visibility": "private"
+    },
+    "6379": {
+      "label": "Redis",
+      "visibility": "private"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "remoteEnv": {
+    "GIT_REPOSITORY_URL": "https://github.com/Husky1711/fastapi-user-management.git",
+    "GIT_BRANCH": "feature/codespaces-local-db",
+    "CODESPACES_CONFIG": "codespaces.yaml"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+      }
+    }
+  }
+}

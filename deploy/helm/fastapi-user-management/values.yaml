@@ -1,0 +1,39 @@
+# Helm values — must match repository.url and repository.branch in codespaces.yaml
+
+repository:
+  url: https://github.com/Husky1711/fastapi-user-management.git
+  branch: feature/codespaces-local-db
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/husky1711/fastapi-user-management
+  tag: feature-codespaces-local-db
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9000
+
+ingress:
+  enabled: false
+  host: api.example.com
+
+env:
+  APP__HOST: "0.0.0.0"
+  APP__PORT: "9000"
+  APP__ENVIRONMENT: "staging"
+  REDIS__HOST: "redis"
+  # DB__URL or DATABASE_URL from Kubernetes Secret in real deployments
+
+probes:
+  liveness: /health/live
+  readiness: /health/ready
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
