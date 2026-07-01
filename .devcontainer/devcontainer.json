@@ -21,6 +21,7 @@
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/start.sh",
   "remoteEnv": {
     "GIT_REPOSITORY_URL": "https://github.com/Husky1711/fastapi-user-management.git",
     "GIT_BRANCH": "feature/codespaces-local-db",

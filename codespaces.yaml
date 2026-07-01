@@ -14,6 +14,11 @@ application:
   host: 0.0.0.0
   port: 9000
   docs_path: /docs
+  auto_start: true
+  scripts:
+    first_time: .devcontainer/setup.sh
+    on_start: .devcontainer/start.sh
+    manual: scripts/codespaces-start.sh
 
 database:
   provider: local-mysql
