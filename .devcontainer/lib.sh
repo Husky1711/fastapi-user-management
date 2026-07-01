@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 # Shared helpers for Codespaces setup and start scripts.
 
+wait_for_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker CLI not found."
+    return 1
+  fi
+
+  echo "Waiting for Docker daemon..."
+  for i in $(seq 1 90); do
+    if docker info >/dev/null 2>&1; then
+      echo "Docker is ready."
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Docker daemon did not become ready in time."
+  return 1
+}
+
 wait_for_mysql() {
   echo "Waiting for MySQL..."
   for i in $(seq 1 60); do
@@ -33,7 +52,12 @@ bootstrap_database() {
 }
 
 seed_database() {
-  docker exec -i fastapi-mysql mysql -ufastapi -pfastapi fastapi_users < scripts/seed.sql
+  if [[ ! -f scripts/seed.sql ]]; then
+    echo "scripts/seed.sql not found — skipping seed."
+    return 0
+  fi
+  docker exec -i fastapi-mysql mysql -ufastapi -pfastapi fastapi_users < scripts/seed.sql \
+    || echo "WARN: seed.sql had errors (may be safe if data already exists)."
 }
 
 frontend_is_running() {
@@ -56,8 +80,11 @@ start_frontend() {
   fi
 
   if ! command -v npm >/dev/null 2>&1; then
-    echo "npm not found — install Node.js or rebuild the Codespace with the node feature."
-    return 1
+    export PATH="/usr/local/share/nvm/current/bin:${PATH}"
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "WARN: npm not found — Web UI not started. Run: bash scripts/codespaces-ui-start.sh"
+    return 0
   fi
 
   mkdir -p logs
