@@ -10,11 +10,19 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-DEFAULT_DATABASE_URL = (
+# Codespaces / local Docker MySQL (see docker-compose.codespaces.yml)
+CODESPACES_DATABASE_URL = (
+    "mysql+pymysql://fastapi:fastapi@localhost:3306/fastapi_users"
+)
+
+# Optional Neon Postgres — enable with DATABASE_URL env var (not the default on this branch)
+NEON_DATABASE_URL = (
     "postgresql+psycopg://neondb_owner:npg_QvIBoUTWtM70"
     "@ep-square-dawn-a1ozpk15-pooler.ap-southeast-1.aws.neon.tech/"
     "neondb?sslmode=require&channel_binding=require"
 )
+
+DEFAULT_DATABASE_URL = CODESPACES_DATABASE_URL
 
 
 class DatabaseSettings(BaseSettings):

@@ -1,0 +1,42 @@
+# Local MySQL + Redis for GitHub Codespaces.
+# Git metadata — keep in sync with codespaces.yaml
+
+x-git:
+  repository_url: https://github.com/Husky1711/fastapi-user-management.git
+  branch: feature/codespaces-local-db
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: fastapi-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: fastapi_users
+      MYSQL_USER: fastapi
+      MYSQL_PASSWORD: fastapi
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: fastapi-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql_data:
