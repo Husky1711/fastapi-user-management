@@ -170,8 +170,8 @@ def setup_security_middleware(app: FastAPI) -> None:
         CORSMiddleware,
         allow_origins=settings.security.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
     )
     
     security_logger.info(
@@ -188,8 +188,30 @@ def setup_error_handlers(app: FastAPI) -> None:
     from fastapi import HTTPException, Request
     from fastapi.responses import JSONResponse
     from fastapi.exceptions import RequestValidationError
+    from utils.api_errors import APIHTTPException, error_payload
     import traceback
     
+    @app.exception_handler(APIHTTPException)
+    async def api_http_exception_handler(request: Request, exc: APIHTTPException):
+        """Handle structured API exceptions."""
+        request_id = getattr(request.state, "request_id", "unknown")
+
+        security_logger.error(
+            f"API Exception: {exc.detail}",
+            status_code=exc.status_code,
+            error_code=exc.error_code,
+            path=request.url.path,
+            method=request.method,
+            request_id=request_id,
+            event_type="api_exception",
+        )
+
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_payload(exc, request_id, time.time()),
+            headers=exc.headers,
+        )
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         """Handle HTTP exceptions with proper logging"""
@@ -206,12 +228,8 @@ def setup_error_handlers(app: FastAPI) -> None:
         
         return JSONResponse(
             status_code=exc.status_code,
-            content={
-                "detail": exc.detail,
-                "status_code": exc.status_code,
-                "request_id": request_id,
-                "timestamp": time.time()
-            }
+            content=error_payload(exc, request_id, time.time()),
+            headers=exc.headers,
         )
     
     @app.exception_handler(RequestValidationError)
@@ -227,14 +245,23 @@ def setup_error_handlers(app: FastAPI) -> None:
             errors=str(exc.errors()),
             event_type="validation_error"
         )
+
+        field_errors = {
+            ".".join(str(part) for part in error.get("loc", ()) if part != "body"): str(
+                error.get("msg", "")
+            )
+            for error in exc.errors()
+        }
         
         return JSONResponse(
             status_code=422,
             content={
-                "detail": [{"field": str(error.get("loc", "")), "message": str(error.get("msg", "")), "type": str(error.get("type", ""))} for error in exc.errors()],
+                "detail": "Validation error",
+                "error_code": "VALIDATION_ERROR",
+                "fields": field_errors,
                 "status_code": 422,
-                "request_id": request_id,
-                "timestamp": time.time()
+                "correlation_id": request_id,
+                "timestamp": time.time(),
             }
         )
     

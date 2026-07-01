@@ -26,10 +26,18 @@ wait_for_redis
 
 bootstrap_database
 seed_database
+configure_codespace_env
 start_fastapi
+start_frontend
 
 echo ""
 echo "Codespace is ready."
+echo "  Web UI:   http://localhost:5173"
+if [[ -n "${CODESPACE_NAME:-}" ]]; then
+  echo "  Public:   https://${CODESPACE_NAME}-5173.app.github.dev"
+fi
 echo "  API docs: http://localhost:9000/docs"
-echo "  Logs:     tail -f logs/uvicorn.log"
+echo "  API logs: tail -f logs/uvicorn.log"
+echo "  UI logs:  tail -f logs/vite.log"
 echo "  Restart:  bash .devcontainer/start.sh"
+echo "  UI only:  bash scripts/codespaces-ui-start.sh"

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Body
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -35,12 +36,20 @@ from utils.production_logging import CorrelationIDGenerator
 from utils.request_context import RequestTracker, track_request
 import traceback
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+from config.settings import settings
+from utils.api_errors import APIHTTPException
+from utils.cookie_auth import (
+    build_auth_token_response,
+    build_logout_response,
+    resolve_refresh_token,
+)
 
 router = APIRouter(prefix = "/api/v1", tags=["Authentication & User Management"])
 security = HTTPBearer()
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 async def login(
     credentials: UserSigninRequest, 
     request: Request, 
@@ -103,9 +112,10 @@ async def login(
                 user_id=user.id if user else None
             )
             
-            raise HTTPException(
+            raise APIHTTPException(
                 status_code=status.HTTP_423_LOCKED,
                 detail=f"Account locked. Try again after {lockout_info['remaining_lockout_minutes']} minutes.",
+                error_code="ACCOUNT_LOCKED",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -139,9 +149,10 @@ async def login(
                 correlation_id=correlation_id
             )
             
-            raise HTTPException(
+            raise APIHTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
+                error_code="INVALID_CREDENTIALS",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -225,11 +236,10 @@ async def login(
                 event_type="session_created"
             )
         
-        return TokenResponse(
-            access_token=access_token, 
+        return build_auth_token_response(
+            access_token=access_token,
             refresh_token=refresh_token,
-            token_type="bearer",
-            expires_in=300  # 5 minutes
+            expires_in=settings.jwt.access_token_expire_minutes * 60,
         )
         
     except HTTPException:
@@ -356,40 +366,50 @@ async def signup(
             detail="Internal server error"
         )
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh")
 async def refresh_token(
-    refresh_data: RefreshTokenRequest, 
-    request: Request, 
+    request: Request,
+    refresh_data: Optional[RefreshTokenRequest] = Body(None),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("refresh", require_auth=False))
 ):
-    """Refresh access token using refresh token"""
+    """Refresh access token using httpOnly cookie or legacy JSON body."""
     try:
-        # Get device info for security
+        refresh_token_value = resolve_refresh_token(
+            request,
+            refresh_data.refresh_token if refresh_data else None,
+        )
+        if not refresh_token_value:
+            raise APIHTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token required",
+                error_code="INVALID_REFRESH_TOKEN",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         device_info = f"{request.headers.get('user-agent', 'Unknown')}"
         ip_address = request.client.host if request.client else "Unknown"
         user_agent = request.headers.get('user-agent', 'Unknown')
         
-        # Refresh tokens
         access_token, new_refresh_token = AuthService.refresh_access_token(
-            db, refresh_data.refresh_token, device_info, ip_address, user_agent
+            db, refresh_token_value, device_info, ip_address, user_agent
         )
         
-        return TokenResponse(
+        return build_auth_token_response(
             access_token=access_token,
             refresh_token=new_refresh_token,
-            token_type="bearer",
-            expires_in=300  # 5 minutes
+            expires_in=settings.jwt.access_token_expire_minutes * 60,
         )
         
     except ValueError as e:
-        raise HTTPException(
+        raise APIHTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
+            error_code="INVALID_REFRESH_TOKEN",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-@router.post("/login-with-session-control", response_model=TokenResponse)
+@router.post("/login-with-session-control")
 async def login_with_session_control(
     credentials: UserSigninRequest,
     request: Request,
@@ -428,17 +448,18 @@ async def login_with_session_control(
         )
         
         if not result["success"]:
-            raise HTTPException(
+            error_code = "SESSION_EXISTS" if "session" in result.get("error", "").lower() else "LOGIN_FAILED"
+            raise APIHTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result["error"]
+                detail=result["error"],
+                error_code=error_code,
             )
         
-        return TokenResponse(
+        return build_auth_token_response(
             access_token=result["access_token"],
             refresh_token=result["refresh_token"],
-            token_type="bearer",
             expires_in=result["expires_in"],
-            session_info=result.get("session_info")
+            session_info=result.get("session_info"),
         )
         
     except HTTPException:
@@ -531,28 +552,39 @@ async def revoke_other_sessions(
             detail="Internal server error"
         )
 
-@router.post("/logout", response_model=LogoutResponse)
+@router.post("/logout")
 async def logout(
-    refresh_data: RefreshTokenRequest, 
+    request: Request,
+    refresh_data: Optional[RefreshTokenRequest] = Body(None),
     db: Session = Depends(get_db),
-    _: None = Depends(RateLimitDependency.check_rate_limit("logout"))
+    _: None = Depends(RateLimitDependency.check_rate_limit("logout", require_auth=False))
 ):
-    """Enhanced logout endpoint with Redis cache cleanup"""
+    """Logout: revoke refresh token from cookie or legacy body and clear cookie."""
     try:
-        # Get user from refresh token for additional cleanup
-        user = LogoutService.get_user_from_refresh_token(db, refresh_data.refresh_token)
+        refresh_token_value = resolve_refresh_token(
+            request,
+            refresh_data.refresh_token if refresh_data else None,
+        )
+        if not refresh_token_value:
+            raise APIHTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token required",
+                error_code="INVALID_REFRESH_TOKEN",
+            )
+
+        user = LogoutService.get_user_from_refresh_token(db, refresh_token_value)
         
-        # Perform logout with Redis cleanup
         success = LogoutService.logout_user(
             db=db,
-            refresh_token=refresh_data.refresh_token,
+            refresh_token=refresh_token_value,
             user_id=user.id if user else None
         )
         
         if not success:
-            raise HTTPException(
+            raise APIHTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid refresh token"
+                detail="Invalid refresh token",
+                error_code="INVALID_REFRESH_TOKEN",
             )
         
         # Create audit log for successful logout
@@ -586,7 +618,7 @@ async def logout(
                     event_type="sessions_deactivated"
                 )
         
-        return LogoutResponse(message="Successfully logged out")
+        return build_logout_response("Successfully logged out")
         
     except HTTPException:
         raise
@@ -620,10 +652,17 @@ async def logout_all_sessions(
         
         # Logout from all sessions
         revoked_count = LogoutService.logout_all_user_sessions(db, user.id)
-        
-        return SuccessResponse(
-            message=f"Successfully logged out from {revoked_count} sessions"
+
+        response = JSONResponse(
+            content={
+                "message": f"Successfully logged out from {revoked_count} sessions",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
         )
+        from utils.cookie_auth import clear_refresh_cookie
+
+        clear_refresh_cookie(response)
+        return response
         
     except HTTPException:
         raise

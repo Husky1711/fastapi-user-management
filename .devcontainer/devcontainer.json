@@ -2,13 +2,21 @@
   "name": "FastAPI User Management (Codespaces)",
   "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    }
   },
-  "forwardPorts": [9000, 3306, 6379],
+  "forwardPorts": [5173, 9000, 3306, 6379],
   "portsAttributes": {
-    "9000": {
-      "label": "FastAPI /docs",
+    "5173": {
+      "label": "Web UI",
       "onAutoForward": "openBrowser",
+      "visibility": "public"
+    },
+    "9000": {
+      "label": "FastAPI API",
+      "onAutoForward": "notify",
       "visibility": "public"
     },
     "3306": {
