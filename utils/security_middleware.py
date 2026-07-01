@@ -15,6 +15,37 @@ from typing import Callable
 from config.settings import settings
 from utils.loggers import security_logger, api_logger
 
+DOCS_PATH_PREFIXES = ("/docs", "/redoc", "/openapi.json")
+
+
+def _is_docs_path(path: str) -> bool:
+    return path == "/openapi.json" or path.startswith(DOCS_PATH_PREFIXES[:2])
+
+
+def _content_security_policy(path: str) -> str:
+    """Swagger UI and ReDoc load assets from cdn.jsdelivr.net — strict CSP breaks /docs."""
+    if _is_docs_path(path) and not settings.is_production():
+        return (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' https://cdn.jsdelivr.net; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
+
+    return (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to all responses"""
     
@@ -33,16 +64,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
         # Add Content Security Policy
-        csp_policy = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "font-src 'self'; "
-            "connect-src 'self'; "
-            "frame-ancestors 'none';"
+        response.headers["Content-Security-Policy"] = _content_security_policy(
+            request.url.path
         )
-        response.headers["Content-Security-Policy"] = csp_policy
         
         return response
 
