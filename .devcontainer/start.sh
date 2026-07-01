@@ -35,13 +35,18 @@ configure_codespace_env
 start_fastapi
 start_frontend
 
+API_PORT="$(read_app_port)"
+
 echo ""
 echo "Codespace is ready."
 echo "  Web UI:   http://localhost:5173"
 if [[ -n "${CODESPACE_NAME:-}" ]]; then
-  echo "  Public:   https://${CODESPACE_NAME}-5173.app.github.dev"
+  echo "  Public UI:  https://${CODESPACE_NAME}-5173.app.github.dev"
 fi
-echo "  API docs: http://localhost:9000/docs"
+echo "  API docs: http://localhost:${API_PORT}/docs"
+if [[ -n "${CODESPACE_NAME:-}" ]]; then
+  echo "  Public API: https://${CODESPACE_NAME}-${API_PORT}.app.github.dev/docs"
+fi
 echo "  API logs: tail -f logs/uvicorn.log"
 echo "  UI logs:  tail -f logs/vite.log"
 echo "  Restart:  bash .devcontainer/start.sh"

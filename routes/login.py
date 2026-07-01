@@ -633,7 +633,7 @@ async def logout(
             detail="Internal server error"
         )
 
-@router.post("/logout-all", response_model=SuccessResponse)
+@router.post("/logout-all")
 async def logout_all_sessions(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -741,15 +741,6 @@ async def revoke_session(
     db.commit()
     
     return SuccessResponse(message="Session revoked successfully")
-
-@router.get("/health", response_model=HealthCheckResponse)
-async def health_check():
-    """Health check endpoint"""
-    return HealthCheckResponse(
-        status="healthy",
-        version="1.0.0",
-        environment="development"
-    )
 
 @router.get("/users")
 async def get_all_users(

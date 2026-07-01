@@ -262,6 +262,17 @@ class SecuritySettings(BaseSettings):
     session_timeout_minutes: int = Field(30, description="Session timeout in minutes")
     max_login_attempts: int = Field(5, description="Maximum login attempts")
     lockout_duration_minutes: int = Field(15, description="Account lockout duration")
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            import json
+            text = value.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [origin.strip() for origin in text.split(",") if origin.strip()]
+        return value
     
     class Config:
         env_prefix = "SECURITY_"
@@ -362,6 +373,16 @@ class Settings(BaseSettings):
         
         # Allow nested env vars
         env_nested_delimiter = "__"
+
+    def model_post_init(self, __context: Any) -> None:
+        """Append GitHub Codespaces public origins for browser clients."""
+        codespace = os.getenv("CODESPACE_NAME")
+        if not codespace:
+            return
+        for port in (5173, 9000):
+            origin = f"https://{codespace}-{port}.app.github.dev"
+            if origin not in self.security.cors_origins:
+                self.security.cors_origins.append(origin)
     
     def get_database_url(self) -> str:
         """Get database URL with validation"""
