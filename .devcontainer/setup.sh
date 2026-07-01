@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-time Codespace setup: branch, venv, dependencies, then start all services.
+# One-time Codespace setup: venv, Python deps, frontend deps.
+# Does NOT start Docker/API/UI — postStartCommand runs start.sh for that.
 set -euo pipefail
 
 REPO_URL="${GIT_REPOSITORY_URL:-https://github.com/Husky1711/fastapi-user-management.git}"
@@ -13,14 +14,20 @@ echo "=============================================="
 
 cd "$(dirname "$0")/.."
 
-git fetch origin "${BRANCH}" 2>/dev/null || true
-if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
-  git checkout "${BRANCH}"
-elif git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
-  git checkout -B "${BRANCH}" "origin/${BRANCH}"
+# Best-effort branch sync (Codespace may already be on the right ref)
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  git fetch origin "${BRANCH}" 2>/dev/null || true
+  if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    git checkout "${BRANCH}" 2>/dev/null || true
+  elif git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+    git checkout -B "${BRANCH}" "origin/${BRANCH}" 2>/dev/null || true
+  fi
 fi
 
-python3 -m venv .venv
+if [[ ! -d .venv ]]; then
+  python3 -m venv .venv
+fi
+
 # shellcheck disable=SC1091
 source .venv/bin/activate
 pip install --upgrade pip
@@ -28,11 +35,28 @@ pip install -r requirements.txt
 
 cp -n .env.codespaces.example .env 2>/dev/null || cp .env.codespaces.example .env
 
-if [[ -d frontend ]] && command -v npm >/dev/null 2>&1; then
+install_frontend_deps() {
+  if [[ ! -d frontend ]]; then
+    echo "frontend/ not found — skipping npm install."
+    return 0
+  fi
+
+  # Node feature may not be on PATH immediately in some builds — try common locations.
+  if ! command -v npm >/dev/null 2>&1; then
+    export PATH="/usr/local/share/nvm/current/bin:${PATH}"
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "WARN: npm not found — frontend deps skipped. Rebuild Codespace or run: cd frontend && npm ci"
+    return 0
+  fi
+
   echo "Installing frontend dependencies..."
-  (cd frontend && npm ci)
-fi
+  (cd frontend && (npm ci || npm install))
+}
+
+install_frontend_deps
 
 echo ""
-echo "First-time setup complete. Starting services..."
-bash .devcontainer/start.sh
+echo "First-time setup complete (dependencies only)."
+echo "Services start via postStartCommand or manually:"
+echo "  bash .devcontainer/start.sh"

@@ -20,6 +20,11 @@ if [[ ! -f .env ]]; then
   cp .env.codespaces.example .env
 fi
 
+if ! wait_for_docker; then
+  echo "ERROR: Docker is not available. Open a new terminal and run: bash .devcontainer/start.sh"
+  exit 1
+fi
+
 docker compose -f docker-compose.codespaces.yml up -d
 wait_for_mysql
 wait_for_redis
