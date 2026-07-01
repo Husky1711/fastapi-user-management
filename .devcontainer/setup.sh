@@ -35,6 +35,16 @@ pip install -r requirements.txt
 
 cp -n .env.codespaces.example .env 2>/dev/null || cp .env.codespaces.example .env
 
+if [[ -f codespaces.ports.env ]]; then
+  # shellcheck source=codespaces.ports.env
+  source codespaces.ports.env
+  if grep -q '^APP__PORT=' .env; then
+    sed -i "s/^APP__PORT=.*/APP__PORT=${CODESPACES_API_PORT}/" .env
+  else
+    echo "APP__PORT=${CODESPACES_API_PORT}" >> .env
+  fi
+fi
+
 install_frontend_deps() {
   if [[ ! -d frontend ]]; then
     echo "frontend/ not found — skipping npm install."

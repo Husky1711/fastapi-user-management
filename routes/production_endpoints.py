@@ -185,66 +185,8 @@ async def get_audit_statistics(
         )
 
 # ============================================================================
-# SESSION MANAGEMENT ENDPOINTS
+# SESSION MANAGEMENT ENDPOINTS (admin analytics — list is on login router)
 # ============================================================================
-
-@router.get("/sessions", response_model=Dict[str, Any])
-async def get_user_sessions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-    include_inactive: bool = Query(False, description="Include inactive sessions"),
-    limit: int = Query(50, description="Maximum number of sessions"),
-    _: None = Depends(RateLimitDependency.check_rate_limit("sessions"))
-):
-    """
-    Get user sessions with device information
-    
-    **Features:**
-    - Device fingerprinting
-    - Browser and OS information
-    - Location tracking
-    - Activity timestamps
-    - Session status
-    """
-    try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Get user sessions
-        result = UserSessionService.get_user_sessions(
-            db=db,
-            user_id=current_user.id,
-            include_inactive=include_inactive,
-            limit=limit
-        )
-        
-        if not result["success"]:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result["error"]
-            )
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        auth_logger.error(
-            f"Get user sessions endpoint error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
-            error=str(e),
-            event_type="user_sessions_endpoint_error"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
 
 @router.get("/sessions/statistics", response_model=Dict[str, Any])
 async def get_session_statistics(

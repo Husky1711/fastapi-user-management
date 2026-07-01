@@ -33,7 +33,9 @@
   "remoteEnv": {
     "GIT_REPOSITORY_URL": "https://github.com/Husky1711/fastapi-user-management.git",
     "GIT_BRANCH": "feature/codespaces-local-db",
-    "CODESPACES_CONFIG": "codespaces.yaml"
+    "CODESPACES_CONFIG": "codespaces.yaml",
+    "CODESPACES_API_PORT": "9000",
+    "CODESPACES_UI_PORT": "5173"
   },
   "customizations": {
     "vscode": {

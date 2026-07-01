@@ -1,0 +1,4060 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI User Management",
+    "description": "Role-based multi-tenant user management system",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/login": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Login",
+        "description": "Login endpoint - returns access and refresh tokens",
+        "operationId": "login_api_v1_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSigninRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/signup": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Signup",
+        "description": "Signup endpoint - register a new user",
+        "operationId": "signup_api_v1_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSignupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/refresh": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Refresh Token",
+        "description": "Refresh access token using httpOnly cookie or legacy JSON body.",
+        "operationId": "refresh_token_api_v1_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshTokenRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Refresh Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/login-with-session-control": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Login With Session Control",
+        "description": "Enhanced login with session management options\n\nSession Strategies:\n- allow_multiple: Allow multiple sessions\n- replace_all: Replace all existing sessions (default)\n- replace_same_device: Replace sessions from same device\n- deny_if_exists: Deny login if user already has sessions\n- limit_sessions: Limit to max sessions per user",
+        "operationId": "login_with_session_control_api_v1_login_with_session_control_post",
+        "parameters": [
+          {
+            "name": "session_strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Session management strategy",
+              "title": "Session Strategy"
+            },
+            "description": "Session management strategy"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSigninRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/info": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Get Session Info",
+        "description": "Get detailed session information for current user",
+        "operationId": "get_session_info_api_v1_sessions_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Session Info Api V1 Sessions Info Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions/revoke-others": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Revoke Other Sessions",
+        "description": "Revoke all other sessions except current one",
+        "operationId": "revoke_other_sessions_api_v1_sessions_revoke_others_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/logout": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Logout",
+        "description": "Logout: revoke refresh token from cookie or legacy body and clear cookie.",
+        "operationId": "logout_api_v1_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshTokenRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Refresh Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/logout-all": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Logout All Sessions",
+        "description": "Logout from all sessions with Redis cache cleanup",
+        "operationId": "logout_all_sessions_api_v1_logout_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Get User Sessions",
+        "description": "Get all active sessions for current user",
+        "operationId": "get_user_sessions_api_v1_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/schemas__login__SessionInfo"
+                  },
+                  "type": "array",
+                  "title": "Response Get User Sessions Api V1 Sessions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}": {
+      "delete": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Revoke Session",
+        "description": "Revoke a specific session",
+        "operationId": "revoke_session_api_v1_sessions__session_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Get All Users",
+        "description": "Get users based on current user's role and organization",
+        "operationId": "get_all_users_api_v1_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Get User By Id",
+        "description": "Get specific user by ID based on current user's role and organization",
+        "operationId": "get_user_by_id_api_v1_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/debug-login": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Debug Login",
+        "description": "Debug login endpoint to test basic functionality",
+        "operationId": "debug_login_api_v1_debug_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSigninRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/debug-refresh": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Debug Refresh",
+        "description": "Debug refresh endpoint to test token refresh functionality",
+        "operationId": "debug_refresh_api_v1_debug_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/create": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Create User By Admin",
+        "description": "Create a new user by admin with proper role-based permissions\n\n**Who can use this endpoint:**\n- Super Admin: Can create users in any organization\n- Organization Admin: Can create users in their organization\n- Admin: Can create users in their organization (with role restrictions)\n- User: Cannot create users (403 Forbidden)\n\n**Role Hierarchy:**\n- Super Admin \u00e2\u2020\u2019 Can create: Organization Admin, Admin, User\n- Organization Admin \u00e2\u2020\u2019 Can create: Admin, User\n- Admin \u00e2\u2020\u2019 Can create: User only\n- User \u00e2\u2020\u2019 Cannot create anyone\n\n**Features:**\n- Auto-generate secure passwords\n- Organization inheritance\n- Role-based validation\n- Comprehensive logging\n- Rate limiting",
+        "operationId": "create_user_by_admin_api_v1_admin_users_create_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCreateUserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/password/reset-request": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Request Password Reset",
+        "description": "Request password reset for a user\n\n**Flow:**\n1. User provides email address\n2. System generates secure reset token\n3. Token stored in Redis with 15-minute expiration\n4. Email sent with reset link (TODO: implement email service)\n5. User clicks link and submits new password\n\n**Security Features:**\n- Rate limiting (5 requests per minute)\n- Token expiration (15 minutes)\n- Secure token generation\n- No email enumeration (same response for valid/invalid emails)",
+        "operationId": "request_password_reset_api_v1_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/password/reset": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Confirm Password Reset",
+        "description": "Confirm password reset with token and new password\n\n**Flow:**\n1. User submits reset token and new password\n2. System validates token from Redis\n3. System verifies token hasn't expired\n4. System updates user password\n5. System invalidates reset token\n\n**Security Features:**\n- Token validation and expiration check\n- Password complexity requirements\n- Token invalidation after use\n- Rate limiting (5 requests per minute)",
+        "operationId": "confirm_password_reset_api_v1_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetConfirmResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/password/reset/validate/{token}": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Validate Reset Token",
+        "description": "Validate a password reset token without consuming it\n\n**Use Case:**\n- Frontend can check if token is valid before showing reset form\n- Prevents users from submitting invalid tokens\n\n**Response:**\n- 200: Token is valid\n- 400: Token is invalid or expired",
+        "operationId": "validate_reset_token_api_v1_password_reset_validate__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profile": {
+      "get": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Get User Profile",
+        "description": "Get current user's profile information\n\n**Returns:**\n- User ID, username, email, role\n- Organization ID, status, phone number\n- Created date, last login",
+        "operationId": "get_user_profile_api_v1_profile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Update User Profile",
+        "description": "Update current user's profile information\n\n**Updatable Fields:**\n- Email address (with uniqueness check)\n- Phone number\n\n**Security Features:**\n- JWT authentication required\n- Rate limiting (10 requests per minute)\n- Email uniqueness validation\n- Audit logging",
+        "operationId": "update_user_profile_api_v1_profile_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileUpdateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/password/change": {
+      "post": {
+        "tags": [
+          "Authentication & User Management"
+        ],
+        "summary": "Change Password",
+        "description": "Change user password with current password verification\n\n**Flow:**\n1. User provides current password and new password\n2. System verifies current password\n3. System validates new password complexity\n4. System updates password in database\n5. System logs password change event\n\n**Security Features:**\n- Current password verification\n- Password complexity requirements\n- Rate limiting (5 requests per minute)\n- Audit logging\n- Password history check (new password must be different)",
+        "operationId": "change_password_api_v1_password_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChangeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/audit/logs": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Audit Logs",
+        "description": "Get audit logs with filtering options\n\n**Access Control:**\n- Requires authentication\n- Users can only see logs for their organization\n- Super Admins can see all logs\n\n**Features:**\n- Comprehensive filtering options\n- Pagination support\n- Organization isolation\n- Role-based access control",
+        "operationId": "get_audit_logs_api_v1_audit_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          },
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by event type",
+              "title": "Event Type"
+            },
+            "description": "Filter by event type"
+          },
+          {
+            "name": "event_category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by event category",
+              "title": "Event Category"
+            },
+            "description": "Filter by event category"
+          },
+          {
+            "name": "resource_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by resource type",
+              "title": "Resource Type"
+            },
+            "description": "Filter by resource type"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by status",
+              "title": "Status"
+            },
+            "description": "Filter by status"
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Start date (ISO format)",
+              "title": "Start Date"
+            },
+            "description": "Start date (ISO format)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "End date (ISO format)",
+              "title": "End Date"
+            },
+            "description": "End date (ISO format)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Maximum number of records",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Maximum number of records"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Number of records to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of records to skip"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Audit Logs Api V1 Audit Logs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit/statistics": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Audit Statistics",
+        "description": "Get audit statistics and analytics\n\n**Access Control:**\n- Requires authentication\n- Users can only see statistics for their organization\n- Super Admins can see all statistics",
+        "operationId": "get_audit_statistics_api_v1_audit_statistics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Start date (ISO format)",
+              "title": "Start Date"
+            },
+            "description": "Start date (ISO format)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "End date (ISO format)",
+              "title": "End Date"
+            },
+            "description": "End date (ISO format)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Audit Statistics Api V1 Audit Statistics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/statistics": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Session Statistics",
+        "description": "Get session statistics and analytics\n\n**Access Control:**\n- Requires authentication\n- Users can only see statistics for their organization\n- Super Admins can see all statistics",
+        "operationId": "get_session_statistics_api_v1_sessions_statistics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Session Statistics Api V1 Sessions Statistics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/cleanup": {
+      "post": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Cleanup Expired Sessions",
+        "description": "Clean up expired sessions\n\n**Access Control:**\n- Requires authentication\n- Only Super Admins and Organization Admins can perform cleanup",
+        "operationId": "cleanup_expired_sessions_api_v1_sessions_cleanup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Cleanup Expired Sessions Api V1 Sessions Cleanup Post"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/permissions": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get User Permissions",
+        "description": "Get user permissions\n\n**Access Control:**\n- Requires authentication\n- Users can only see their own permissions\n- Admins can see permissions for users in their organization\n- Super Admins can see all permissions",
+        "operationId": "get_user_permissions_api_v1_permissions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          },
+          {
+            "name": "include_expired",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include expired permissions",
+              "default": false,
+              "title": "Include Expired"
+            },
+            "description": "Include expired permissions"
+          },
+          {
+            "name": "resource_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by resource type",
+              "title": "Resource Type"
+            },
+            "description": "Filter by resource type"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get User Permissions Api V1 Permissions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/permissions/standard": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Standard Permissions",
+        "description": "Get list of standard permissions\n\n**Access Control:**\n- Requires authentication\n- Available to all authenticated users",
+        "operationId": "get_standard_permissions_api_v1_permissions_standard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Standard Permissions Api V1 Permissions Standard Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/permissions/statistics": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Permission Statistics",
+        "description": "Get permission statistics and analytics\n\n**Access Control:**\n- Requires authentication\n- Users can only see statistics for their organization\n- Super Admins can see all statistics",
+        "operationId": "get_permission_statistics_api_v1_permissions_statistics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Permission Statistics Api V1 Permissions Statistics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Organization Groups",
+        "description": "Get organization groups\n\n**Access Control:**\n- Requires authentication\n- Users can only see groups for their organization\n- Super Admins can see all groups",
+        "operationId": "get_organization_groups_api_v1_groups_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          },
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include inactive groups",
+              "default": false,
+              "title": "Include Inactive"
+            },
+            "description": "Include inactive groups"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Organization Groups Api V1 Groups Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/members": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Group Members",
+        "description": "Get group members\n\n**Access Control:**\n- Requires authentication\n- Users can only see members of groups in their organization\n- Super Admins can see all group members",
+        "operationId": "get_group_members_api_v1_groups__group_id__members_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include inactive memberships",
+              "default": false,
+              "title": "Include Inactive"
+            },
+            "description": "Include inactive memberships"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Group Members Api V1 Groups  Group Id  Members Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/statistics": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Group Statistics",
+        "description": "Get group statistics and analytics\n\n**Access Control:**\n- Requires authentication\n- Users can only see statistics for their organization\n- Super Admins can see all statistics",
+        "operationId": "get_group_statistics_api_v1_groups_statistics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Group Statistics Api V1 Groups Statistics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get User Api Keys",
+        "description": "Get user API keys\n\n**Access Control:**\n- Requires authentication\n- Users can only see their own API keys\n- Admins can see API keys for users in their organization\n- Super Admins can see all API keys",
+        "operationId": "get_user_api_keys_api_v1_api_keys_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          },
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include inactive keys",
+              "default": false,
+              "title": "Include Inactive"
+            },
+            "description": "Include inactive keys"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get User Api Keys Api V1 Api Keys Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-keys/standard-permissions": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Standard Api Permissions",
+        "description": "Get list of standard API permissions\n\n**Access Control:**\n- Requires authentication\n- Available to all authenticated users",
+        "operationId": "get_standard_api_permissions_api_v1_api_keys_standard_permissions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Standard Api Permissions Api V1 Api Keys Standard Permissions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/api-keys/statistics": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Api Key Statistics",
+        "description": "Get API key statistics and analytics\n\n**Access Control:**\n- Requires authentication\n- Users can only see statistics for their organization\n- Super Admins can see all statistics",
+        "operationId": "get_api_key_statistics_api_v1_api_keys_statistics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by organization ID",
+              "title": "Organization Id"
+            },
+            "description": "Filter by organization ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Api Key Statistics Api V1 Api Keys Statistics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/password/history": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Password History",
+        "description": "Get password history for a user\n\n**Access Control:**\n- Requires authentication\n- Users can only see their own password history\n- Admins can see password history for users in their organization\n- Super Admins can see all password history",
+        "operationId": "get_password_history_api_v1_password_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Maximum number of records",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "Maximum number of records"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Password History Api V1 Password History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/password/policy-stats": {
+      "get": {
+        "tags": [
+          "Production Features"
+        ],
+        "summary": "Get Password Policy Stats",
+        "description": "Get password policy statistics for a user\n\n**Access Control:**\n- Requires authentication\n- Users can only see their own password policy stats\n- Admins can see password policy stats for users in their organization\n- Super Admins can see all password policy stats",
+        "operationId": "get_password_policy_stats_api_v1_password_policy_stats_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Password Policy Stats Api V1 Password Policy Stats Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/2fa/enable": {
+      "post": {
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "summary": "Enable 2Fa",
+        "description": "Enable Two-Factor Authentication for user\n\n**Process:**\n1. User requests to enable 2FA\n2. Generate 2FA secret\n3. Generate QR code for scanning\n4. Return QR code and backup codes\n5. User scans QR with authenticator app\n6. User verifies with 2FA code\n7. 2FA is enabled",
+        "operationId": "enable_2fa_api_v1_2fa_enable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Enable2FARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Enable2FAResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/2fa/verify": {
+      "post": {
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "summary": "Verify 2Fa Code",
+        "description": "Verify 2FA code to complete 2FA setup or login\n\n**Use Cases:**\n1. Complete 2FA setup after scanning QR code\n2. Login with 2FA enabled",
+        "operationId": "verify_2fa_code_api_v1_2fa_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verify2FARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Verify2FAResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/2fa/disable": {
+      "post": {
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "summary": "Disable 2Fa",
+        "description": "Disable Two-Factor Authentication for user",
+        "operationId": "disable_2fa_api_v1_2fa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Disable2FARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Disable2FAResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/2fa/status": {
+      "get": {
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "summary": "Get 2Fa Status",
+        "description": "Get 2FA status for current user",
+        "operationId": "get_2fa_status_api_v1_2fa_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/user/overview": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get User Dashboard Overview",
+        "description": "Get user's personal dashboard overview\n\n**Returns:**\n- User profile information\n- Active session count\n- Last login timestamp\n- Account creation date",
+        "operationId": "get_user_dashboard_overview_api_v1_dashboard_user_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDashboardOverview"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/user/activity": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get User Activity",
+        "description": "Get user's account activity\n\n**Returns:**\n- Recent activity log\n- Login statistics (today, this week, this month)\n- Activity timeline",
+        "operationId": "get_user_activity_api_v1_dashboard_user_activity_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserActivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/user/sessions": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get User Sessions Dashboard",
+        "description": "Get user's active sessions\n\n**Returns:**\n- All active sessions\n- Device information\n- Location info\n- Last activity time\n- IP address",
+        "operationId": "get_user_sessions_dashboard_api_v1_dashboard_user_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSessionsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/admin/overview": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Admin Dashboard Overview",
+        "description": "Get admin's dashboard overview with organization statistics\n\n**Returns:**\n- Total users in organization\n- Active users count\n- Active sessions count\n- Today's statistics (logins, new users, password resets)",
+        "operationId": "get_admin_dashboard_overview_api_v1_dashboard_admin_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDashboardOverview"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/admin/users/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Admin Users Stats",
+        "description": "Get user management statistics for admin\n\n**Returns:**\n- Total users count\n- Active/inactive/locked user counts\n- Users by status breakdown\n- Recent users list",
+        "operationId": "get_admin_users_stats_api_v1_dashboard_admin_users_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUsersStats"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/admin/activity/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Admin Activity Stats",
+        "description": "Get organization activity statistics for admin\n\n**Returns:**\n- Total activity today\n- Activity breakdown by type\n- Recent activity list",
+        "operationId": "get_admin_activity_stats_api_v1_dashboard_admin_activity_stats_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivityStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/organization-admin/overview": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Organization Admin Overview",
+        "description": "Get organization admin's dashboard overview\n\n**Returns:**\n- Organization information\n- Total users and roles breakdown\n- Active sessions count\n- Today's statistics",
+        "operationId": "get_organization_admin_overview_api_v1_dashboard_organization_admin_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/organization-admin/users/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Organization Admin Users Stats",
+        "description": "Get organization user management statistics\n\n**Returns:**\n- User counts by status and role\n- Recent users\n- Role distribution",
+        "operationId": "get_organization_admin_users_stats_api_v1_dashboard_organization_admin_users_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/organization-admin/sessions/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Organization Admin Sessions Stats",
+        "description": "Get organization session statistics\n\n**Returns:**\n- Total and active sessions\n- Sessions by device type\n- Recent sessions",
+        "operationId": "get_organization_admin_sessions_stats_api_v1_dashboard_organization_admin_sessions_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/super-admin/overview": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Super Admin Overview",
+        "description": "Get super admin's system-wide overview\n\n**Returns:**\n- Total organizations, users, admins, sessions\n- Active sessions count\n- System health status\n- Today's statistics",
+        "operationId": "get_super_admin_overview_api_v1_dashboard_super_admin_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/super-admin/users/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Super Admin Users Stats",
+        "description": "Get system-wide user statistics\n\n**Returns:**\n- Total users by role and status\n- Users created today/this week/this month\n- Recent users",
+        "operationId": "get_super_admin_users_stats_api_v1_dashboard_super_admin_users_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/super-admin/organizations/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Super Admin Organizations Stats",
+        "description": "Get organization statistics across the system\n\n**Returns:**\n- Total organizations count\n- Organizations by size\n- Active vs inactive orgs",
+        "operationId": "get_super_admin_organizations_stats_api_v1_dashboard_super_admin_organizations_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/super-admin/sessions/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Super Admin Sessions Stats",
+        "description": "Get system-wide session statistics\n\n**Returns:**\n- Total and active sessions\n- Sessions by status\n- Recent sessions",
+        "operationId": "get_super_admin_sessions_stats_api_v1_dashboard_super_admin_sessions_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "description": "Basic health check endpoint",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Check Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Api Health Check",
+        "description": "API versioned health check endpoint",
+        "operationId": "api_health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api Health Check Api V1 Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/detailed": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Detailed Health Check",
+        "description": "Detailed health check with system status",
+        "operationId": "detailed_health_check_health_detailed_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Detailed Health Check Health Detailed Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Readiness Check",
+        "description": "Kubernetes readiness probe endpoint",
+        "operationId": "readiness_check_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Readiness Check Health Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness Check",
+        "description": "Kubernetes liveness probe endpoint",
+        "operationId": "liveness_check_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Liveness Check Health Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hello": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Hello World",
+        "description": "Legacy hello world endpoint",
+        "operationId": "hello_world_hello_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Hello World Hello Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "Root"
+        ],
+        "summary": "Root",
+        "description": "Root endpoint with API information",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActivityItem": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "resource_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ActivityItem",
+        "description": "Single activity log item",
+        "example": {
+          "action": "login",
+          "ip_address": "192.168.1.1",
+          "resource_type": "user",
+          "status": "success",
+          "time": "2024-01-15T10:30:00"
+        }
+      },
+      "AdminActivityItem": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "title": "AdminActivityItem",
+        "description": "Activity item for admin dashboard",
+        "example": {
+          "action": "login",
+          "status": "success",
+          "time": "2024-01-15T10:30:00Z",
+          "user_id": 1,
+          "username": "john_doe"
+        }
+      },
+      "AdminActivityStats": {
+        "properties": {
+          "total_activity_today": {
+            "type": "integer",
+            "title": "Total Activity Today"
+          },
+          "activity_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Activity By Type"
+          },
+          "recent_activity": {
+            "items": {
+              "$ref": "#/components/schemas/AdminActivityItem"
+            },
+            "type": "array",
+            "title": "Recent Activity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_activity_today",
+          "activity_by_type",
+          "recent_activity"
+        ],
+        "title": "AdminActivityStats",
+        "description": "Admin activity statistics response",
+        "example": {
+          "activity_by_type": {
+            "login": 200,
+            "logout": 150,
+            "password_change": 50,
+            "user_creation": 10
+          },
+          "recent_activity": [
+            {
+              "action": "login",
+              "status": "success",
+              "time": "2024-01-15T10:30:00Z",
+              "user_id": 1,
+              "username": "john_doe"
+            }
+          ],
+          "total_activity_today": 500
+        }
+      },
+      "AdminCreateUserRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Username",
+            "description": "Username must be 3-50 characters"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Valid email address"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "description": "Password (optional if auto_generate_password is True)"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "User role to assign",
+            "default": "user"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id",
+            "description": "Organization ID (inherited from creator if not specified)"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number",
+            "description": "Phone number"
+          },
+          "send_welcome_email": {
+            "type": "boolean",
+            "title": "Send Welcome Email",
+            "description": "Send welcome email to new user",
+            "default": true
+          },
+          "auto_generate_password": {
+            "type": "boolean",
+            "title": "Auto Generate Password",
+            "description": "Auto-generate secure password",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "email"
+        ],
+        "title": "AdminCreateUserRequest",
+        "description": "Schema for admin user creation request"
+      },
+      "AdminCreateUserResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether user creation was successful"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success or error message"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Created user details"
+          },
+          "generated_password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated Password",
+            "description": "Auto-generated password (if applicable)"
+          },
+          "email_sent": {
+            "type": "boolean",
+            "title": "Email Sent",
+            "description": "Whether welcome email was sent",
+            "default": false
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Creation timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "AdminCreateUserResponse",
+        "description": "Schema for admin user creation response"
+      },
+      "AdminDashboardOverview": {
+        "properties": {
+          "total_users": {
+            "type": "integer",
+            "title": "Total Users"
+          },
+          "active_users": {
+            "type": "integer",
+            "title": "Active Users"
+          },
+          "active_sessions": {
+            "type": "integer",
+            "title": "Active Sessions"
+          },
+          "today_stats": {
+            "$ref": "#/components/schemas/TodayStats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_users",
+          "active_users",
+          "active_sessions",
+          "today_stats"
+        ],
+        "title": "AdminDashboardOverview",
+        "description": "Admin dashboard overview response",
+        "example": {
+          "active_sessions": 85,
+          "active_users": 120,
+          "today_stats": {
+            "logins": 50,
+            "new_users": 2,
+            "password_resets": 5
+          },
+          "total_users": 150
+        }
+      },
+      "AdminUsersStats": {
+        "properties": {
+          "total_users": {
+            "type": "integer",
+            "title": "Total Users"
+          },
+          "active_users": {
+            "type": "integer",
+            "title": "Active Users"
+          },
+          "locked_users": {
+            "type": "integer",
+            "title": "Locked Users"
+          },
+          "users_by_status": {
+            "$ref": "#/components/schemas/UsersByStatus"
+          },
+          "recent_users": {
+            "items": {
+              "$ref": "#/components/schemas/RecentUser"
+            },
+            "type": "array",
+            "title": "Recent Users"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_users",
+          "active_users",
+          "locked_users",
+          "users_by_status",
+          "recent_users"
+        ],
+        "title": "AdminUsersStats",
+        "description": "Admin users statistics response",
+        "example": {
+          "active_users": 120,
+          "locked_users": 2,
+          "recent_users": [
+            {
+              "created_at": "2024-01-15T10:30:00Z",
+              "email": "john@example.com",
+              "id": 1,
+              "role": "user",
+              "status": "active",
+              "username": "john_doe"
+            }
+          ],
+          "total_users": 150,
+          "users_by_status": {
+            "active": 120,
+            "inactive": 28,
+            "locked": 2
+          }
+        }
+      },
+      "Disable2FARequest": {
+        "properties": {
+          "totp_code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Totp Code",
+            "description": "Current 2FA code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totp_code"
+        ],
+        "title": "Disable2FARequest",
+        "description": "Request to disable 2FA"
+      },
+      "Disable2FAResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "Disable2FAResponse",
+        "description": "Response for 2FA disabling"
+      },
+      "Enable2FARequest": {
+        "properties": {},
+        "type": "object",
+        "title": "Enable2FARequest",
+        "description": "Request to enable 2FA"
+      },
+      "Enable2FAResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "qr_code": {
+            "type": "string",
+            "title": "Qr Code"
+          },
+          "backup_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Backup Codes"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "qr_code",
+          "backup_codes",
+          "username"
+        ],
+        "title": "Enable2FAResponse",
+        "description": "Response for 2FA enabling"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PasswordChangeRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "title": "Current Password",
+            "description": "Current password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "New Password",
+            "description": "New password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeRequest",
+        "description": "Schema for password change request"
+      },
+      "PasswordChangeResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether password change was successful"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success or error message"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Change timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "PasswordChangeResponse",
+        "description": "Schema for password change response"
+      },
+      "PasswordResetConfirm": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 32,
+            "title": "Token",
+            "description": "Reset token"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "New Password",
+            "description": "New password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "title": "PasswordResetConfirm",
+        "description": "Schema for password reset confirmation"
+      },
+      "PasswordResetConfirmResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether password reset was successful"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success or error message"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Reset timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "PasswordResetConfirmResponse",
+        "description": "Schema for password reset confirmation response"
+      },
+      "PasswordResetRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Email address to send reset link"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "PasswordResetRequest",
+        "description": "Schema for password reset request"
+      },
+      "PasswordResetResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether reset request was successful"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success or error message"
+          },
+          "reset_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Token",
+            "description": "Reset token (for testing)"
+          },
+          "expires_in_minutes": {
+            "type": "integer",
+            "title": "Expires In Minutes",
+            "description": "Token expiration time in minutes",
+            "default": 15
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Request timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "PasswordResetResponse",
+        "description": "Schema for password reset response"
+      },
+      "ProfileInfo": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number"
+          },
+          "is_2fa_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is 2Fa Enabled",
+            "description": "Whether 2FA is enabled"
+          },
+          "failed_login_attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Login Attempts",
+            "description": "Number of failed login attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "email",
+          "role",
+          "status"
+        ],
+        "title": "ProfileInfo",
+        "description": "User profile information",
+        "example": {
+          "email": "john@example.com",
+          "failed_login_attempts": 0,
+          "is_2fa_enabled": false,
+          "organization_id": 1,
+          "phone_number": "1234567890",
+          "role": "user",
+          "status": "active",
+          "username": "john_doe"
+        }
+      },
+      "RecentUser": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "email",
+          "role",
+          "status"
+        ],
+        "title": "RecentUser",
+        "description": "Recent user information",
+        "example": {
+          "created_at": "2024-01-15T10:30:00Z",
+          "email": "john@example.com",
+          "id": 1,
+          "role": "user",
+          "status": "active",
+          "username": "john_doe"
+        }
+      },
+      "RefreshTokenRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token",
+            "description": "Valid refresh token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshTokenRequest",
+        "description": "Schema for refresh token request"
+      },
+      "SuccessResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success message"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Response timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "SuccessResponse",
+        "description": "Schema for success responses"
+      },
+      "TodayStats": {
+        "properties": {
+          "logins": {
+            "type": "integer",
+            "title": "Logins"
+          },
+          "new_users": {
+            "type": "integer",
+            "title": "New Users"
+          },
+          "password_resets": {
+            "type": "integer",
+            "title": "Password Resets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "logins",
+          "new_users",
+          "password_resets"
+        ],
+        "title": "TodayStats",
+        "description": "Today's statistics",
+        "example": {
+          "logins": 50,
+          "new_users": 2,
+          "password_resets": 5
+        }
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "JWT access token"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token",
+            "description": "JWT refresh token"
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/TokenType",
+            "description": "Token type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Access token expiration time in seconds"
+          },
+          "session_info": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Info",
+            "description": "Session management information"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "TokenResponse",
+        "description": "Schema for authentication token response"
+      },
+      "TokenType": {
+        "type": "string",
+        "enum": [
+          "bearer"
+        ],
+        "title": "TokenType"
+      },
+      "UserActivityResponse": {
+        "properties": {
+          "recent_activity": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "type": "array",
+            "title": "Recent Activity"
+          },
+          "total_logins_today": {
+            "type": "integer",
+            "title": "Total Logins Today",
+            "description": "Total logins today"
+          },
+          "total_logins_this_week": {
+            "type": "integer",
+            "title": "Total Logins This Week",
+            "description": "Total logins this week"
+          },
+          "total_logins_this_month": {
+            "type": "integer",
+            "title": "Total Logins This Month",
+            "description": "Total logins this month"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recent_activity",
+          "total_logins_today",
+          "total_logins_this_week",
+          "total_logins_this_month"
+        ],
+        "title": "UserActivityResponse",
+        "description": "User activity response",
+        "example": {
+          "recent_activity": [
+            {
+              "action": "login",
+              "ip_address": "192.168.1.1",
+              "resource_type": "user",
+              "status": "success",
+              "time": "2024-01-15T10:30:00"
+            }
+          ],
+          "total_logins_this_month": 20,
+          "total_logins_this_week": 5,
+          "total_logins_today": 1
+        }
+      },
+      "UserDashboardOverview": {
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ProfileInfo"
+          },
+          "active_sessions": {
+            "type": "integer",
+            "title": "Active Sessions",
+            "description": "Number of active sessions"
+          },
+          "last_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login",
+            "description": "Last login timestamp (ISO format)"
+          },
+          "account_created": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Created",
+            "description": "Account creation timestamp (ISO format)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile",
+          "active_sessions"
+        ],
+        "title": "UserDashboardOverview",
+        "description": "User dashboard overview response",
+        "example": {
+          "account_created": "2024-01-01T00:00:00",
+          "active_sessions": 3,
+          "last_login": "2024-01-15T10:30:00",
+          "profile": {
+            "email": "john@example.com",
+            "organization_id": 1,
+            "role": "user",
+            "status": "active",
+            "username": "john_doe"
+          }
+        }
+      },
+      "UserProfileUpdate": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email",
+            "description": "New email address"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number",
+            "description": "New phone number"
+          }
+        },
+        "type": "object",
+        "title": "UserProfileUpdate",
+        "description": "Schema for user profile update"
+      },
+      "UserProfileUpdateResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether profile update was successful"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Success or error message"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Updated user details"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "Update timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id",
+            "description": "Request correlation ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "UserProfileUpdateResponse",
+        "description": "Schema for user profile update response"
+      },
+      "UserResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "User ID"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Username"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Email address"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "User role"
+          },
+          "organization_id": {
+            "type": "integer",
+            "title": "Organization Id",
+            "description": "Organization ID"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus",
+            "description": "User status"
+          },
+          "phone_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Number",
+            "description": "Phone number"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Account creation date"
+          },
+          "last_login": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login",
+            "description": "Last login timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "email",
+          "role",
+          "organization_id",
+          "status",
+          "created_at"
+        ],
+        "title": "UserResponse",
+        "description": "Schema for user information response"
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "super_admin",
+          "organization_admin",
+          "admin",
+          "user"
+        ],
+        "title": "UserRole"
+      },
+      "UserSessionsResponse": {
+        "properties": {
+          "active_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/schemas__dashboard__SessionInfo"
+            },
+            "type": "array",
+            "title": "Active Sessions"
+          },
+          "total_sessions": {
+            "type": "integer",
+            "title": "Total Sessions",
+            "description": "Total number of active sessions"
+          },
+          "can_revoke": {
+            "type": "boolean",
+            "title": "Can Revoke",
+            "description": "Whether user can revoke sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_sessions",
+          "total_sessions",
+          "can_revoke"
+        ],
+        "title": "UserSessionsResponse",
+        "description": "User sessions response",
+        "example": {
+          "active_sessions": [
+            {
+              "device": "Chrome on Windows",
+              "expires_at": "2024-01-16T10:30:00",
+              "id": 123,
+              "ip_address": "192.168.1.1",
+              "last_active": "2024-01-15T10:30:00",
+              "location": "New York, USA"
+            }
+          ],
+          "can_revoke": true,
+          "total_sessions": 3
+        }
+      },
+      "UserSigninRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Username",
+            "description": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "UserSigninRequest",
+        "description": "Schema for user login request"
+      },
+      "UserSignupRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Username",
+            "description": "Username must be 3-50 characters"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Password must be 8-100 characters"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Valid email address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "email"
+        ],
+        "title": "UserSignupRequest",
+        "description": "Schema for user registration request"
+      },
+      "UserStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "inactive",
+          "suspended",
+          "pending"
+        ],
+        "title": "UserStatus"
+      },
+      "UsersByStatus": {
+        "properties": {
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "inactive": {
+            "type": "integer",
+            "title": "Inactive"
+          },
+          "locked": {
+            "type": "integer",
+            "title": "Locked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active",
+          "inactive",
+          "locked"
+        ],
+        "title": "UsersByStatus",
+        "description": "Users breakdown by status",
+        "example": {
+          "active": 120,
+          "inactive": 28,
+          "locked": 2
+        }
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "Verify2FARequest": {
+        "properties": {
+          "totp_code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Totp Code",
+            "description": "6-digit TOTP code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totp_code"
+        ],
+        "title": "Verify2FARequest",
+        "description": "Request to verify 2FA code"
+      },
+      "Verify2FAResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "Verify2FAResponse",
+        "description": "Response for 2FA verification"
+      },
+      "schemas__dashboard__SessionInfo": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "device": {
+            "type": "string",
+            "title": "Device"
+          },
+          "location": {
+            "type": "string",
+            "title": "Location"
+          },
+          "last_active": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Active"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device",
+          "location"
+        ],
+        "title": "SessionInfo",
+        "description": "Session information",
+        "example": {
+          "device": "Chrome on Windows",
+          "expires_at": "2024-01-16T10:30:00",
+          "id": 123,
+          "ip_address": "192.168.1.1",
+          "last_active": "2024-01-15T10:30:00",
+          "location": "New York, USA"
+        }
+      },
+      "schemas__login__SessionInfo": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Session ID"
+          },
+          "device_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Info",
+            "description": "Device information"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address",
+            "description": "IP address"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Session creation time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "Session expiration time"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "description": "Whether session is active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "expires_at",
+          "is_active"
+        ],
+        "title": "SessionInfo",
+        "description": "Schema for user session information"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
