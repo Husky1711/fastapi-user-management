@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Shared helpers for Codespaces setup and start scripts.
 
+# Load canonical ports (codespaces.ports.env)
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "${REPO_ROOT}/codespaces.ports.env" ]]; then
+  # shellcheck source=../codespaces.ports.env
+  source "${REPO_ROOT}/codespaces.ports.env"
+fi
+export CODESPACES_API_PORT="${CODESPACES_API_PORT:-9000}"
+export CODESPACES_UI_PORT="${CODESPACES_UI_PORT:-5173}"
+export FRONTEND_PORT="${CODESPACES_UI_PORT}"
+
 wait_for_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     echo "Docker CLI not found."
@@ -61,12 +71,12 @@ seed_database() {
 }
 
 frontend_is_running() {
-  pgrep -f "vite.*--port ${FRONTEND_PORT:-5173}" >/dev/null 2>&1 \
-    || pgrep -f "vite.*${FRONTEND_PORT:-5173}" >/dev/null 2>&1
+  pgrep -f "vite.*--port ${CODESPACES_UI_PORT}" >/dev/null 2>&1 \
+    || pgrep -f "vite.*${CODESPACES_UI_PORT}" >/dev/null 2>&1
 }
 
 start_frontend() {
-  local port="${FRONTEND_PORT:-5173}"
+  local port="${CODESPACES_UI_PORT}"
 
   if [[ ! -d frontend ]]; then
     echo "frontend/ not found — skipping UI."
@@ -94,7 +104,8 @@ start_frontend() {
     npm ci
   fi
 
-  nohup npm run dev -- --host 0.0.0.0 --port "${port}" >> ../logs/vite.log 2>&1 &
+  nohup env VITE_API_PROXY_TARGET="http://127.0.0.1:${CODESPACES_API_PORT}" \
+    npm run dev -- --host 0.0.0.0 --port "${port}" --strictPort >> ../logs/vite.log 2>&1 &
   disown
   popd >/dev/null
 
@@ -122,25 +133,28 @@ print_frontend_urls() {
 }
 
 configure_codespace_env() {
-  # Vite proxies /api to the API — same-origin in the browser.
   if [[ -n "${CODESPACE_NAME:-}" ]]; then
     export CODESPACE_NAME
-    local ui_origin="https://${CODESPACE_NAME}-5173.app.github.dev"
-    local api_origin="https://${CODESPACE_NAME}-9000.app.github.dev"
-    export SECURITY__CORS_ORIGINS="[\"http://localhost:5173\",\"http://127.0.0.1:5173\",\"${ui_origin}\",\"${api_origin}\"]"
+    local ui_origin="https://${CODESPACE_NAME}-${CODESPACES_UI_PORT}.app.github.dev"
+    local api_origin="https://${CODESPACE_NAME}-${CODESPACES_API_PORT}.app.github.dev"
+    export SECURITY__CORS_ORIGINS="[\"http://localhost:${CODESPACES_UI_PORT}\",\"http://127.0.0.1:${CODESPACES_UI_PORT}\",\"${ui_origin}\",\"${api_origin}\"]"
   fi
 }
 
 read_app_port() {
-  local port=9000
-  if [[ -f .env ]]; then
-    # shellcheck disable=SC1091
-    set -a
-    source .env
-    set +a
-    port="${APP__PORT:-${APP_PORT:-9000}}"
-  fi
-  echo "${port}"
+  echo "${CODESPACES_API_PORT}"
+}
+
+stop_stale_api_processes() {
+  local port
+  port="$(read_app_port)"
+  # Kill uvicorn on wrong ports (e.g. 8000 from manual runs or old config)
+  while read -r stale_port; do
+    if [[ "${stale_port}" != "${port}" ]]; then
+      echo "Stopping stale API on port ${stale_port}..."
+      pkill -f "uvicorn main:app.*--port ${stale_port}" 2>/dev/null || true
+    fi
+  done < <(pgrep -af "uvicorn main:app" 2>/dev/null | grep -oE '\-\-port [0-9]+' | awk '{print $2}' | sort -u)
 }
 
 fastapi_is_running() {
@@ -152,6 +166,8 @@ fastapi_is_running() {
 start_fastapi() {
   local port
   port="$(read_app_port)"
+
+  stop_stale_api_processes
 
   if fastapi_is_running; then
     echo "FastAPI is already running on port ${port}."

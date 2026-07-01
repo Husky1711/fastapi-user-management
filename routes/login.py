@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Body
+﻿from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Body
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -980,10 +980,10 @@ async def create_user_by_admin(
     - User: Cannot create users (403 Forbidden)
     
     **Role Hierarchy:**
-    - Super Admin → Can create: Organization Admin, Admin, User
-    - Organization Admin → Can create: Admin, User
-    - Admin → Can create: User only
-    - User → Cannot create anyone
+    - Super Admin â†’ Can create: Organization Admin, Admin, User
+    - Organization Admin â†’ Can create: Admin, User
+    - Admin â†’ Can create: User only
+    - User â†’ Cannot create anyone
     
     **Features:**
     - Auto-generate secure passwords
@@ -1504,174 +1504,6 @@ async def change_password(
             error=str(e),
             correlation_id=correlation_id,
             event_type="change_password_endpoint_error"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
-
-# ============================================================================
-# PRODUCTION API ENDPOINTS - ADVANCED FEATURES
-# ============================================================================
-
-# ============================================================================
-# AUDIT LOGGING ENDPOINTS
-# ============================================================================
-
-@router.get("/audit/logs", response_model=Dict[str, Any])
-async def get_audit_logs(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-    user_id: int = Query(None, description="Filter by user ID"),
-    organization_id: int = Query(None, description="Filter by organization ID"),
-    event_type: str = Query(None, description="Filter by event type"),
-    event_category: str = Query(None, description="Filter by event category"),
-    resource_type: str = Query(None, description="Filter by resource type"),
-    status: str = Query(None, description="Filter by status"),
-    start_date: str = Query(None, description="Start date (ISO format)"),
-    end_date: str = Query(None, description="End date (ISO format)"),
-    limit: int = Query(100, description="Maximum number of records"),
-    offset: int = Query(0, description="Number of records to skip"),
-    _: None = Depends(RateLimitDependency.check_rate_limit("audit_logs"))
-):
-    """
-    Get audit logs with filtering options
-    
-    **Access Control:**
-    - Requires authentication
-    - Users can only see logs for their organization
-    - Super Admins can see all logs
-    
-    **Features:**
-    - Comprehensive filtering options
-    - Pagination support
-    - Organization isolation
-    - Role-based access control
-    """
-    try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Parse dates if provided
-        start_datetime = None
-        end_datetime = None
-        if start_date:
-            start_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        if end_date:
-            end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
-            filter_organization_id = current_user.organization_id
-        
-        # Get audit logs
-        result = AuditLogService.get_audit_logs(
-            db=db,
-            user_id=user_id,
-            organization_id=filter_organization_id,
-            event_type=event_type,
-            event_category=event_category,
-            resource_type=resource_type,
-            status=status,
-            start_date=start_datetime,
-            end_date=end_datetime,
-            limit=limit,
-            offset=offset
-        )
-        
-        if not result["success"]:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result["error"]
-            )
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        auth_logger.error(
-            f"Get audit logs endpoint error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
-            error=str(e),
-            event_type="audit_logs_endpoint_error"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
-
-@router.get("/audit/statistics", response_model=Dict[str, Any])
-async def get_audit_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-    organization_id: int = Query(None, description="Filter by organization ID"),
-    start_date: str = Query(None, description="Start date (ISO format)"),
-    end_date: str = Query(None, description="End date (ISO format)"),
-    _: None = Depends(RateLimitDependency.check_rate_limit("audit_statistics"))
-):
-    """
-    Get audit statistics and analytics
-    
-    **Access Control:**
-    - Requires authentication
-    - Users can only see statistics for their organization
-    - Super Admins can see all statistics
-    """
-    try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Parse dates if provided
-        start_datetime = None
-        end_datetime = None
-        if start_date:
-            start_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        if end_date:
-            end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
-            filter_organization_id = current_user.organization_id
-        
-        # Get audit statistics
-        result = AuditLogService.get_audit_statistics(
-            db=db,
-            organization_id=filter_organization_id,
-            start_date=start_datetime,
-            end_date=end_datetime
-        )
-        
-        if not result["success"]:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result["error"]
-            )
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        auth_logger.error(
-            f"Get audit statistics endpoint error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
-            error=str(e),
-            event_type="audit_statistics_endpoint_error"
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
