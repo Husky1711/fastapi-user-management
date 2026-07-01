@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -7,6 +7,7 @@ from services.auth import AuthService
 from utils.database import get_db
 from utils.redis_config import RedisClient
 from utils.loggers import api_logger
+from utils.api_errors import APIHTTPException
 
 security = HTTPBearer()
 
@@ -51,9 +52,10 @@ class RateLimitDependency:
             
             if not ip_allowed:
                 retry_after = RateLimitService.get_retry_after(ip_remaining)
-                raise HTTPException(
+                raise APIHTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded for IP. Try again in {retry_after} seconds.",
+                    error_code="RATE_LIMIT_EXCEEDED",
                     headers={
                         "X-RateLimit-Limit": str(max(ip_remaining.values()) if ip_remaining else 0),
                         "X-RateLimit-Remaining": str(min(ip_remaining.values()) if ip_remaining else 0),
@@ -75,9 +77,10 @@ class RateLimitDependency:
                             
                             if not user_allowed:
                                 retry_after = RateLimitService.get_retry_after(user_remaining)
-                                raise HTTPException(
+                                raise APIHTTPException(
                                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                                     detail=f"Rate limit exceeded for user. Try again in {retry_after} seconds.",
+                                    error_code="RATE_LIMIT_EXCEEDED",
                                     headers={
                                         "X-RateLimit-Limit": str(max(user_remaining.values()) if user_remaining else 0),
                                         "X-RateLimit-Remaining": str(min(user_remaining.values()) if user_remaining else 0),

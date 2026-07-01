@@ -250,7 +250,14 @@ class LoggingSettings(BaseSettings):
 class SecuritySettings(BaseSettings):
     """Security configuration settings"""
     enable_cors: bool = Field(True, description="Enable CORS")
-    cors_origins: list = Field(["*"], description="CORS allowed origins")
+    cors_origins: list = Field(
+        default=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+        ],
+        description="CORS allowed origins (must be explicit when using credentials)",
+    )
     enable_https_redirect: bool = Field(False, description="Enable HTTPS redirect")
     session_timeout_minutes: int = Field(30, description="Session timeout in minutes")
     max_login_attempts: int = Field(5, description="Maximum login attempts")
@@ -258,6 +265,40 @@ class SecuritySettings(BaseSettings):
     
     class Config:
         env_prefix = "SECURITY_"
+
+
+class AuthCookieSettings(BaseSettings):
+    """httpOnly refresh-token cookie settings for browser clients."""
+    use_httponly_refresh: bool = Field(
+        True, description="Set refresh token in httpOnly cookie"
+    )
+    legacy_json_refresh: bool = Field(
+        True,
+        description="Also return refresh_token in JSON during transition (disable in prod)",
+    )
+    name: str = Field("refresh_token", description="Refresh cookie name")
+    path: str = Field("/api/v1", description="Cookie path")
+    domain: Optional[str] = Field(
+        None,
+        description="Cookie domain (e.g. .example.com); empty for host-only",
+    )
+    samesite: str = Field("lax", description="SameSite policy: lax, strict, or none")
+    secure: bool = Field(
+        False,
+        description="Secure cookie flag (enable in staging/production HTTPS)",
+    )
+
+    @field_validator("samesite")
+    @classmethod
+    def validate_samesite(cls, v: str) -> str:
+        allowed = {"lax", "strict", "none"}
+        value = v.lower()
+        if value not in allowed:
+            raise ValueError(f"SameSite must be one of: {allowed}")
+        return value
+
+    class Config:
+        env_prefix = "AUTH_COOKIE__"
 
 class EmailSettings(BaseSettings):
     """Email configuration settings"""
@@ -308,6 +349,7 @@ class Settings(BaseSettings):
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    auth_cookie: AuthCookieSettings = Field(default_factory=AuthCookieSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     

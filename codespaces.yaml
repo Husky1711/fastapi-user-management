@@ -15,10 +15,16 @@ application:
   port: 9000
   docs_path: /docs
   auto_start: true
+  ui:
+    port: 5173
+    path: /
+    auto_start: true
+    proxy_api: true
   scripts:
     first_time: .devcontainer/setup.sh
     on_start: .devcontainer/start.sh
     manual: scripts/codespaces-start.sh
+    ui_manual: scripts/codespaces-ui-start.sh
 
 database:
   provider: local-mysql

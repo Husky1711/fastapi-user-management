@@ -28,6 +28,11 @@ pip install -r requirements.txt
 
 cp -n .env.codespaces.example .env 2>/dev/null || cp .env.codespaces.example .env
 
+if [[ -d frontend ]] && command -v npm >/dev/null 2>&1; then
+  echo "Installing frontend dependencies..."
+  (cd frontend && npm ci)
+fi
+
 echo ""
 echo "First-time setup complete. Starting services..."
 bash .devcontainer/start.sh
