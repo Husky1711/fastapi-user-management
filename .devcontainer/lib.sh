@@ -122,32 +122,55 @@ print_frontend_urls() {
 }
 
 configure_codespace_env() {
-  # Vite proxies /api to the API — same-origin in the browser; no extra CORS needed for UI.
+  # Vite proxies /api to the API — same-origin in the browser.
   if [[ -n "${CODESPACE_NAME:-}" ]]; then
+    export CODESPACE_NAME
     local ui_origin="https://${CODESPACE_NAME}-5173.app.github.dev"
-    export SECURITY__CORS_ORIGINS="[\"http://localhost:5173\",\"http://127.0.0.1:5173\",\"${ui_origin}\"]"
+    local api_origin="https://${CODESPACE_NAME}-9000.app.github.dev"
+    export SECURITY__CORS_ORIGINS="[\"http://localhost:5173\",\"http://127.0.0.1:5173\",\"${ui_origin}\",\"${api_origin}\"]"
   fi
 }
 
+read_app_port() {
+  local port=9000
+  if [[ -f .env ]]; then
+    # shellcheck disable=SC1091
+    set -a
+    source .env
+    set +a
+    port="${APP__PORT:-${APP_PORT:-9000}}"
+  fi
+  echo "${port}"
+}
+
 fastapi_is_running() {
-  pgrep -f "uvicorn main:app.*--port 9000" >/dev/null 2>&1
+  local port
+  port="$(read_app_port)"
+  pgrep -f "uvicorn main:app.*--port ${port}" >/dev/null 2>&1
 }
 
 start_fastapi() {
+  local port
+  port="$(read_app_port)"
+
   if fastapi_is_running; then
-    echo "FastAPI is already running on port 9000."
+    echo "FastAPI is already running on port ${port}."
     return 0
   fi
 
   mkdir -p logs
   # shellcheck disable=SC1091
   source .venv/bin/activate
-  nohup uvicorn main:app --host 0.0.0.0 --port 9000 --reload >> logs/uvicorn.log 2>&1 &
+  configure_codespace_env
+  nohup uvicorn main:app --host 0.0.0.0 --port "${port}" --reload >> logs/uvicorn.log 2>&1 &
   disown
 
-  for i in $(seq 1 30); do
-    if curl -sf http://127.0.0.1:9000/health >/dev/null 2>&1; then
-      echo "FastAPI is running on http://0.0.0.0:9000 (docs: /docs)"
+  for i in $(seq 1 45); do
+    if curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      echo "FastAPI is running on http://0.0.0.0:${port} (docs: /docs)"
+      if [[ -n "${CODESPACE_NAME:-}" ]]; then
+        echo "  Public API: https://${CODESPACE_NAME}-${port}.app.github.dev/docs"
+      fi
       return 0
     fi
     sleep 1

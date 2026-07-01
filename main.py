@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import os
 import time
 from typing import Dict, Any
 from sqlalchemy import text
@@ -72,11 +73,13 @@ async def lifespan(app: FastAPI):
     app_logger.info("FastAPI User Management System shutting down", event_type="app_shutdown")
 
 # Create FastAPI application
+_root_path = os.getenv("FASTAPI_ROOT_PATH", "")
 app = FastAPI(
     title=settings.app.name,
     description=settings.app.description,
     version=settings.app.version,
     debug=settings.app.debug,
+    root_path=_root_path,
     docs_url="/docs" if settings.app.environment != "production" else None,
     redoc_url="/redoc" if settings.app.environment != "production" else None,
     openapi_url="/openapi.json" if settings.app.environment != "production" else None,
