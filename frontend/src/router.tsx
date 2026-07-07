@@ -8,6 +8,8 @@ import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { HomeRedirect } from "@/pages/HomeRedirect";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { AdminCreateUserPage } from "@/pages/AdminCreateUserPage";
+import { AdminUserDetailPage } from "@/pages/AdminUserDetailPage";
 import { AdminUsersPage } from "@/pages/AdminUsersPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { UnauthorizedPage } from "@/pages/UnauthorizedPage";
@@ -43,6 +45,8 @@ export function AppRouter() {
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
+              <Route path="/admin/users/new" element={<AdminCreateUserPage />} />
+              <Route path="/admin/users/:userId" element={<AdminUserDetailPage />} />
             </Route>
 
             <Route path="*" element={<NotFoundPage />} />

@@ -1,6 +1,10 @@
 import { apiClient } from "@/lib/apiClient";
 import type {
+  AdminActivityStats,
+  AdminCreateUserPayload,
+  AdminCreateUserResponse,
   AdminDashboardOverview,
+  AdminUserDetail,
   AdminUserRow,
   AdminUsersListOrg,
   AdminUsersStats,
@@ -16,6 +20,28 @@ export async function fetchAdminOverview(): Promise<AdminDashboardOverview> {
 export async function fetchAdminUsersStats(): Promise<AdminUsersStats> {
   const { data } = await apiClient.get<AdminUsersStats>(
     "/api/v1/dashboard/admin/users/stats",
+  );
+  return data;
+}
+
+export async function fetchAdminActivityStats(): Promise<AdminActivityStats> {
+  const { data } = await apiClient.get<AdminActivityStats>(
+    "/api/v1/dashboard/admin/activity/stats",
+  );
+  return data;
+}
+
+export async function fetchUserById(userId: number): Promise<AdminUserDetail> {
+  const { data } = await apiClient.get<AdminUserDetail>(`/api/v1/users/${userId}`);
+  return data;
+}
+
+export async function createUser(
+  payload: AdminCreateUserPayload,
+): Promise<AdminCreateUserResponse> {
+  const { data } = await apiClient.post<AdminCreateUserResponse>(
+    "/api/v1/admin/users/create",
+    payload,
   );
   return data;
 }
