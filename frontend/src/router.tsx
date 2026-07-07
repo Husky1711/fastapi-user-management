@@ -18,6 +18,7 @@ import { MaintenancePage } from "@/pages/MaintenancePage";
 import { OrgAdminPage } from "@/pages/OrgAdminPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
 import { SuperAdminOrganizationsPage } from "@/pages/SuperAdminOrganizationsPage";
+import { CompliancePage } from "@/pages/CompliancePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 const queryClient = new QueryClient({
@@ -59,6 +60,10 @@ export function AppRouter() {
 
             <Route element={<ProtectedRoute orgAdminOnly />}>
               <Route path="/org-admin" element={<OrgAdminPage />} />
+            </Route>
+
+            <Route element={<ProtectedRoute complianceOnly />}>
+              <Route path="/compliance" element={<CompliancePage />} />
             </Route>
 
             <Route element={<ProtectedRoute superAdminOnly />}>

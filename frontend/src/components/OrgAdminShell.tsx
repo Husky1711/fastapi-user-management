@@ -31,6 +31,7 @@ export function OrgAdminShell({ children }: { children: ReactNode }) {
         </Link>
         <Link to="/admin/users">Users</Link>
         <Link to="/admin/users/new">Create user</Link>
+        <Link to="/compliance">Compliance</Link>
         <Link to="/profile">Profile</Link>
       </nav>
 

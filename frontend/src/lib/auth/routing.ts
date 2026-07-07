@@ -26,3 +26,7 @@ export function canManageUsers(role: string): boolean {
     role === "admin"
   );
 }
+
+export function canAccessCompliance(role: string): boolean {
+  return canManageUsers(role);
+}
