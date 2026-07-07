@@ -68,6 +68,10 @@ seed_database() {
   fi
   docker exec -i fastapi-mysql mysql -ufastapi -pfastapi fastapi_users < scripts/seed.sql \
     || echo "WARN: seed.sql had errors (may be safe if data already exists)."
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+  python scripts/ensure_bcrypt_seed_passwords.py \
+    || echo "WARN: bcrypt seed password upgrade failed."
 }
 
 frontend_is_running() {

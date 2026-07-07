@@ -262,6 +262,10 @@ class SecuritySettings(BaseSettings):
     session_timeout_minutes: int = Field(30, description="Session timeout in minutes")
     max_login_attempts: int = Field(5, description="Maximum login attempts")
     lockout_duration_minutes: int = Field(15, description="Account lockout duration")
+    allow_public_signup: bool = Field(
+        False,
+        description="Allow unauthenticated POST /api/v1/signup (disable in production)",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

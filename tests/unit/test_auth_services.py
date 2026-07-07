@@ -23,6 +23,7 @@ class TestAuthService:
         hashed = auth_service.hash_password(password)
         
         assert hashed != password
+        assert hashed.startswith("$2")
         assert len(hashed) > 0
         assert auth_service.verify_password(password, hashed)
     
@@ -35,6 +36,17 @@ class TestAuthService:
         hashed = auth_service.hash_password(password)
         
         assert not auth_service.verify_password(wrong_password, hashed)
+
+    def test_legacy_sha256_password_verification(self):
+        """Legacy SHA-256 hashes remain valid until login-time rehash."""
+        import hashlib
+
+        auth_service = AuthService()
+        password = "admin123"
+        legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+
+        assert auth_service.verify_password(password, legacy_hash)
+        assert not auth_service.verify_password("wrong", legacy_hash)
 
 
 @pytest.mark.unit

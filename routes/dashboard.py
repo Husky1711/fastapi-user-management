@@ -526,27 +526,41 @@ async def get_admin_activity_stats(
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
         
+        viewable_user_ids = [
+            u.id
+            for u in filter_users_for_viewer(db.query(User), "admin", org_id).all()
+        ]
+        
         # Get today's activity
         today = datetime.utcnow().date()
         today_start = datetime.combine(today, time.min)
         tomorrow_start = today_start + timedelta(days=1)
         
-        # Total activity today
-        total_activity_today = db.query(AuditLog).join(
-            User, AuditLog.user_id == User.id
-        ).filter(
-            User.organization_id == org_id,
+        # Total activity today (manageable users only)
+        activity_base = db.query(AuditLog)
+        if viewable_user_ids:
+            activity_base = activity_base.filter(AuditLog.user_id.in_(viewable_user_ids))
+        else:
+            activity_base = activity_base.filter(False)
+        
+        total_activity_today = activity_base.filter(
             AuditLog.created_at >= today_start,
             AuditLog.created_at < tomorrow_start
         ).count()
         
         # Activity by type
         from sqlalchemy import func
-        activity_by_type = db.query(
+        activity_by_type_query = db.query(
             AuditLog.action,
             func.count(AuditLog.id)
-        ).join(User, AuditLog.user_id == User.id).filter(
-            User.organization_id == org_id,
+        )
+        if viewable_user_ids:
+            activity_by_type_query = activity_by_type_query.filter(
+                AuditLog.user_id.in_(viewable_user_ids)
+            )
+        else:
+            activity_by_type_query = activity_by_type_query.filter(False)
+        activity_by_type = activity_by_type_query.filter(
             AuditLog.created_at >= today_start,
             AuditLog.created_at < tomorrow_start
         ).group_by(AuditLog.action).all()
@@ -556,12 +570,17 @@ async def get_admin_activity_stats(
         for action, count in activity_by_type:
             activity_dict[action or "unknown"] = count
         
-        # Recent activity
-        recent_activity = db.query(AuditLog).join(
-            User, AuditLog.user_id == User.id
-        ).filter(
-            User.organization_id == org_id
-        ).order_by(AuditLog.created_at.desc()).limit(limit).all()
+        # Recent activity (manageable users only)
+        recent_activity_query = db.query(AuditLog)
+        if viewable_user_ids:
+            recent_activity_query = recent_activity_query.filter(
+                AuditLog.user_id.in_(viewable_user_ids)
+            )
+        else:
+            recent_activity_query = recent_activity_query.filter(False)
+        recent_activity = recent_activity_query.order_by(
+            AuditLog.created_at.desc()
+        ).limit(limit).all()
         
         recent_activity_list = []
         for log in recent_activity:

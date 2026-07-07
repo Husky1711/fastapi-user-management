@@ -1,5 +1,5 @@
 -- Sample data for Codespaces local MySQL (fastapi_users)
--- Passwords are SHA-256 hex (see utils/jwt_config.py)
+-- Plaintext passwords below; ensure_bcrypt_seed_passwords.py upgrades them to bcrypt after seed.
 --   testadmin / admin123
 --   testuser  / user123
 --   testorgadmin / orgadmin123

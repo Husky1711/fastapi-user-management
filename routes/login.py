@@ -268,6 +268,12 @@ async def signup(
     _: None = Depends(RateLimitDependency.check_rate_limit("signup", require_auth=False))
 ):
     """Signup endpoint - register a new user"""
+    if not settings.security.allow_public_signup:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled",
+        )
+
     # Generate correlation ID
     correlation_id = CorrelationIDGenerator.generate()
     CorrelationIDGenerator.set(correlation_id)

@@ -3,7 +3,7 @@ from models.user_model import User
 from utils.database import get_db
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from utils.jwt_config import get_password_hash, verify_password
+from utils.jwt_config import get_password_hash, needs_password_rehash, verify_password
 import secrets
 import string
 import re
@@ -88,9 +88,13 @@ class UserService:
         if not user:
             return None
         
-        # Verify password (slow bcrypt operation, but necessary for security)
+        # Verify password (bcrypt; legacy SHA-256 supported for migration)
         if not verify_password(password, user.password):
             return None
+
+        if needs_password_rehash(user.password):
+            user.password = get_password_hash(password)
+            db.commit()
         
         return user
     
