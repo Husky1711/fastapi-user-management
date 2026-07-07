@@ -20,6 +20,13 @@ export interface TokenResponse {
   refresh_token?: string;
   token_type: string;
   expires_in: number;
+  session_info?: {
+    strategy_used?: string;
+    existing_sessions?: number;
+    sessions_revoked?: number;
+    total_sessions?: number;
+    max_sessions?: number;
+  };
 }
 
 export interface ApiErrorBody {
