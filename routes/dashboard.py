@@ -340,17 +340,18 @@ async def get_admin_dashboard_overview(
         today_start = datetime.combine(today, time.min)
         tomorrow_start = today_start + timedelta(days=1)
         
-        # Today's logins
-        from sqlalchemy import and_
-        logins_today = db.query(AuditLog).join(
-            User, AuditLog.user_id == User.id
-        ).filter(
-            User.organization_id == org_id,
+        # Today's logins (manageable users only)
+        logins_query = db.query(AuditLog).filter(
             AuditLog.action == "login",
             AuditLog.status == "success",
             AuditLog.created_at >= today_start,
-            AuditLog.created_at < tomorrow_start
-        ).count()
+            AuditLog.created_at < tomorrow_start,
+        )
+        if viewable_user_ids:
+            logins_query = logins_query.filter(AuditLog.user_id.in_(viewable_user_ids))
+        else:
+            logins_query = logins_query.filter(False)
+        logins_today = logins_query.count()
         
         # Today's new users
         new_users_today = (

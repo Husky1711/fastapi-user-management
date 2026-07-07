@@ -367,6 +367,7 @@ class AuditLogService:
     def get_audit_logs(
         db: Session,
         user_id: int = None,
+        user_ids: Optional[List[int]] = None,
         organization_id: int = None,
         event_type: str = None,
         event_category: str = None,
@@ -400,7 +401,12 @@ class AuditLogService:
             query = db.query(AuditLog)
             
             # Apply filters
-            if user_id:
+            if user_ids is not None:
+                if user_ids:
+                    query = query.filter(AuditLog.user_id.in_(user_ids))
+                else:
+                    query = query.filter(False)
+            elif user_id:
                 query = query.filter(AuditLog.user_id == user_id)
             if organization_id:
                 query = query.filter(AuditLog.organization_id == organization_id)
@@ -476,6 +482,7 @@ class AuditLogService:
     def get_audit_statistics(
         db: Session,
         organization_id: int = None,
+        user_ids: Optional[List[int]] = None,
         start_date: datetime = None,
         end_date: datetime = None
     ) -> Dict[str, Any]:
@@ -496,6 +503,11 @@ class AuditLogService:
             
             if organization_id:
                 query = query.filter(AuditLog.organization_id == organization_id)
+            if user_ids is not None:
+                if user_ids:
+                    query = query.filter(AuditLog.user_id.in_(user_ids))
+                else:
+                    query = query.filter(False)
             if start_date:
                 query = query.filter(AuditLog.created_at >= start_date)
             if end_date:
@@ -505,17 +517,17 @@ class AuditLogService:
             total_logs = query.count()
             
             # Get counts by event type
-            event_types = db.query(AuditLog.event_type, func.count(AuditLog.id))\
+            event_types = query.with_entities(AuditLog.event_type, func.count(AuditLog.id))\
                 .group_by(AuditLog.event_type)\
                 .all()
             
             # Get counts by status
-            status_counts = db.query(AuditLog.status, func.count(AuditLog.id))\
+            status_counts = query.with_entities(AuditLog.status, func.count(AuditLog.id))\
                 .group_by(AuditLog.status)\
                 .all()
             
             # Get counts by category
-            category_counts = db.query(AuditLog.event_category, func.count(AuditLog.id))\
+            category_counts = query.with_entities(AuditLog.event_category, func.count(AuditLog.id))\
                 .group_by(AuditLog.event_category)\
                 .all()
             

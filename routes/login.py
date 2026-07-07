@@ -922,6 +922,9 @@ async def debug_login(
     db: Session = Depends(get_db)
 ):
     """Debug login endpoint to test basic functionality"""
+    if not settings.security.allow_debug_auth:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
     try:
         # Simple authentication test
         user = AuthService.authenticate_user(db, credentials.username, credentials.password)
@@ -963,6 +966,9 @@ async def debug_refresh(
     db: Session = Depends(get_db)
 ):
     """Debug refresh endpoint to test token refresh functionality"""
+    if not settings.security.allow_debug_auth:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
     try:
         auth_logger.info(
             f"Debug refresh attempt with token: {refresh_data.refresh_token[:20]}...",

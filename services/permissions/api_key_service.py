@@ -581,7 +581,8 @@ class ApiKeyService:
     @staticmethod
     def get_api_key_statistics(
         db: Session,
-        organization_id: int = None
+        organization_id: int = None,
+        user_ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Get API key statistics
@@ -598,6 +599,11 @@ class ApiKeyService:
             
             if organization_id:
                 query = query.filter(ApiKey.organization_id == organization_id)
+            if user_ids is not None:
+                if user_ids:
+                    query = query.filter(ApiKey.user_id.in_(user_ids))
+                else:
+                    query = query.filter(False)
             
             # Get total API keys
             total_keys = query.count()

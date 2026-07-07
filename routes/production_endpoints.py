@@ -12,7 +12,14 @@ from services.permissions import UserPermissionService
 from services.permissions import UserGroupService
 from services.permissions import ApiKeyService
 from services.users import PasswordHistoryService
-from services.users import UserService
+from services.users.compliance_access import (
+    filter_members_by_scope,
+    manageable_user_ids,
+    require_group_access,
+    require_user_data_access,
+    resolve_organization_filter,
+    scope_user_ids_for_query,
+)
 from utils.rate_limit_dependency import RateLimitDependency
 from utils.database import get_db
 from utils.loggers import auth_logger
@@ -73,15 +80,14 @@ async def get_audit_logs(
         if end_date:
             end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        # Apply organization and role-based user scope
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, user_id)
         
         # Get audit logs
         result = AuditLogService.get_audit_logs(
             db=db,
-            user_id=user_id,
+            user_ids=scoped_user_ids,
             organization_id=filter_organization_id,
             event_type=event_type,
             event_category=event_category,
@@ -150,15 +156,14 @@ async def get_audit_statistics(
         if end_date:
             end_datetime = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
         # Get audit statistics
         result = AuditLogService.get_audit_statistics(
             db=db,
             organization_id=filter_organization_id,
+            user_ids=scoped_user_ids,
             start_date=start_datetime,
             end_date=end_datetime
         )
@@ -215,14 +220,14 @@ async def get_session_statistics(
             )
         
         # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
         # Get session statistics
         result = UserSessionService.get_session_statistics(
             db=db,
-            organization_id=filter_organization_id
+            organization_id=filter_organization_id,
+            user_ids=scoped_user_ids,
         )
         
         if not result["success"]:
@@ -334,31 +339,8 @@ async def get_user_permissions(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Determine target user ID
-        target_user_id = user_id
-        if not target_user_id:
-            target_user_id = current_user.id
-        
-        # Check permissions
-        if current_user.role == "super_admin":
-            # Super admins can see all permissions
-            pass
-        elif current_user.role in ["organization_admin", "admin"]:
-            # Organization admins can see permissions for users in their organization
-            if target_user_id != current_user.id:
-                target_user = UserService.get_user_by_id(db, target_user_id)
-                if not target_user or target_user.organization_id != current_user.organization_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Cannot access permissions for users outside your organization"
-                    )
-        else:
-            # Regular users can only see their own permissions
-            if target_user_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot access permissions for other users"
-                )
+        target_user_id = user_id or current_user.id
+        require_user_data_access(db, current_user, target_user_id)
         
         # Get user permissions
         result = UserPermissionService.get_user_permissions(
@@ -443,15 +425,13 @@ async def get_permission_statistics(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
-        # Get permission statistics
         result = UserPermissionService.get_permission_statistics(
             db=db,
-            organization_id=filter_organization_id
+            organization_id=filter_organization_id,
+            user_ids=scoped_user_ids,
         )
         
         if not result["success"]:
@@ -506,12 +486,8 @@ async def get_organization_groups(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
         
-        # Get organization groups
         result = UserGroupService.get_organization_groups(
             db=db,
             organization_id=filter_organization_id,
@@ -566,7 +542,11 @@ async def get_group_members(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Get group members
+        require_group_access(db, current_user, group_id)
+        scoped_user_ids = manageable_user_ids(
+            db, current_user.role, current_user.organization_id, current_user.id
+        )
+        
         result = UserGroupService.get_group_members(
             db=db,
             group_id=group_id,
@@ -578,6 +558,9 @@ async def get_group_members(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=result["error"]
             )
+
+        if "members" in result:
+            result["members"] = filter_members_by_scope(result["members"], scoped_user_ids)
         
         return result
         
@@ -621,15 +604,13 @@ async def get_group_statistics(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
-        # Get group statistics
         result = UserGroupService.get_group_statistics(
             db=db,
-            organization_id=filter_organization_id
+            organization_id=filter_organization_id,
+            user_ids=scoped_user_ids,
         )
         
         if not result["success"]:
@@ -685,33 +666,9 @@ async def get_user_api_keys(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Determine target user ID
-        target_user_id = user_id
-        if not target_user_id:
-            target_user_id = current_user.id
+        target_user_id = user_id or current_user.id
+        require_user_data_access(db, current_user, target_user_id)
         
-        # Check permissions
-        if current_user.role == "super_admin":
-            # Super admins can see all API keys
-            pass
-        elif current_user.role in ["organization_admin", "admin"]:
-            # Organization admins can see API keys for users in their organization
-            if target_user_id != current_user.id:
-                target_user = UserService.get_user_by_id(db, target_user_id)
-                if not target_user or target_user.organization_id != current_user.organization_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Cannot access API keys for users outside your organization"
-                    )
-        else:
-            # Regular users can only see their own API keys
-            if target_user_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot access API keys for other users"
-                )
-        
-        # Get user API keys
         result = ApiKeyService.get_user_api_keys(
             db=db,
             user_id=target_user_id,
@@ -793,15 +750,13 @@ async def get_api_key_statistics(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Apply organization filter for non-super admins
-        filter_organization_id = organization_id
-        if current_user.role != "super_admin":
-            filter_organization_id = current_user.organization_id
+        filter_organization_id = resolve_organization_filter(current_user, organization_id)
+        scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
-        # Get API key statistics
         result = ApiKeyService.get_api_key_statistics(
             db=db,
-            organization_id=filter_organization_id
+            organization_id=filter_organization_id,
+            user_ids=scoped_user_ids,
         )
         
         if not result["success"]:
@@ -857,33 +812,9 @@ async def get_password_history(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Determine target user ID
-        target_user_id = user_id
-        if not target_user_id:
-            target_user_id = current_user.id
+        target_user_id = user_id or current_user.id
+        require_user_data_access(db, current_user, target_user_id)
         
-        # Check permissions
-        if current_user.role == "super_admin":
-            # Super admins can see all password history
-            pass
-        elif current_user.role in ["organization_admin", "admin"]:
-            # Organization admins can see password history for users in their organization
-            if target_user_id != current_user.id:
-                target_user = UserService.get_user_by_id(db, target_user_id)
-                if not target_user or target_user.organization_id != current_user.organization_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Cannot access password history for users outside your organization"
-                    )
-        else:
-            # Regular users can only see their own password history
-            if target_user_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot access password history for other users"
-                )
-        
-        # Get password history
         result = PasswordHistoryService.get_password_history(
             db=db,
             user_id=target_user_id,
@@ -938,33 +869,9 @@ async def get_password_policy_stats(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Determine target user ID
-        target_user_id = user_id
-        if not target_user_id:
-            target_user_id = current_user.id
+        target_user_id = user_id or current_user.id
+        require_user_data_access(db, current_user, target_user_id)
         
-        # Check permissions
-        if current_user.role == "super_admin":
-            # Super admins can see all password policy stats
-            pass
-        elif current_user.role in ["organization_admin", "admin"]:
-            # Organization admins can see password policy stats for users in their organization
-            if target_user_id != current_user.id:
-                target_user = UserService.get_user_by_id(db, target_user_id)
-                if not target_user or target_user.organization_id != current_user.organization_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Cannot access password policy stats for users outside your organization"
-                    )
-        else:
-            # Regular users can only see their own password policy stats
-            if target_user_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot access password policy stats for other users"
-                )
-        
-        # Get password policy stats
         result = PasswordHistoryService.get_password_policy_stats(
             db=db,
             user_id=target_user_id

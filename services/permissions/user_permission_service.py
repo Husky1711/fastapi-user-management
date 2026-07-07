@@ -374,7 +374,8 @@ class UserPermissionService:
     @staticmethod
     def get_permission_statistics(
         db: Session,
-        organization_id: int = None
+        organization_id: int = None,
+        user_ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Get permission statistics
@@ -389,9 +390,15 @@ class UserPermissionService:
         try:
             query = db.query(UserPermission)
             
-            if organization_id:
-                # Join with users table to filter by organization
-                query = query.join(User, UserPermission.user_id == User.id).filter(User.organization_id == organization_id)
+            if organization_id or user_ids is not None:
+                query = query.join(User, UserPermission.user_id == User.id)
+                if organization_id:
+                    query = query.filter(User.organization_id == organization_id)
+                if user_ids is not None:
+                    if user_ids:
+                        query = query.filter(UserPermission.user_id.in_(user_ids))
+                    else:
+                        query = query.filter(False)
             
             # Get total permissions
             total_permissions = query.count()
@@ -400,14 +407,14 @@ class UserPermissionService:
             active_permissions = query.filter(UserPermission.is_active == True).count()
             
             # Get permissions by type
-            permission_types = db.query(UserPermission.permission_name, func.count(UserPermission.id))\
-                .group_by(UserPermission.permission_name)\
-                .all()
+            permission_types = query.with_entities(
+                UserPermission.permission_name, func.count(UserPermission.id)
+            ).group_by(UserPermission.permission_name).all()
             
             # Get permissions by resource type
-            resource_types = db.query(UserPermission.resource_type, func.count(UserPermission.id))\
-                .group_by(UserPermission.resource_type)\
-                .all()
+            resource_types = query.with_entities(
+                UserPermission.resource_type, func.count(UserPermission.id)
+            ).group_by(UserPermission.resource_type).all()
             
             return {
                 "success": True,

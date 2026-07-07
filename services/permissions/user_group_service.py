@@ -605,7 +605,8 @@ class UserGroupService:
     @staticmethod
     def get_group_statistics(
         db: Session,
-        organization_id: int = None
+        organization_id: int = None,
+        user_ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Get group statistics
@@ -632,8 +633,16 @@ class UserGroupService:
             # Get total memberships
             membership_query = db.query(UserGroupMembership)
             if organization_id:
-                membership_query = membership_query.join(UserGroup, UserGroupMembership.group_id == UserGroup.id)\
-                    .filter(UserGroup.organization_id == organization_id)
+                membership_query = membership_query.join(
+                    UserGroup, UserGroupMembership.group_id == UserGroup.id
+                ).filter(UserGroup.organization_id == organization_id)
+            if user_ids is not None:
+                if user_ids:
+                    membership_query = membership_query.filter(
+                        UserGroupMembership.user_id.in_(user_ids)
+                    )
+                else:
+                    membership_query = membership_query.filter(False)
             
             total_memberships = membership_query.count()
             active_memberships = membership_query.filter(UserGroupMembership.is_active == True).count()

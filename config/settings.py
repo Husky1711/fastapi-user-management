@@ -266,6 +266,10 @@ class SecuritySettings(BaseSettings):
         False,
         description="Allow unauthenticated POST /api/v1/signup (disable in production)",
     )
+    allow_debug_auth: bool = Field(
+        False,
+        description="Enable POST /api/v1/debug-login and debug-refresh (disable in production)",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
