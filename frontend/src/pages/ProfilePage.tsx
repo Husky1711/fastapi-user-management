@@ -6,7 +6,10 @@ import { getApiError } from "@/lib/apiClient";
 import {
   changePassword,
   fetchProfileDetail,
+  fetchSessionInfo,
   fetchSessions,
+  logoutAllSessions,
+  revokeOtherSessions,
   revokeSession,
   updateProfile,
 } from "@/lib/profile/api";
@@ -38,8 +41,12 @@ function ProfileDetails({ profile }: { profile: UserProfileDetail }) {
         <span className={styles.fieldValue}>{profile.status}</span>
       </div>
       <div className={styles.fieldRow}>
-        <span className={styles.fieldLabel}>Organization ID</span>
-        <span className={styles.fieldValue}>{profile.organization_id}</span>
+        <span className={styles.fieldLabel}>Organization</span>
+        <span className={styles.fieldValue}>
+          {profile.organization_name
+            ? `${profile.organization_name} (#${profile.organization_id})`
+            : profile.organization_id}
+        </span>
       </div>
       <div className={styles.fieldRow}>
         <span className={styles.fieldLabel}>Created</span>
@@ -249,24 +256,64 @@ function SessionsTable({
 
 function SessionsTab() {
   const queryClient = useQueryClient();
+  const { logout } = useAuth();
   const [revokingId, setRevokingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState<"others" | "all" | null>(null);
 
   const sessionsQuery = useQuery({
     queryKey: ["profile", "sessions"],
     queryFn: fetchSessions,
   });
 
+  const sessionInfoQuery = useQuery({
+    queryKey: ["profile", "sessions-info"],
+    queryFn: fetchSessionInfo,
+  });
+
   async function handleRevoke(sessionId: number) {
     setError(null);
+    setMessage(null);
     setRevokingId(sessionId);
     try {
       await revokeSession(sessionId);
       await queryClient.invalidateQueries({ queryKey: ["profile", "sessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["profile", "sessions-info"] });
     } catch (err) {
       setError(getApiError(err).detail);
     } finally {
       setRevokingId(null);
+    }
+  }
+
+  async function handleRevokeOthers() {
+    setError(null);
+    setMessage(null);
+    setBulkLoading("others");
+    try {
+      const result = await revokeOtherSessions();
+      setMessage(result.message);
+      await queryClient.invalidateQueries({ queryKey: ["profile", "sessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["profile", "sessions-info"] });
+    } catch (err) {
+      setError(getApiError(err).detail);
+    } finally {
+      setBulkLoading(null);
+    }
+  }
+
+  async function handleLogoutAll() {
+    setError(null);
+    setMessage(null);
+    setBulkLoading("all");
+    try {
+      const result = await logoutAllSessions();
+      setMessage(result.message);
+      await logout();
+    } catch (err) {
+      setError(getApiError(err).detail);
+      setBulkLoading(null);
     }
   }
 
@@ -280,8 +327,33 @@ function SessionsTab() {
 
   return (
     <div>
-      <p className={styles.subtitle}>Data from GET /api/v1/sessions</p>
+      {sessionInfoQuery.data && (
+        <p className={styles.subtitle}>
+          {sessionInfoQuery.data.total_sessions} session
+          {sessionInfoQuery.data.total_sessions === 1 ? "" : "s"} (max{" "}
+          {sessionInfoQuery.data.max_sessions})
+        </p>
+      )}
+      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        <button
+          type="button"
+          className={styles.primaryBtn}
+          disabled={bulkLoading !== null}
+          onClick={() => void handleRevokeOthers()}
+        >
+          {bulkLoading === "others" ? "Revoking…" : "Revoke other sessions"}
+        </button>
+        <button
+          type="button"
+          className={styles.dangerBtn}
+          disabled={bulkLoading !== null}
+          onClick={() => void handleLogoutAll()}
+        >
+          {bulkLoading === "all" ? "Signing out…" : "Log out everywhere"}
+        </button>
+      </div>
       {error && <p className={styles.error}>{error}</p>}
+      {message && <p className={styles.success}>{message}</p>}
       <SessionsTable
         sessions={sessionsQuery.data ?? []}
         onRevoke={(id) => void handleRevoke(id)}

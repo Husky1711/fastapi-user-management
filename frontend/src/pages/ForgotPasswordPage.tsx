@@ -1,8 +1,12 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getApiError } from "@/lib/apiClient";
-import { confirmPasswordReset, requestPasswordReset } from "@/lib/security/api";
+import {
+  confirmPasswordReset,
+  requestPasswordReset,
+  validatePasswordResetToken,
+} from "@/lib/security/api";
 import styles from "@/pages/LoginPage.module.css";
 
 export function ForgotPasswordPage() {
@@ -16,6 +20,13 @@ export function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [devToken, setDevToken] = useState<string | null>(null);
+
+  const tokenValidationQuery = useQuery({
+    queryKey: ["password-reset-validate", token],
+    queryFn: () => validatePasswordResetToken(token),
+    enabled: token.trim().length > 0,
+    retry: false,
+  });
 
   const requestMutation = useMutation({
     mutationFn: () => requestPasswordReset(email),
@@ -39,6 +50,12 @@ export function ForgotPasswordPage() {
     onError: (err) => setError(getApiError(err).detail),
   });
 
+  useEffect(() => {
+    if (tokenFromUrl) {
+      setToken(tokenFromUrl);
+    }
+  }, [tokenFromUrl]);
+
   function onRequestSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
@@ -55,8 +72,16 @@ export function ForgotPasswordPage() {
       setError("Passwords do not match");
       return;
     }
+    if (!tokenValidationQuery.data?.valid) {
+      setError("Reset token is invalid or expired");
+      return;
+    }
     resetMutation.mutate();
   }
+
+  const tokenValid = tokenValidationQuery.data?.valid === true;
+  const tokenInvalid =
+    token.trim().length > 0 && tokenValidationQuery.isError && !tokenValidationQuery.isLoading;
 
   return (
     <div className={styles.page}>
@@ -95,6 +120,25 @@ export function ForgotPasswordPage() {
             Reset token
             <input value={token} onChange={(e) => setToken(e.target.value)} required />
           </label>
+          {tokenValidationQuery.isLoading && token.trim() && (
+            <p className={styles.banner}>Validating token…</p>
+          )}
+          {tokenValid && (
+            <p className={styles.banner}>
+              Token valid for <strong>{tokenValidationQuery.data?.email}</strong>
+              {tokenValidationQuery.data?.expires_at && (
+                <>
+                  {" "}
+                  (expires {new Date(tokenValidationQuery.data.expires_at).toLocaleString()})
+                </>
+              )}
+            </p>
+          )}
+          {tokenInvalid && (
+            <p className={styles.error}>
+              {getApiError(tokenValidationQuery.error).detail}
+            </p>
+          )}
           <label>
             New password
             <input
@@ -103,6 +147,7 @@ export function ForgotPasswordPage() {
               onChange={(e) => setNewPassword(e.target.value)}
               minLength={8}
               required
+              disabled={!tokenValid}
             />
           </label>
           <label>
@@ -113,9 +158,13 @@ export function ForgotPasswordPage() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               minLength={8}
               required
+              disabled={!tokenValid}
             />
           </label>
-          <button type="submit" disabled={resetMutation.isPending}>
+          <button
+            type="submit"
+            disabled={resetMutation.isPending || !tokenValid}
+          >
             {resetMutation.isPending ? "Resetting…" : "Reset password"}
           </button>
         </form>

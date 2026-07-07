@@ -30,7 +30,7 @@ from schemas.login import (
 )
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
-from models.user_model import User, RefreshToken
+from models.user_model import User, RefreshToken, Organization
 from utils.loggers import auth_logger, api_logger, db_logger, security_logger
 from utils.production_logging import CorrelationIDGenerator
 from utils.request_context import RequestTracker, track_request
@@ -1292,12 +1292,20 @@ async def get_user_profile(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        organization_name = None
+        if current_user.organization_id:
+            org = db.query(Organization).filter(
+                Organization.id == current_user.organization_id
+            ).first()
+            organization_name = org.name if org else None
+
         return UserResponse(
             id=current_user.id,
             username=current_user.username,
             email=current_user.email,
             role=current_user.role,
             organization_id=current_user.organization_id,
+            organization_name=organization_name,
             status=current_user.status,
             phone_number=current_user.phone_number,
             created_at=current_user.created_at,

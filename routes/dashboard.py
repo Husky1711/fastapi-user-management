@@ -17,7 +17,7 @@ from services.audit import AuditLogService
 from services.auth import RefreshTokenService
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
-from models.user_model import User, RefreshToken, AuditLog
+from models.user_model import User, RefreshToken, AuditLog, Organization
 from utils.loggers import api_logger, auth_logger
 from schemas.login import UserResponse
 from schemas.dashboard import (
@@ -83,6 +83,12 @@ async def get_user_dashboard_overview(
             if audit_logs:
                 last_login = audit_logs.created_at
         
+        org = (
+            db.query(Organization).filter(Organization.id == user.organization_id).first()
+            if user.organization_id
+            else None
+        )
+
         return {
             "profile": {
                 "username": user.username,
@@ -90,6 +96,7 @@ async def get_user_dashboard_overview(
                 "role": user.role,
                 "status": user.status,
                 "organization_id": user.organization_id,
+                "organization_name": org.name if org else None,
                 "phone_number": user.phone_number,
                 "is_2fa_enabled": getattr(user, 'is_2fa_enabled', False),
                 "failed_login_attempts": getattr(user, 'failed_login_attempts', 0)
@@ -1195,13 +1202,25 @@ async def get_super_admin_organizations_stats(
         
         # Count organizations with at least one active user
         active_orgs = 0
+        organizations_list = []
         for org_id in all_org_ids:
+            org = db.query(Organization).filter(Organization.id == org_id).first()
+            user_count = db.query(User).filter(User.organization_id == org_id).count()
             active_users = db.query(User).filter(
                 User.organization_id == org_id,
                 User.status == "active"
             ).count()
             if active_users > 0:
                 active_orgs += 1
+            organizations_list.append({
+                "id": org_id,
+                "name": org.name if org else f"Organization {org_id}",
+                "status": org.status if org else "unknown",
+                "total_users": user_count,
+                "active_users": active_users,
+            })
+
+        organizations_list.sort(key=lambda item: item["id"])
         
         return {
             "total_organizations": total_organizations,
@@ -1211,7 +1230,8 @@ async def get_super_admin_organizations_stats(
                 "small": small_orgs,
                 "medium": medium_orgs,
                 "large": large_orgs
-            }
+            },
+            "organizations": organizations_list,
         }
         
     except HTTPException:

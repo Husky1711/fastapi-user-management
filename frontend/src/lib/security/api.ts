@@ -3,6 +3,7 @@ import type {
   Enable2FAResponse,
   PasswordResetConfirmResponse,
   PasswordResetRequestResponse,
+  PasswordResetValidateResponse,
   TwoFactorActionResponse,
   TwoFactorStatus,
 } from "@/lib/security/types";
@@ -53,6 +54,15 @@ export async function confirmPasswordReset(
   const { data } = await apiClient.post<PasswordResetConfirmResponse>(
     "/api/v1/password/reset",
     { token, new_password: newPassword },
+  );
+  return data;
+}
+
+export async function validatePasswordResetToken(
+  token: string,
+): Promise<PasswordResetValidateResponse> {
+  const { data } = await apiClient.get<PasswordResetValidateResponse>(
+    `/api/v1/password/reset/validate/${encodeURIComponent(token)}`,
   );
   return data;
 }

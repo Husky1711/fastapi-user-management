@@ -19,6 +19,7 @@ class ProfileInfo(BaseModel):
     role: str
     status: str
     organization_id: Optional[int] = None
+    organization_name: Optional[str] = None
     phone_number: Optional[str] = None
     is_2fa_enabled: Optional[bool] = Field(None, description="Whether 2FA is enabled")
     failed_login_attempts: Optional[int] = Field(None, description="Number of failed login attempts")
