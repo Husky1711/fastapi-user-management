@@ -322,3 +322,4 @@ Role (JWT) → Auth → DB User → role_scope → Service → Response
 |------|-------|
 | July 2026 | Initial review after P0–P5 (auth, compliance portal, edit user, org CRUD) |
 | July 2026 | **P0/P1 fixes:** bcrypt passwords with legacy SHA-256 migration on login; `SECURITY__ALLOW_PUBLIC_SIGNUP` (default false); admin activity stats scoped via `role_scope` |
+| July 2026 | **Architect review P0:** compliance APIs scoped via `compliance_access` + `role_scope`; group members IDOR fix; `SECURITY__ALLOW_DEBUG_AUTH`; admin dashboard logins scoped |

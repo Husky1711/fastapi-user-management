@@ -441,6 +441,7 @@ class UserSessionService:
     def get_session_statistics(
         db: Session,
         user_id: int = None,
+        user_ids: Optional[List[int]] = None,
         organization_id: int = None
     ) -> Dict[str, Any]:
         """
@@ -456,13 +457,19 @@ class UserSessionService:
         """
         try:
             query = db.query(UserSession)
-            
-            if user_id:
+            needs_user_join = organization_id is not None or user_ids is not None
+
+            if needs_user_join:
+                query = query.join(User, UserSession.user_id == User.id)
+                if organization_id:
+                    query = query.filter(User.organization_id == organization_id)
+                if user_ids is not None:
+                    if user_ids:
+                        query = query.filter(UserSession.user_id.in_(user_ids))
+                    else:
+                        query = query.filter(False)
+            elif user_id:
                 query = query.filter(UserSession.user_id == user_id)
-            
-            if organization_id:
-                # Join with users table to filter by organization
-                query = query.join(User, UserSession.user_id == User.id).filter(User.organization_id == organization_id)
             
             # Get total sessions
             total_sessions = query.count()
@@ -471,14 +478,14 @@ class UserSessionService:
             active_sessions = query.filter(UserSession.is_active == True).count()
             
             # Get sessions by device type
-            device_types = db.query(UserSession.device_type, func.count(UserSession.id))\
-                .group_by(UserSession.device_type)\
-                .all()
+            device_types = query.with_entities(
+                UserSession.device_type, func.count(UserSession.id)
+            ).group_by(UserSession.device_type).all()
             
             # Get sessions by browser
-            browsers = db.query(UserSession.browser_name, func.count(UserSession.id))\
-                .group_by(UserSession.browser_name)\
-                .all()
+            browsers = query.with_entities(
+                UserSession.browser_name, func.count(UserSession.id)
+            ).group_by(UserSession.browser_name).all()
             
             return {
                 "success": True,
