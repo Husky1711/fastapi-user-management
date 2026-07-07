@@ -8,6 +8,7 @@ export function ComplianceShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const home = user ? getHomePathForRole(user.role) : "/dashboard";
+  const orgLabel = user?.organization_name ?? (user?.organization_id ? `Org #${user.organization_id}` : null);
 
   return (
     <main className={styles.page}>
@@ -16,7 +17,7 @@ export function ComplianceShell({ children }: { children: ReactNode }) {
           <h1>Compliance</h1>
           <p className={styles.subtitle}>
             {user?.username}
-            <span className={styles.badge}>M8 production APIs</span>
+            {orgLabel && <span className={styles.badge}>{orgLabel}</span>}
           </p>
         </div>
         <button type="button" className={styles.logoutBtn} onClick={() => void logout()}>
