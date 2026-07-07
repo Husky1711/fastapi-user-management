@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Add manager_id column to users for reporting hierarchy."""
+"""Legacy migration: add manager_id column.
+
+Superseded by Alembic baseline revision ``20260708_baseline``. Kept for reference
+on databases that were created before Alembic was introduced.
+"""
 
 from __future__ import annotations
 
