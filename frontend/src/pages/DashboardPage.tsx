@@ -83,6 +83,14 @@ export function DashboardPage() {
             <StatCard label="Status" value={overviewQuery.data.profile.status} />
             <StatCard label="Role" value={overviewQuery.data.profile.role} />
             <StatCard
+              label="Organization"
+              value={
+                overviewQuery.data.profile.organization_name
+                  ? `${overviewQuery.data.profile.organization_name} (#${overviewQuery.data.profile.organization_id})`
+                  : overviewQuery.data.profile.organization_id ?? "—"
+              }
+            />
+            <StatCard
               label="2FA"
               value={overviewQuery.data.profile.is_2fa_enabled ? "On" : "Off"}
             />

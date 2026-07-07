@@ -29,6 +29,16 @@ export function SuperAdminShell({ children }: { children: ReactNode }) {
         >
           Dashboard
         </Link>
+        <Link
+          to="/super-admin/organizations"
+          className={
+            location.pathname.startsWith("/super-admin/organizations")
+              ? styles.navActive
+              : undefined
+          }
+        >
+          Organizations
+        </Link>
         <Link to="/admin/users">Users</Link>
         <Link to="/admin/users/new">Create user</Link>
         <Link to="/profile">Profile</Link>

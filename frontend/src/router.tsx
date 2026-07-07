@@ -16,6 +16,7 @@ import { UnauthorizedPage } from "@/pages/UnauthorizedPage";
 import { MaintenancePage } from "@/pages/MaintenancePage";
 import { OrgAdminPage } from "@/pages/OrgAdminPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
+import { SuperAdminOrganizationsPage } from "@/pages/SuperAdminOrganizationsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 const queryClient = new QueryClient({
@@ -60,6 +61,10 @@ export function AppRouter() {
 
             <Route element={<ProtectedRoute superAdminOnly />}>
               <Route path="/super-admin" element={<SuperAdminPage />} />
+              <Route
+                path="/super-admin/organizations"
+                element={<SuperAdminOrganizationsPage />}
+              />
             </Route>
 
             <Route path="*" element={<NotFoundPage />} />

@@ -60,6 +60,7 @@ class UserResponse(BaseModel):
     email: EmailStr = Field(..., description="Email address")
     role: UserRole = Field(..., description="User role")
     organization_id: int = Field(..., description="Organization ID")
+    organization_name: Optional[str] = Field(None, description="Organization name")
     status: UserStatus = Field(..., description="User status")
     phone_number: Optional[str] = Field(None, description="Phone number")
     created_at: datetime = Field(..., description="Account creation date")

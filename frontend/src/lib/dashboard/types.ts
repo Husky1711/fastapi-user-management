@@ -4,6 +4,7 @@ export interface ProfileInfo {
   role: string;
   status: string;
   organization_id?: number | null;
+  organization_name?: string | null;
   phone_number?: string | null;
   is_2fa_enabled?: boolean | null;
   failed_login_attempts?: number | null;

@@ -47,6 +47,14 @@ export interface SuperAdminUsersStats {
   }>;
 }
 
+export interface SuperAdminOrganizationRow {
+  id: number;
+  name: string;
+  status: string;
+  total_users: number;
+  active_users: number;
+}
+
 export interface SuperAdminOrganizationsStats {
   total_organizations: number;
   active_organizations: number;
@@ -56,6 +64,7 @@ export interface SuperAdminOrganizationsStats {
     medium: number;
     large: number;
   };
+  organizations: SuperAdminOrganizationRow[];
 }
 
 export interface SuperAdminSessionsStats {

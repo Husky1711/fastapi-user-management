@@ -28,3 +28,9 @@ export interface PasswordResetConfirmResponse {
   success: boolean;
   message: string;
 }
+
+export interface PasswordResetValidateResponse {
+  valid: boolean;
+  email: string;
+  expires_at: string;
+}
