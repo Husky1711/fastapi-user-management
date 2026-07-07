@@ -17,6 +17,7 @@ import {
   refreshAccessToken,
 } from "@/lib/apiClient";
 import { broadcastLogout, subscribeLogout } from "@/lib/auth/authChannel";
+import { loginWithSessionControl, type SessionStrategy } from "@/lib/auth/api";
 import { getHomePathForRole } from "@/lib/auth/routing";
 import type { AuthStatus, TokenResponse, UserProfile } from "@/lib/auth/types";
 
@@ -24,6 +25,11 @@ interface AuthContextValue {
   status: AuthStatus;
   user: UserProfile | null;
   login: (username: string, password: string) => Promise<void>;
+  loginWithSessionStrategy: (
+    username: string,
+    password: string,
+    sessionStrategy: SessionStrategy,
+  ) => Promise<TokenResponse["session_info"]>;
   logout: () => Promise<void>;
   bootstrapError: boolean;
 }
@@ -113,6 +119,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [fetchProfile, navigate],
   );
 
+  const loginWithSessionStrategy = useCallback(
+    async (username: string, password: string, sessionStrategy: SessionStrategy) => {
+      const data = await loginWithSessionControl(username, password, sessionStrategy);
+      applyLoginTokens(data);
+      const profile = await fetchProfile();
+      setStatus("authenticated");
+      navigate(getHomePathForRole(profile.role), { replace: true });
+      return data.session_info;
+    },
+    [fetchProfile, navigate],
+  );
+
   const logout = useCallback(async () => {
     try {
       await apiClient.post("/api/v1/logout", {});
@@ -128,10 +146,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       login,
+      loginWithSessionStrategy,
       logout,
       bootstrapError,
     }),
-    [status, user, login, logout, bootstrapError],
+    [status, user, login, loginWithSessionStrategy, logout, bootstrapError],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
