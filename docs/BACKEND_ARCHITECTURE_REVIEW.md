@@ -326,3 +326,4 @@ Role (JWT) → Auth → DB User → role_scope → Service → Response
 | July 2026 | **Router split:** `login.py` → `auth`, `sessions`, `users`, `profile` (+ optional `debug`) |
 | July 2026 | **Alembic baseline:** `alembic upgrade head` in bootstrap; stamp for legacy DBs |
 | July 2026 | **Session link (step 3):** `user_sessions.refresh_token_id` set on login; revoke/logout syncs both tables |
+| July 2026 | **FK migration (step 4):** compliance table foreign keys + unique `(user_id, group_id)` on memberships |
