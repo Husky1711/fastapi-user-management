@@ -4,8 +4,11 @@ import type {
   AuditLogsResponse,
   AuditStatisticsResponse,
   CleanupSessionsResponse,
+  CreateApiKeyResponse,
+  CreateGroupResponse,
   GroupMembersResponse,
   GroupsResponse,
+  MutationResponse,
   PasswordPolicyStatsResponse,
   PermissionStatisticsResponse,
   PermissionsResponse,
@@ -110,5 +113,52 @@ export async function fetchPasswordPolicyStats(
     "/api/v1/password/policy-stats",
     { params: userId ? { user_id: userId } : undefined },
   );
+  return data;
+}
+
+export async function createGroup(payload: {
+  name: string;
+  description?: string;
+}): Promise<CreateGroupResponse> {
+  const { data } = await apiClient.post<CreateGroupResponse>("/api/v1/groups", payload);
+  return data;
+}
+
+export async function deleteGroup(groupId: number): Promise<MutationResponse> {
+  const { data } = await apiClient.delete<MutationResponse>(`/api/v1/groups/${groupId}`);
+  return data;
+}
+
+export async function addGroupMember(
+  groupId: number,
+  userId: number,
+): Promise<MutationResponse> {
+  const { data } = await apiClient.post<MutationResponse>(
+    `/api/v1/groups/${groupId}/members`,
+    { user_id: userId },
+  );
+  return data;
+}
+
+export async function removeGroupMember(
+  groupId: number,
+  userId: number,
+): Promise<MutationResponse> {
+  const { data } = await apiClient.delete<MutationResponse>(
+    `/api/v1/groups/${groupId}/members/${userId}`,
+  );
+  return data;
+}
+
+export async function createApiKey(payload: {
+  key_name: string;
+  permissions?: string[];
+}): Promise<CreateApiKeyResponse> {
+  const { data } = await apiClient.post<CreateApiKeyResponse>("/api/v1/api-keys", payload);
+  return data;
+}
+
+export async function revokeApiKey(apiKeyId: number): Promise<MutationResponse> {
+  const { data } = await apiClient.delete<MutationResponse>(`/api/v1/api-keys/${apiKeyId}`);
   return data;
 }

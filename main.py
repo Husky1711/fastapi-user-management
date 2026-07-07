@@ -19,6 +19,7 @@ from routes.sessions import router as sessions_router
 from routes.users import router as users_router
 from routes.profile import router as profile_router
 from routes.production_endpoints import router as production_router
+from routes.integration import router as integration_router
 from routes.auth_2fa import router as auth_2fa_router
 from routes.organizations import router as organizations_router
 
@@ -106,6 +107,7 @@ if settings.security.allow_debug_auth:
 
     app.include_router(debug_router)
 app.include_router(production_router)
+app.include_router(integration_router)
 app.include_router(auth_2fa_router)
 app.include_router(organizations_router)
 
