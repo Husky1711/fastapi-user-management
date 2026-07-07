@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from models.user_model import RefreshToken
 from routes.auth_common import create_api_router, security
 from schemas.login import SessionInfo, SuccessResponse
-from services.auth import AuthService, EnhancedLoginService, RefreshTokenService
+from services.auth import AuthService, EnhancedLoginService, RefreshTokenService, RefreshTokenService
 from utils.database import get_db
 from utils.loggers import auth_logger
 from utils.rate_limit_dependency import RateLimitDependency
@@ -144,14 +144,10 @@ async def revoke_session(
         RefreshToken.is_revoked == False
     ).first()
     
-    if not session:
+    if not RefreshTokenService.revoke_token_by_id(db, session_id, reason="user_revoke"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
-    
-    session.is_revoked = True
-    session.revoked_at = datetime.utcnow()
-    db.commit()
     
     return SuccessResponse(message="Session revoked successfully")

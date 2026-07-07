@@ -84,6 +84,12 @@ class LogoutService:
             LogoutService._clear_user_redis_cache(user_id)
             LogoutService._clear_user_rate_limits(user_id)
             
+            from services.sessions import UserSessionService
+
+            UserSessionService.deactivate_user_sessions(
+                db, user_id, reason="logout_all"
+            )
+            
             security_logger.info(
                 f"All user sessions revoked",
                 user_id=user_id,
