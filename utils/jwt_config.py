@@ -1,8 +1,11 @@
-import os
 import hashlib
+import re
 from datetime import datetime, timedelta
 from typing import Optional
+
+import bcrypt
 from jose import JWTError, jwt
+
 from config.settings import settings
 
 # Get JWT configuration from centralized settings
@@ -11,13 +14,36 @@ ALGORITHM = settings.jwt.algorithm
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.jwt.access_token_expire_minutes
 REFRESH_TOKEN_EXPIRE_DAYS = settings.jwt.refresh_token_expire_days
 
+# Legacy dev/seed passwords used SHA-256 hex (64 chars) before bcrypt migration.
+_LEGACY_SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
+
+
+def is_legacy_sha256_hash(hashed_password: str) -> bool:
+    return bool(_LEGACY_SHA256_HEX.match(hashed_password))
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+    """Verify a password against bcrypt or legacy SHA-256 hex hashes."""
+    if is_legacy_sha256_hash(hashed_password):
+        return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False
+
 
 def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password with bcrypt."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def needs_password_rehash(hashed_password: str) -> bool:
+    """True when the stored hash should be upgraded to bcrypt."""
+    return is_legacy_sha256_hash(hashed_password)
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token with role and organization info"""
@@ -26,10 +52,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 def create_user_token(user_data: dict) -> str:
     """Create a JWT token for a user with all necessary claims"""
@@ -38,9 +65,10 @@ def create_user_token(user_data: dict) -> str:
         "user_id": user_data["id"],
         "role": user_data["role"],
         "organization_id": user_data["organization_id"],
-        "email": user_data["email"]
+        "email": user_data["email"],
     }
     return create_access_token(token_data)
+
 
 def verify_token(token: str) -> Optional[dict]:
     """Verify and decode a JWT token"""
@@ -50,6 +78,7 @@ def verify_token(token: str) -> Optional[dict]:
     except JWTError:
         return None
 
+
 def create_refresh_token(data: dict) -> str:
     """Create a refresh token"""
     to_encode = data.copy()
@@ -57,6 +86,7 @@ def create_refresh_token(data: dict) -> str:
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 def verify_refresh_token(token: str) -> Optional[dict]:
     """Verify and decode a refresh token"""
@@ -67,6 +97,7 @@ def verify_refresh_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
 
 def hash_token(token: str) -> str:
     """Hash a token for secure storage"""
