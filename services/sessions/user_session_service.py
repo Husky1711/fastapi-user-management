@@ -1,3 +1,10 @@
+"""
+Advanced session tracking for compliance analytics (user_sessions table).
+
+Auth/session counts for dashboards use refresh_tokens (see RefreshTokenService).
+Each login creates a linked user_sessions row with refresh_token_id set.
+"""
+
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import UserSession, User, RefreshToken
@@ -11,6 +18,88 @@ import re
 
 class UserSessionService:
     """Service for advanced session tracking and management"""
+
+    @staticmethod
+    def create_for_refresh_token(
+        db: Session,
+        user_id: int,
+        refresh_token_row: RefreshToken,
+        access_token: str,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> Dict[str, Any]:
+        """Create a compliance analytics session linked to a refresh token row."""
+        ua = user_agent or refresh_token_row.user_agent or "Unknown"
+        ip = ip_address or refresh_token_row.ip_address
+        parsed_ua = UserSessionService.parse_user_agent(ua)
+        device_fingerprint = UserSessionService.generate_device_fingerprint(ua, ip or "")
+
+        return UserSessionService.create_session(
+            db=db,
+            user_id=user_id,
+            access_token_hash=hashlib.sha256(access_token.encode()).hexdigest(),
+            refresh_token_id=refresh_token_row.id,
+            device_fingerprint=device_fingerprint,
+            device_name=f"{parsed_ua['os_name']} {parsed_ua['device_type']}",
+            device_type=parsed_ua["device_type"],
+            browser_name=parsed_ua["browser_name"],
+            browser_version=parsed_ua["browser_version"],
+            os_name=parsed_ua["os_name"],
+            os_version=parsed_ua["os_version"],
+            ip_address=ip,
+            expires_at=refresh_token_row.expires_at,
+        )
+
+    @staticmethod
+    def deactivate_by_refresh_token_id(
+        db: Session,
+        refresh_token_id: int,
+        reason: str = "logout",
+    ) -> int:
+        """Deactivate user_sessions rows linked to a refresh token."""
+        sessions = (
+            db.query(UserSession)
+            .filter(
+                UserSession.refresh_token_id == refresh_token_id,
+                UserSession.is_active == True,
+            )
+            .all()
+        )
+        for session in sessions:
+            session.is_active = False
+            session.last_activity = datetime.utcnow()
+
+        if sessions:
+            db.commit()
+
+        return len(sessions)
+
+    @staticmethod
+    def deactivate_by_refresh_token_ids(
+        db: Session,
+        refresh_token_ids: List[int],
+        reason: str = "revoke",
+    ) -> int:
+        """Deactivate user_sessions rows linked to multiple refresh tokens."""
+        if not refresh_token_ids:
+            return 0
+
+        sessions = (
+            db.query(UserSession)
+            .filter(
+                UserSession.refresh_token_id.in_(refresh_token_ids),
+                UserSession.is_active == True,
+            )
+            .all()
+        )
+        for session in sessions:
+            session.is_active = False
+            session.last_activity = datetime.utcnow()
+
+        if sessions:
+            db.commit()
+
+        return len(sessions)
     
     @staticmethod
     def create_session(

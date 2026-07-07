@@ -167,13 +167,12 @@ class EnhancedLoginService:
             }
         
         elif strategy == "replace_same_device":
-            # Revoke sessions from same device
             revoked_count = 0
             if device_info:
                 for session in existing_sessions:
                     if session.device_info == device_info:
-                        RefreshTokenService.revoke_token(db, session.token_hash)
-                        revoked_count += 1
+                        if RefreshTokenService.revoke_token_by_id(db, session.id, reason="replace_same_device"):
+                            revoked_count += 1
             
             return {
                 "allow_login": True,
@@ -201,8 +200,8 @@ class EnhancedLoginService:
                 # Sort by creation date and revoke oldest
                 sorted_sessions = sorted(existing_sessions, key=lambda x: x.created_at)
                 for session in sorted_sessions[:sessions_to_revoke]:
-                    RefreshTokenService.revoke_token(db, session.token_hash)
-                    revoked_count += 1
+                    if RefreshTokenService.revoke_token_by_id(db, session.id, reason="limit_sessions"):
+                        revoked_count += 1
                 
                 return {
                     "allow_login": True,
@@ -258,8 +257,8 @@ class EnhancedLoginService:
             
             for session in sessions:
                 if session.id != keep_session_id:
-                    RefreshTokenService.revoke_token(db, session.token_hash)
-                    revoked_count += 1
+                    if RefreshTokenService.revoke_token_by_id(db, session.id, reason="revoke_others"):
+                        revoked_count += 1
             
             # Clear Redis cache for revoked sessions
             LogoutService._clear_user_redis_cache(user_id)

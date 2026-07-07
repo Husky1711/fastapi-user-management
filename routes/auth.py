@@ -1,7 +1,6 @@
 """Authentication endpoints: login, signup, refresh, logout."""
 
-import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -16,7 +15,6 @@ from schemas.login import RefreshTokenRequest, UserResponse, UserSigninRequest, 
 from services.audit import AuditLogService
 from services.auth import AuthService, EnhancedLoginService, LogoutService
 from services.auth.login_attempt_service import LoginAttemptService
-from services.sessions import UserSessionService
 from services.users import UserService
 from utils.api_errors import APIHTTPException
 from utils.cookie_auth import build_auth_token_response, build_logout_response, resolve_refresh_token
@@ -185,34 +183,6 @@ async def login(
                 "token_type": "access_refresh"
             }
         )
-        
-        # Create user session for tracking
-        parsed_ua = UserSessionService.parse_user_agent(user_agent)
-        device_fingerprint = UserSessionService.generate_device_fingerprint(user_agent, ip_address)
-        
-        session_result = UserSessionService.create_session(
-            db=db,
-            user_id=user.id,
-            access_token_hash=hashlib.sha256(access_token.encode()).hexdigest(),
-            refresh_token_id=None,  # Will be updated when refresh token is created
-            device_fingerprint=device_fingerprint,
-            device_name=f"{parsed_ua['os_name']} {parsed_ua['device_type']}",
-            device_type=parsed_ua['device_type'],
-            browser_name=parsed_ua['browser_name'],
-            browser_version=parsed_ua['browser_version'],
-            os_name=parsed_ua['os_name'],
-            os_version=parsed_ua['os_version'],
-            ip_address=ip_address,
-            expires_at=datetime.utcnow() + timedelta(hours=24)
-        )
-        
-        if session_result["success"]:
-            auth_logger.info(
-                f"User session created: {session_result['session_id']}",
-                user_id=user.id,
-                session_id=session_result['session_id'],
-                event_type="session_created"
-            )
         
         return build_auth_token_response(
             access_token=access_token,
@@ -508,22 +478,6 @@ async def logout(
                     "refresh_token_revoked": True
                 }
             )
-            
-            # Deactivate user session (we'll need to find the session by refresh token)
-            # For now, we'll deactivate all sessions for the user
-            session_result = UserSessionService.deactivate_user_sessions(
-                db=db,
-                user_id=user.id,
-                reason="logout"
-            )
-            
-            if session_result["success"]:
-                auth_logger.info(
-                    f"User sessions deactivated: {session_result['deactivated_count']} sessions",
-                    user_id=user.id,
-                    deactivated_count=session_result['deactivated_count'],
-                    event_type="sessions_deactivated"
-                )
         
         return build_logout_response("Successfully logged out")
         
@@ -557,7 +511,7 @@ async def logout_all_sessions(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Logout from all sessions
+        # Logout from all sessions (refresh_tokens + linked user_sessions)
         revoked_count = LogoutService.logout_all_user_sessions(db, user.id)
 
         response = JSONResponse(

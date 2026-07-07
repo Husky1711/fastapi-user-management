@@ -325,3 +325,4 @@ Role (JWT) → Auth → DB User → role_scope → Service → Response
 | July 2026 | **Architect review P0:** compliance APIs scoped via `compliance_access` + `role_scope`; group members IDOR fix; `SECURITY__ALLOW_DEBUG_AUTH`; admin dashboard logins scoped |
 | July 2026 | **Router split:** `login.py` → `auth`, `sessions`, `users`, `profile` (+ optional `debug`) |
 | July 2026 | **Alembic baseline:** `alembic upgrade head` in bootstrap; stamp for legacy DBs |
+| July 2026 | **Session link (step 3):** `user_sessions.refresh_token_id` set on login; revoke/logout syncs both tables |
