@@ -3,6 +3,7 @@
 --   testadmin / admin123
 --   testuser  / user123
 --   testorgadmin / orgadmin123
+--   test_super_admin / TestSuperAdminPass123!
 
 USE fastapi_users;
 
@@ -53,6 +54,18 @@ INSERT INTO users (
     'active',
     '1234567890',
     'organization_admin',
+    1,
+    0,
+    0,
+    0
+),
+(
+    'test_super_admin',
+    'test_super_admin@test.com',
+    'd92b308af543bcf0c01fd017a6de945a7294ae83d7c9ae7e5b98fed51c715e95',
+    'active',
+    '1234567890',
+    'super_admin',
     1,
     0,
     0,
