@@ -758,11 +758,10 @@ async def get_all_users(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get role and organization info from JWT token
-    from utils.jwt_config import verify_token
-    payload = verify_token(credentials.credentials)
-    current_user_role = payload.get("role", "user")
-    current_user_org_id = payload.get("organization_id", 1)
+    # Use database user as source of truth (JWT claims can be stale after role changes)
+    current_user_role = user.role
+    current_user_org_id = user.organization_id
+    current_user_id = user.id
     
     # Get users based on role
     users = UserService.get_users_by_role_and_organization(
@@ -838,12 +837,10 @@ async def get_user_by_id(
         # Return cached profile
         return cached_profile
     
-    # Get role and organization info from JWT token
-    from utils.jwt_config import verify_token
-    payload = verify_token(credentials.credentials)
-    current_user_role = payload.get("role", "user")
-    current_user_org_id = payload.get("organization_id", 1)
-    current_user_id = payload.get("user_id", user.id)
+    # Use database user as source of truth (JWT claims can be stale after role changes)
+    current_user_role = user.role
+    current_user_org_id = user.organization_id
+    current_user_id = user.id
     
     # Get specific user based on role
     specific_user = UserService.get_user_by_role_and_organization(
