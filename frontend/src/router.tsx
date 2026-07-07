@@ -18,6 +18,8 @@ import { MaintenancePage } from "@/pages/MaintenancePage";
 import { OrgAdminPage } from "@/pages/OrgAdminPage";
 import { SuperAdminPage } from "@/pages/SuperAdminPage";
 import { SuperAdminOrganizationsPage } from "@/pages/SuperAdminOrganizationsPage";
+import { SuperAdminCreateOrganizationPage } from "@/pages/SuperAdminCreateOrganizationPage";
+import { SuperAdminOrganizationDetailPage } from "@/pages/SuperAdminOrganizationDetailPage";
 import { CompliancePage } from "@/pages/CompliancePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -71,6 +73,14 @@ export function AppRouter() {
               <Route
                 path="/super-admin/organizations"
                 element={<SuperAdminOrganizationsPage />}
+              />
+              <Route
+                path="/super-admin/organizations/new"
+                element={<SuperAdminCreateOrganizationPage />}
+              />
+              <Route
+                path="/super-admin/organizations/:orgId"
+                element={<SuperAdminOrganizationDetailPage />}
               />
             </Route>
 

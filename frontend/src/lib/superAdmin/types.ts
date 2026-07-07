@@ -51,8 +51,29 @@ export interface SuperAdminOrganizationRow {
   id: number;
   name: string;
   status: string;
+  description?: string | null;
   total_users: number;
   active_users: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface OrganizationCreatePayload {
+  name: string;
+  description?: string;
+  status?: string;
+}
+
+export interface OrganizationUpdatePayload {
+  name?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface OrganizationMutationResponse {
+  success: boolean;
+  message: string;
+  organization?: SuperAdminOrganizationRow;
 }
 
 export interface SuperAdminOrganizationsStats {

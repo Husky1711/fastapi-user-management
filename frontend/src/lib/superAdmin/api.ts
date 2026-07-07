@@ -1,6 +1,10 @@
 import { apiClient } from "@/lib/apiClient";
 import type {
+  OrganizationCreatePayload,
+  OrganizationMutationResponse,
+  OrganizationUpdatePayload,
   SuperAdminOrganizationsStats,
+  SuperAdminOrganizationRow,
   SuperAdminOverview,
   SuperAdminSessionsStats,
   SuperAdminUsersStats,
@@ -30,6 +34,43 @@ export async function fetchSuperAdminOrganizationsStats(): Promise<SuperAdminOrg
 export async function fetchSuperAdminSessionsStats(): Promise<SuperAdminSessionsStats> {
   const { data } = await apiClient.get<SuperAdminSessionsStats>(
     "/api/v1/dashboard/super-admin/sessions/stats",
+  );
+  return data;
+}
+
+export async function fetchOrganizations(): Promise<SuperAdminOrganizationRow[]> {
+  const { data } = await apiClient.get<{ organizations: SuperAdminOrganizationRow[] }>(
+    "/api/v1/organizations",
+  );
+  return data.organizations;
+}
+
+export async function fetchOrganizationById(
+  organizationId: number,
+): Promise<SuperAdminOrganizationRow> {
+  const { data } = await apiClient.get<SuperAdminOrganizationRow>(
+    `/api/v1/organizations/${organizationId}`,
+  );
+  return data;
+}
+
+export async function createOrganization(
+  payload: OrganizationCreatePayload,
+): Promise<OrganizationMutationResponse> {
+  const { data } = await apiClient.post<OrganizationMutationResponse>(
+    "/api/v1/organizations",
+    payload,
+  );
+  return data;
+}
+
+export async function updateOrganization(
+  organizationId: number,
+  payload: OrganizationUpdatePayload,
+): Promise<OrganizationMutationResponse> {
+  const { data } = await apiClient.patch<OrganizationMutationResponse>(
+    `/api/v1/organizations/${organizationId}`,
+    payload,
   );
   return data;
 }

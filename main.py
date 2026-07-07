@@ -17,6 +17,7 @@ from sqlalchemy import text
 from routes.login import router as login_router
 from routes.production_endpoints import router as production_router
 from routes.auth_2fa import router as auth_2fa_router
+from routes.organizations import router as organizations_router
 
 # Import utilities
 from utils.loggers import app_logger, security_logger
@@ -96,6 +97,7 @@ setup_error_handlers(app)
 app.include_router(login_router)
 app.include_router(production_router)
 app.include_router(auth_2fa_router)
+app.include_router(organizations_router)
 
 # Include dashboard router
 from routes.dashboard import router as dashboard_router
