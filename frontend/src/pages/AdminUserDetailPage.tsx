@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AdminShell } from "@/components/AdminShell";
+import { StaffShell } from "@/components/StaffShell";
 import { fetchUserById } from "@/lib/admin/api";
 import { getApiError } from "@/lib/apiClient";
 import styles from "@/pages/ProfilePage.module.css";
@@ -16,7 +16,7 @@ export function AdminUserDetailPage() {
   });
 
   return (
-    <AdminShell>
+    <StaffShell>
       <section className={styles.panel}>
         <Link to="/admin/users" className={styles.backLink}>
           ← Back to users
@@ -68,6 +68,6 @@ export function AdminUserDetailPage() {
           </div>
         )}
       </section>
-    </AdminShell>
+    </StaffShell>
   );
 }

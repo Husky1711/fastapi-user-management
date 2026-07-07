@@ -8,6 +8,7 @@ import secrets
 import string
 import re
 from schemas.login import RoleHierarchyValidator
+from services.users.role_scope import can_view_user, filter_users_for_viewer
 from utils.loggers import auth_logger
 
 class UserService:
@@ -51,35 +52,32 @@ class UserService:
     @staticmethod
     def get_users_by_role_and_organization(db: Session, current_user_role: str, current_user_org_id: int, skip: int = 0, limit: int = 100) -> List[User]:
         """Get users filtered by role and organization"""
-        query = db.query(User)
-        
-        if current_user_role == "super_admin":
-            # Super admin can see all users from all organizations
-            return query.offset(skip).limit(limit).all()
-        elif current_user_role == "admin":
-            # Admin can see users from their organization only
-            return query.filter(User.organization_id == current_user_org_id).offset(skip).limit(limit).all()
-        else:
-            # Regular user can only see themselves
+        if current_user_role == "user":
             return []
+
+        query = filter_users_for_viewer(db.query(User), current_user_role, current_user_org_id)
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
     def get_user_by_role_and_organization(db: Session, user_id: int, current_user_role: str, current_user_org_id: int, current_user_id: int) -> Optional[User]:
         """Get a specific user filtered by role and organization"""
         if current_user_role == "super_admin":
-            # Super admin can see any user
             return db.query(User).filter(User.id == user_id).first()
-        elif current_user_role == "admin":
-            # Admin can see users from their organization
-            return db.query(User).filter(
-                User.id == user_id,
-                User.organization_id == current_user_org_id
-            ).first()
-        else:
-            # Regular user can only see themselves
+
+        if current_user_role == "user":
             if user_id == current_user_id:
                 return db.query(User).filter(User.id == user_id).first()
             return None
+
+        target = db.query(User).filter(
+            User.id == user_id,
+            User.organization_id == current_user_org_id,
+        ).first()
+        if target is None:
+            return None
+        if not can_view_user(current_user_role, target.role):
+            return None
+        return target
     
     @staticmethod
     def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:

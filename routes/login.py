@@ -786,8 +786,8 @@ async def get_all_users(
                 "phone_number": user.phone_number
             })
         return response
-    elif current_user_role == "admin":
-        # Admin sees users from their organization
+    elif current_user_role in ("admin", "organization_admin"):
+        # Admins and org admins see manageable users from their organization
         return {
             "organization_id": current_user_org_id,
             "users": [{

@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AdminShell } from "@/components/AdminShell";
+import { StaffShell } from "@/components/StaffShell";
 import { createUser } from "@/lib/admin/api";
 import { allowedCreateRoles } from "@/lib/admin/roles";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -56,14 +56,14 @@ export function AdminCreateUserPage() {
 
   if (roles.length === 0) {
     return (
-      <AdminShell>
+      <StaffShell>
         <p className={styles.error}>You do not have permission to create users.</p>
-      </AdminShell>
+      </StaffShell>
     );
   }
 
   return (
-    <AdminShell>
+    <StaffShell>
       <section className={styles.panel}>
         <Link to="/admin/users" className={styles.backLink}>
           ← Back to users
@@ -141,6 +141,6 @@ export function AdminCreateUserPage() {
           </form>
         )}
       </section>
-    </AdminShell>
+    </StaffShell>
   );
 }

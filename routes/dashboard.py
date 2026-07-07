@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, time
 from typing import Dict, Any, List, Optional
 
 from services.users import UserService
+from services.users.role_scope import filter_users_for_viewer
 from services.auth import AuthService
 from services.sessions import UserSessionService
 from services.audit import AuditLogService
@@ -305,7 +306,7 @@ async def get_admin_dashboard_overview(
             )
         
         # Check if user is admin
-        if user.role not in ["admin", "super_admin"]:
+        if user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
@@ -313,17 +314,19 @@ async def get_admin_dashboard_overview(
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
         
-        # Get all users in organization
-        all_users = db.query(User).filter(User.organization_id == org_id).all()
+        # Users this admin can manage (regular users in their organization)
+        all_users = filter_users_for_viewer(db.query(User), "admin", org_id).all()
         total_users = len(all_users)
         active_users = len([u for u in all_users if u.status == "active"])
+        viewable_user_ids = [u.id for u in all_users]
         
-        # Get active sessions
-        all_sessions = db.query(RefreshToken).join(User).filter(
-            User.organization_id == org_id,
-            RefreshToken.is_revoked == False
-        ).all()
-        active_sessions = len(all_sessions)
+        # Active sessions for manageable users only
+        session_query = db.query(RefreshToken).filter(RefreshToken.is_revoked == False)
+        if viewable_user_ids:
+            session_query = session_query.filter(RefreshToken.user_id.in_(viewable_user_ids))
+        else:
+            session_query = session_query.filter(False)
+        active_sessions = session_query.count()
         
         # Get today's statistics
         today = datetime.utcnow().date()
@@ -343,21 +346,30 @@ async def get_admin_dashboard_overview(
         ).count()
         
         # Today's new users
-        new_users_today = db.query(User).filter(
-            User.organization_id == org_id,
-            User.created_at >= today_start,
-            User.created_at < tomorrow_start
-        ).count()
+        new_users_today = (
+            filter_users_for_viewer(db.query(User), "admin", org_id)
+            .filter(
+                User.created_at >= today_start,
+                User.created_at < tomorrow_start,
+            )
+            .count()
+        )
         
         # Today's password resets
-        password_resets_today = db.query(AuditLog).join(
+        password_reset_query = db.query(AuditLog).join(
             User, AuditLog.user_id == User.id
         ).filter(
-            User.organization_id == org_id,
             AuditLog.action == "password_change",
             AuditLog.created_at >= today_start,
-            AuditLog.created_at < tomorrow_start
-        ).count()
+            AuditLog.created_at < tomorrow_start,
+        )
+        if viewable_user_ids:
+            password_reset_query = password_reset_query.filter(
+                User.id.in_(viewable_user_ids)
+            )
+        else:
+            password_reset_query = password_reset_query.filter(False)
+        password_resets_today = password_reset_query.count()
         
         return {
             "total_users": total_users,
@@ -411,7 +423,7 @@ async def get_admin_users_stats(
             )
         
         # Check if user is admin
-        if user.role not in ["admin", "super_admin"]:
+        if user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
@@ -419,8 +431,8 @@ async def get_admin_users_stats(
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
         
-        # Get all users in organization
-        all_users = db.query(User).filter(User.organization_id == org_id).all()
+        # Users this admin can manage (regular users in their organization)
+        all_users = filter_users_for_viewer(db.query(User), "admin", org_id).all()
         
         total_users = len(all_users)
         active_users = len([u for u in all_users if u.status == "active"])
@@ -428,9 +440,12 @@ async def get_admin_users_stats(
         inactive_users = total_users - active_users - locked_users
         
         # Recent users (last 10)
-        recent_users = db.query(User).filter(
-            User.organization_id == org_id
-        ).order_by(User.created_at.desc()).limit(10).all()
+        recent_users = (
+            filter_users_for_viewer(db.query(User), "admin", org_id)
+            .order_by(User.created_at.desc())
+            .limit(10)
+            .all()
+        )
         
         recent_users_list = []
         for u in recent_users:
@@ -496,7 +511,7 @@ async def get_admin_activity_stats(
             )
         
         # Check if user is admin
-        if user.role not in ["admin", "super_admin"]:
+        if user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
@@ -601,8 +616,8 @@ async def get_organization_admin_overview(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Check if user is organization admin or super admin
-        if user.role not in ["organization_admin", "super_admin"]:
+        # Check if user is organization admin
+        if user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
@@ -610,8 +625,10 @@ async def get_organization_admin_overview(
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
         
-        # Get all users in organization
-        all_users = db.query(User).filter(User.organization_id == org_id).all()
+        # Users this org admin can manage (excludes system-wide super admins)
+        all_users = filter_users_for_viewer(
+            db.query(User), "organization_admin", org_id
+        ).all()
         total_users = len(all_users)
         
         # Count users by role
@@ -621,15 +638,15 @@ async def get_organization_admin_overview(
         
         # Active users
         active_users = len([u for u in all_users if u.status == "active"])
+        viewable_user_ids = [u.id for u in all_users]
         
-        # Get active sessions
-        all_sessions = db.query(RefreshToken).join(
-            User, RefreshToken.user_id == User.id
-        ).filter(
-            User.organization_id == org_id,
-            RefreshToken.is_revoked == False
-        ).all()
-        active_sessions = len(all_sessions)
+        # Active sessions for manageable users only
+        session_query = db.query(RefreshToken).filter(RefreshToken.is_revoked == False)
+        if viewable_user_ids:
+            session_query = session_query.filter(RefreshToken.user_id.in_(viewable_user_ids))
+        else:
+            session_query = session_query.filter(False)
+        active_sessions = session_query.count()
         
         # Get today's statistics
         today = datetime.utcnow().date()
@@ -649,11 +666,14 @@ async def get_organization_admin_overview(
         ).count()
         
         # Today's new users
-        new_users_today = db.query(User).filter(
-            User.organization_id == org_id,
-            User.created_at >= today_start,
-            User.created_at < tomorrow_start
-        ).count()
+        new_users_today = (
+            filter_users_for_viewer(db.query(User), "organization_admin", org_id)
+            .filter(
+                User.created_at >= today_start,
+                User.created_at < tomorrow_start,
+            )
+            .count()
+        )
         
         return {
             "organization_id": org_id,
@@ -710,8 +730,8 @@ async def get_organization_admin_users_stats(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Check if user is organization admin or super admin
-        if user.role not in ["organization_admin", "super_admin"]:
+        # Check if user is organization admin
+        if user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
@@ -719,8 +739,9 @@ async def get_organization_admin_users_stats(
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
         
-        # Get all users in organization
-        all_users = db.query(User).filter(User.organization_id == org_id).all()
+        all_users = filter_users_for_viewer(
+            db.query(User), "organization_admin", org_id
+        ).all()
         
         # Count by role
         admin_count = len([u for u in all_users if u.role == "admin"])
@@ -733,9 +754,12 @@ async def get_organization_admin_users_stats(
         locked_count = len([u for u in all_users if u.status == "locked"])
         
         # Recent users (last 10)
-        recent_users = db.query(User).filter(
-            User.organization_id == org_id
-        ).order_by(User.created_at.desc()).limit(10).all()
+        recent_users = (
+            filter_users_for_viewer(db.query(User), "organization_admin", org_id)
+            .order_by(User.created_at.desc())
+            .limit(10)
+            .all()
+        )
         
         recent_users_list = []
         for u in recent_users:
@@ -802,29 +826,38 @@ async def get_organization_admin_sessions_stats(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Check if user is organization admin or super admin
-        if user.role not in ["organization_admin", "super_admin"]:
+        # Check if user is organization admin
+        if user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
             )
         
         org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        viewable_user_ids = [
+            u.id
+            for u in filter_users_for_viewer(
+                db.query(User), "organization_admin", org_id
+            ).all()
+        ]
         
-        # Get all sessions in organization
-        all_sessions = db.query(RefreshToken).join(
-            User, RefreshToken.user_id == User.id
-        ).filter(User.organization_id == org_id).all()
+        session_query = db.query(RefreshToken)
+        if viewable_user_ids:
+            session_query = session_query.filter(RefreshToken.user_id.in_(viewable_user_ids))
+        else:
+            session_query = session_query.filter(False)
+        all_sessions = session_query.all()
         
         total_sessions = len(all_sessions)
         active_sessions = len([s for s in all_sessions if not s.is_revoked])
         
         # Recent sessions (last 20)
-        recent_sessions = db.query(RefreshToken).join(
-            User, RefreshToken.user_id == User.id
-        ).filter(
-            User.organization_id == org_id
-        ).order_by(RefreshToken.created_at.desc()).limit(20).all()
+        recent_query = db.query(RefreshToken)
+        if viewable_user_ids:
+            recent_query = recent_query.filter(RefreshToken.user_id.in_(viewable_user_ids))
+        else:
+            recent_query = recent_query.filter(False)
+        recent_sessions = recent_query.order_by(RefreshToken.created_at.desc()).limit(20).all()
         
         recent_sessions_list = []
         for s in recent_sessions:

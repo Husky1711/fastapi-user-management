@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AdminShell } from "@/components/AdminShell";
+import { StaffShell } from "@/components/StaffShell";
 import { UsersTable } from "@/components/UsersTable";
 import { fetchUsers } from "@/lib/admin/api";
 import { getApiError } from "@/lib/apiClient";
@@ -12,7 +12,7 @@ export function AdminUsersPage() {
   });
 
   return (
-    <AdminShell>
+    <StaffShell>
       <section className={styles.section}>
         <h2>All users</h2>
         <p className={styles.subtitle}>
@@ -34,6 +34,6 @@ export function AdminUsersPage() {
           </>
         )}
       </section>
-    </AdminShell>
+    </StaffShell>
   );
 }
