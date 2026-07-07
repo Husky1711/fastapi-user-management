@@ -19,6 +19,14 @@ import {
   fetchSessionStatistics,
   fetchStandardPermissions,
 } from "@/lib/compliance/api";
+import {
+  BreakdownTables,
+  CatalogTable,
+  EmptyTableRow,
+  formatTimestamp,
+  parseStatsPayload,
+  StatGrid,
+} from "@/lib/compliance/display";
 import styles from "@/pages/AdminPage.module.css";
 
 type TabId =
@@ -40,34 +48,13 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "password-policy", label: "Password policy" },
 ];
 
-function StatCard({ label, value }: { label: string; value: number | string }) {
+function StatsPanel({ raw }: { raw: unknown }) {
+  const { metrics, breakdowns } = parseStatsPayload(raw);
   return (
-    <div className={styles.card}>
-      <p className={styles.cardLabel}>{label}</p>
-      <p className={styles.cardValue}>{value}</p>
-    </div>
-  );
-}
-
-function KeyValueGrid({ data }: { data: Record<string, unknown> | undefined }) {
-  if (!data || Object.keys(data).length === 0) {
-    return <p className={styles.loading}>No statistics available.</p>;
-  }
-
-  return (
-    <div className={styles.grid}>
-      {Object.entries(data).map(([key, value]) => (
-        <StatCard
-          key={key}
-          label={key.replaceAll("_", " ")}
-          value={
-            typeof value === "object" && value !== null
-              ? JSON.stringify(value)
-              : String(value ?? "—")
-          }
-        />
-      ))}
-    </div>
+    <>
+      <StatGrid items={metrics} />
+      <BreakdownTables sections={breakdowns} />
+    </>
   );
 }
 
@@ -147,7 +134,7 @@ export function CompliancePage() {
   const cleanupMutation = useMutation({
     mutationFn: cleanupExpiredSessions,
     onSuccess: (data) => {
-      setCleanupMessage(data.message ?? "Expired sessions cleaned up.");
+      setCleanupMessage(data.message ?? "Expired sessions were removed.");
       void sessionStatsQuery.refetch();
     },
     onError: (err) => setCleanupMessage(getApiError(err).detail),
@@ -161,6 +148,40 @@ export function CompliancePage() {
     groupsQuery.error ||
     apiKeysQuery.error ||
     passwordPolicyQuery.error;
+
+  const auditLogs = auditLogsQuery.data?.logs ?? [];
+  const permissions = permissionsQuery.data?.permissions ?? [];
+  const groups = groupsQuery.data?.groups ?? [];
+  const apiKeys = apiKeysQuery.data?.api_keys ?? [];
+  const groupMembers = groupMembersQuery.data?.members ?? [];
+
+  const overviewMetrics = [
+    {
+      label: "Audit events",
+      value:
+        parseStatsPayload(auditStatsQuery.data).metrics.find((m) => m.label === "Total Logs")
+          ?.value ?? 0,
+    },
+    {
+      label: "Active sessions",
+      value:
+        parseStatsPayload(sessionStatsQuery.data).metrics.find(
+          (m) => m.label === "Active Sessions",
+        )?.value ?? 0,
+    },
+    {
+      label: "Permissions",
+      value: permissionsQuery.data?.total_count ?? permissions.length,
+    },
+    {
+      label: "Groups",
+      value: groupsQuery.data?.total_count ?? groups.length,
+    },
+    {
+      label: "API keys",
+      value: apiKeysQuery.data?.total_count ?? apiKeys.length,
+    },
+  ];
 
   return (
     <ComplianceShell>
@@ -185,40 +206,19 @@ export function CompliancePage() {
 
       {tab === "overview" && (
         <section className={styles.section}>
-          <h2>Compliance overview</h2>
-          <p className={styles.subtitle}>Aggregated M8 production endpoint statistics</p>
-          <div className={styles.grid}>
-            <StatCard
-              label="Audit logs"
-              value={auditStatsQuery.data?.statistics?.total_logs ?? "—"}
-            />
-            <StatCard
-              label="Active sessions"
-              value={sessionStatsQuery.data?.statistics?.active_sessions ?? "—"}
-            />
-            <StatCard
-              label="Permissions"
-              value={permissionsQuery.data?.total_count ?? permissionsQuery.data?.permissions?.length ?? "—"}
-            />
-            <StatCard
-              label="Groups"
-              value={groupsQuery.data?.total_count ?? groupsQuery.data?.groups?.length ?? "—"}
-            />
-            <StatCard
-              label="API keys"
-              value={apiKeysQuery.data?.total_count ?? apiKeysQuery.data?.api_keys?.length ?? "—"}
-            />
-          </div>
+          <h2>Overview</h2>
+          <p className={styles.subtitle}>
+            Security and compliance snapshot for your organization.
+          </p>
+          <StatGrid items={overviewMetrics} />
         </section>
       )}
 
       {tab === "audit" && (
         <section className={styles.section}>
-          <h2>Audit logs</h2>
-          <p className={styles.subtitle}>GET /api/v1/audit/logs · /audit/statistics</p>
-          <KeyValueGrid
-            data={auditStatsQuery.data?.statistics as Record<string, unknown> | undefined}
-          />
+          <h2>Audit trail</h2>
+          <p className={styles.subtitle}>Recent sign-in and security events.</p>
+          <StatsPanel raw={auditStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
               <thead>
@@ -232,16 +232,20 @@ export function CompliancePage() {
                 </tr>
               </thead>
               <tbody>
-                {(auditLogsQuery.data?.logs ?? []).map((log) => (
-                  <tr key={log.id}>
-                    <td>{log.created_at ?? "—"}</td>
-                    <td>{log.event_type ?? "—"}</td>
-                    <td>{log.event_category ?? "—"}</td>
-                    <td>{log.status ?? "—"}</td>
-                    <td>{log.user_id ?? "—"}</td>
-                    <td>{log.ip_address ?? "—"}</td>
-                  </tr>
-                ))}
+                {auditLogs.length === 0 ? (
+                  <EmptyTableRow colSpan={6} message="No audit events recorded yet." />
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td>{formatTimestamp(log.created_at)}</td>
+                      <td>{log.event_type ?? "—"}</td>
+                      <td>{log.event_category ?? "—"}</td>
+                      <td>{log.status ?? "—"}</td>
+                      <td>{log.user_id ?? "—"}</td>
+                      <td>{log.ip_address ?? "—"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -250,13 +254,9 @@ export function CompliancePage() {
 
       {tab === "sessions" && (
         <section className={styles.section}>
-          <h2>Session analytics</h2>
-          <p className={styles.subtitle}>
-            GET /api/v1/sessions/statistics · POST /api/v1/sessions/cleanup
-          </p>
-          <KeyValueGrid
-            data={sessionStatsQuery.data?.statistics as Record<string, unknown> | undefined}
-          />
+          <h2>Sessions</h2>
+          <p className={styles.subtitle}>Active and historical session activity.</p>
+          <StatsPanel raw={sessionStatsQuery.data} />
           {canCleanup && (
             <div style={{ marginTop: "1rem" }}>
               <button
@@ -265,7 +265,7 @@ export function CompliancePage() {
                 disabled={cleanupMutation.isPending}
                 onClick={() => cleanupMutation.mutate()}
               >
-                {cleanupMutation.isPending ? "Cleaning…" : "Clean up expired sessions"}
+                {cleanupMutation.isPending ? "Cleaning…" : "Remove expired sessions"}
               </button>
               {cleanupMessage && <p className={styles.loading}>{cleanupMessage}</p>}
             </div>
@@ -276,12 +276,8 @@ export function CompliancePage() {
       {tab === "permissions" && (
         <section className={styles.section}>
           <h2>Permissions</h2>
-          <p className={styles.subtitle}>
-            GET /api/v1/permissions · /permissions/standard · /permissions/statistics
-          </p>
-          <KeyValueGrid
-            data={permissionStatsQuery.data?.statistics as Record<string, unknown> | undefined}
-          />
+          <p className={styles.subtitle}>Granted permissions and available scopes.</p>
+          <StatsPanel raw={permissionStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
               <thead>
@@ -293,25 +289,29 @@ export function CompliancePage() {
                 </tr>
               </thead>
               <tbody>
-                {(permissionsQuery.data?.permissions ?? []).map((perm) => (
-                  <tr key={perm.id}>
-                    <td>{perm.permission_name}</td>
-                    <td>
-                      {perm.resource_type ?? "—"}
-                      {perm.resource_id ? ` #${perm.resource_id}` : ""}
-                    </td>
-                    <td>{perm.is_active ? "yes" : "no"}</td>
-                    <td>{perm.expires_at ?? "—"}</td>
-                  </tr>
-                ))}
+                {permissions.length === 0 ? (
+                  <EmptyTableRow colSpan={4} message="No custom permissions assigned." />
+                ) : (
+                  permissions.map((perm) => (
+                    <tr key={perm.id}>
+                      <td>{perm.permission_name}</td>
+                      <td>
+                        {perm.resource_type ?? "—"}
+                        {perm.resource_id ? ` #${perm.resource_id}` : ""}
+                      </td>
+                      <td>{perm.is_active ? "Yes" : "No"}</td>
+                      <td>{formatTimestamp(perm.expires_at)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
           {standardPermissionsQuery.data && (
-            <div style={{ marginTop: "1rem" }}>
-              <h3>Standard permissions</h3>
-              <KeyValueGrid data={standardPermissionsQuery.data} />
-            </div>
+            <CatalogTable
+              title="Available permission scopes"
+              entries={standardPermissionsQuery.data}
+            />
           )}
         </section>
       )}
@@ -319,10 +319,8 @@ export function CompliancePage() {
       {tab === "groups" && (
         <section className={styles.section}>
           <h2>Groups</h2>
-          <p className={styles.subtitle}>
-            GET /api/v1/groups · /groups/statistics · /groups/{"{id}"}/members
-          </p>
-          <KeyValueGrid data={groupStatsQuery.data} />
+          <p className={styles.subtitle}>User groups in your organization.</p>
+          <StatsPanel raw={groupStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
               <thead>
@@ -335,29 +333,33 @@ export function CompliancePage() {
                 </tr>
               </thead>
               <tbody>
-                {(groupsQuery.data?.groups ?? []).map((group) => (
-                  <tr key={group.id}>
-                    <td>{group.id}</td>
-                    <td>{group.name}</td>
-                    <td>{group.member_count ?? "—"}</td>
-                    <td>{group.is_active ? "yes" : "no"}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className={styles.tab}
-                        onClick={() => setSelectedGroupId(group.id)}
-                      >
-                        View members
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {groups.length === 0 ? (
+                  <EmptyTableRow colSpan={5} message="No groups created yet." />
+                ) : (
+                  groups.map((group) => (
+                    <tr key={group.id}>
+                      <td>{group.id}</td>
+                      <td>{group.name}</td>
+                      <td>{group.member_count ?? 0}</td>
+                      <td>{group.is_active ? "Yes" : "No"}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className={styles.tab}
+                          onClick={() => setSelectedGroupId(group.id)}
+                        >
+                          Members
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
           {selectedGroupId !== null && (
             <div style={{ marginTop: "1rem" }}>
-              <h3>Members of group #{selectedGroupId}</h3>
+              <h3>Group #{selectedGroupId} members</h3>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
@@ -369,14 +371,18 @@ export function CompliancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(groupMembersQuery.data?.members ?? []).map((member) => (
-                      <tr key={`${member.user_id}-${member.added_at}`}>
-                        <td>{member.user_id}</td>
-                        <td>{member.username ?? "—"}</td>
-                        <td>{member.email ?? "—"}</td>
-                        <td>{member.added_at ?? "—"}</td>
-                      </tr>
-                    ))}
+                    {groupMembers.length === 0 ? (
+                      <EmptyTableRow colSpan={4} message="This group has no members." />
+                    ) : (
+                      groupMembers.map((member) => (
+                        <tr key={`${member.user_id}-${member.added_at}`}>
+                          <td>{member.user_id}</td>
+                          <td>{member.username ?? "—"}</td>
+                          <td>{member.email ?? "—"}</td>
+                          <td>{formatTimestamp(member.added_at)}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -388,10 +394,8 @@ export function CompliancePage() {
       {tab === "api-keys" && (
         <section className={styles.section}>
           <h2>API keys</h2>
-          <p className={styles.subtitle}>
-            GET /api/v1/api-keys · /api-keys/statistics · /api-keys/standard-permissions
-          </p>
-          <KeyValueGrid data={apiKeyStatsQuery.data} />
+          <p className={styles.subtitle}>Programmatic access keys for your organization.</p>
+          <StatsPanel raw={apiKeyStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
               <thead>
@@ -404,23 +408,27 @@ export function CompliancePage() {
                 </tr>
               </thead>
               <tbody>
-                {(apiKeysQuery.data?.api_keys ?? []).map((key) => (
-                  <tr key={key.id}>
-                    <td>{key.key_name}</td>
-                    <td>{key.key_prefix ?? "—"}</td>
-                    <td>{key.user_id ?? "—"}</td>
-                    <td>{key.is_active ? "yes" : "no"}</td>
-                    <td>{key.last_used_at ?? "—"}</td>
-                  </tr>
-                ))}
+                {apiKeys.length === 0 ? (
+                  <EmptyTableRow colSpan={5} message="No API keys issued yet." />
+                ) : (
+                  apiKeys.map((key) => (
+                    <tr key={key.id}>
+                      <td>{key.key_name}</td>
+                      <td>{key.key_prefix ?? "—"}</td>
+                      <td>{key.user_id ?? "—"}</td>
+                      <td>{key.is_active ? "Yes" : "No"}</td>
+                      <td>{formatTimestamp(key.last_used_at)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
           {apiKeyStandardQuery.data && (
-            <div style={{ marginTop: "1rem" }}>
-              <h3>Standard API key permissions</h3>
-              <KeyValueGrid data={apiKeyStandardQuery.data} />
-            </div>
+            <CatalogTable
+              title="Available API key scopes"
+              entries={apiKeyStandardQuery.data}
+            />
           )}
         </section>
       )}
@@ -428,10 +436,8 @@ export function CompliancePage() {
       {tab === "password-policy" && (
         <section className={styles.section}>
           <h2>Password policy</h2>
-          <p className={styles.subtitle}>GET /api/v1/password/policy-stats</p>
-          <KeyValueGrid
-            data={passwordPolicyQuery.data?.statistics as Record<string, unknown> | undefined}
-          />
+          <p className={styles.subtitle}>Password strength and rotation requirements.</p>
+          <StatsPanel raw={passwordPolicyQuery.data} />
         </section>
       )}
     </ComplianceShell>
