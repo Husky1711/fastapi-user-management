@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Index, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from utils.database import Base
@@ -75,17 +75,19 @@ class User(Base):
         foreign_keys=[manager_id],
     )
 
-# New Production Tables (without foreign keys, using indexes)
+# Compliance / M8 tables (FKs added in migration 20260708_fks)
 
 class UserSession(Base):
     """User session tracking for security and analytics"""
     __tablename__ = "user_sessions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     session_id = Column(String(255), unique=True, nullable=False, index=True)
     access_token_hash = Column(String(255), nullable=True)
-    refresh_token_id = Column(Integer, nullable=True, index=True)
+    refresh_token_id = Column(
+        Integer, ForeignKey("refresh_tokens.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     device_fingerprint = Column(String(255), nullable=True, index=True)
     device_name = Column(String(100), nullable=True)
     device_type = Column(String(50), nullable=True)  # mobile, desktop, tablet
@@ -106,8 +108,10 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=True, index=True)
-    organization_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     event_type = Column(String(50), nullable=False, index=True)  # login, logout, create_user, etc.
     event_category = Column(String(30), nullable=True, index=True)  # authentication, authorization, etc.
     resource_type = Column(String(50), nullable=True, index=True)  # user, organization, session, etc.
@@ -129,10 +133,10 @@ class PasswordHistory(Base):
     __tablename__ = "password_history"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    changed_by = Column(Integer, nullable=True, index=True)  # user_id who changed it
+    changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     change_reason = Column(String(50), nullable=True, index=True)  # password_reset, password_change, admin_reset
 
 class LoginAttempt(Base):
@@ -140,7 +144,7 @@ class LoginAttempt(Base):
     __tablename__ = "login_attempts"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     username = Column(String(255), nullable=False, index=True)
     ip_address = Column(String(45), nullable=False, index=True)
     user_agent = Column(Text, nullable=True)
@@ -153,11 +157,11 @@ class UserPermission(Base):
     __tablename__ = "user_permissions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     permission_name = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(50), nullable=True, index=True)  # user, organization, session, etc.
     resource_id = Column(Integer, nullable=True, index=True)
-    granted_by = Column(Integer, nullable=True, index=True)
+    granted_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     granted_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
     is_active = Column(Boolean, default=True, index=True)
@@ -167,10 +171,12 @@ class UserGroup(Base):
     __tablename__ = "user_groups"
     
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, nullable=False, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    created_by = Column(Integer, nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     is_active = Column(Boolean, default=True, index=True)
@@ -178,11 +184,14 @@ class UserGroup(Base):
 class UserGroupMembership(Base):
     """User membership in groups"""
     __tablename__ = "user_group_memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "group_id", name="uq_user_group_membership"),
+    )
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    group_id = Column(Integer, nullable=False, index=True)
-    added_by = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
     is_active = Column(Boolean, default=True, index=True)
@@ -192,8 +201,10 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    organization_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     key_name = Column(String(100), nullable=False, index=True)
     key_hash = Column(String(255), unique=True, nullable=False, index=True)
     key_prefix = Column(String(20), nullable=False, index=True)  # First 8 chars for identification
@@ -204,4 +215,4 @@ class ApiKey(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    created_by = Column(Integer, nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
