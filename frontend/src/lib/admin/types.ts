@@ -47,3 +47,40 @@ export interface AdminUsersListOrg {
   organization_id: number;
   users: AdminUserRow[];
 }
+
+export interface AdminActivityItem {
+  user_id?: number | null;
+  username?: string | null;
+  action?: string | null;
+  time?: string | null;
+  status?: string | null;
+}
+
+export interface AdminActivityStats {
+  total_activity_today: number;
+  activity_by_type: Record<string, number>;
+  recent_activity: AdminActivityItem[];
+}
+
+export interface AdminCreateUserPayload {
+  username: string;
+  email: string;
+  role?: string;
+  phone_number?: string;
+  auto_generate_password?: boolean;
+  send_welcome_email?: boolean;
+  password?: string;
+  organization_id?: number;
+}
+
+export interface AdminCreateUserResponse {
+  success: boolean;
+  message: string;
+  user?: AdminUserRow & { organization_id?: number; created_at?: string };
+  generated_password?: string | null;
+  email_sent?: boolean;
+}
+
+export interface AdminUserDetail extends AdminUserRow {
+  organization_id: number;
+}

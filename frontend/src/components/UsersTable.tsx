@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import styles from "@/pages/AdminPage.module.css";
 import type { AdminUserRow } from "@/lib/admin/types";
 
@@ -7,7 +8,13 @@ function statusClass(status: string) {
   return styles.statusInactive;
 }
 
-export function UsersTable({ users }: { users: AdminUserRow[] }) {
+export function UsersTable({
+  users,
+  linkToDetail = false,
+}: {
+  users: AdminUserRow[];
+  linkToDetail?: boolean;
+}) {
   if (users.length === 0) {
     return <p className={styles.loading}>No users found.</p>;
   }
@@ -29,7 +36,13 @@ export function UsersTable({ users }: { users: AdminUserRow[] }) {
           {users.map((user) => (
             <tr key={user.id}>
               <td>{user.id}</td>
-              <td>{user.username}</td>
+              <td>
+                {linkToDetail ? (
+                  <Link to={`/admin/users/${user.id}`}>{user.username}</Link>
+                ) : (
+                  user.username
+                )}
+              </td>
               <td>{user.email}</td>
               <td>
                 <span className={styles.role}>{user.role}</span>

@@ -30,7 +30,7 @@ export function AdminUsersPage() {
             <p className={styles.subtitle} style={{ marginBottom: "1rem" }}>
               {usersQuery.data.length} user{usersQuery.data.length === 1 ? "" : "s"}
             </p>
-            <UsersTable users={usersQuery.data} />
+            <UsersTable users={usersQuery.data} linkToDetail />
           </>
         )}
       </section>

@@ -32,9 +32,17 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </Link>
         <Link
           to="/admin/users"
-          className={location.pathname === "/admin/users" ? styles.navActive : undefined}
+          className={
+            location.pathname.startsWith("/admin/users") ? styles.navActive : undefined
+          }
         >
           Users
+        </Link>
+        <Link
+          to="/admin/users/new"
+          className={location.pathname === "/admin/users/new" ? styles.navActive : undefined}
+        >
+          Create user
         </Link>
         <Link to="/profile">Profile</Link>
       </nav>

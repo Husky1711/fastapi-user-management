@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AdminShell } from "@/components/AdminShell";
 import { UsersTable } from "@/components/UsersTable";
-import { fetchAdminOverview, fetchAdminUsersStats } from "@/lib/admin/api";
+import { fetchAdminActivityStats, fetchAdminOverview, fetchAdminUsersStats } from "@/lib/admin/api";
 import { getApiError } from "@/lib/apiClient";
 import styles from "@/pages/AdminPage.module.css";
 
@@ -25,8 +25,14 @@ export function AdminPage() {
     queryFn: fetchAdminUsersStats,
   });
 
-  const loading = overviewQuery.isLoading || usersStatsQuery.isLoading;
-  const error = overviewQuery.error || usersStatsQuery.error;
+  const activityQuery = useQuery({
+    queryKey: ["admin", "activity-stats"],
+    queryFn: fetchAdminActivityStats,
+  });
+
+  const loading =
+    overviewQuery.isLoading || usersStatsQuery.isLoading || activityQuery.isLoading;
+  const error = overviewQuery.error || usersStatsQuery.error || activityQuery.error;
 
   return (
     <AdminShell>
@@ -79,7 +85,44 @@ export function AdminPage() {
       {usersStatsQuery.data && usersStatsQuery.data.recent_users.length > 0 && (
         <section className={styles.section}>
           <h2>Recent users</h2>
-          <UsersTable users={usersStatsQuery.data.recent_users} />
+          <UsersTable users={usersStatsQuery.data.recent_users} linkToDetail />
+        </section>
+      )}
+
+      {activityQuery.data && (
+        <section className={styles.section}>
+          <h2>Activity today ({activityQuery.data.total_activity_today})</h2>
+          <div className={styles.grid}>
+            {Object.entries(activityQuery.data.activity_by_type).map(([type, count]) => (
+              <StatCard key={type} label={type} value={count} />
+            ))}
+          </div>
+          {activityQuery.data.recent_activity.length > 0 && (
+            <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activityQuery.data.recent_activity.map((item, index) => (
+                    <tr key={`${item.user_id}-${item.action}-${index}`}>
+                      <td>{item.username || item.user_id || "—"}</td>
+                      <td>{item.action || "—"}</td>
+                      <td>
+                        {item.time ? new Date(item.time).toLocaleString() : "—"}
+                      </td>
+                      <td>{item.status || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
     </AdminShell>
