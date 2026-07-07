@@ -2,6 +2,7 @@
 -- Passwords are SHA-256 hex (see utils/jwt_config.py)
 --   testadmin / admin123
 --   testuser  / user123
+--   testorgadmin / orgadmin123
 
 USE fastapi_users;
 
@@ -40,6 +41,18 @@ INSERT INTO users (
     'active',
     '1234567890',
     'user',
+    1,
+    0,
+    0,
+    0
+),
+(
+    'testorgadmin',
+    'orgadmin@test.com',
+    '7a9699d27afd56e389d65db8505223b985d66f1f0ad7062aa1193cdac5356edf',
+    'active',
+    '1234567890',
+    'organization_admin',
     1,
     0,
     0,
