@@ -112,8 +112,16 @@ export function clearAuthTimers() {
 }
 
 export function getApiError(error: unknown): ApiErrorBody {
-  if (axios.isAxiosError<ApiErrorBody>(error) && error.response?.data) {
-    return error.response.data;
+  if (axios.isAxiosError<ApiErrorBody>(error)) {
+    if (!error.response) {
+      return {
+        detail:
+          "Cannot reach the API. In Codespaces, run: bash scripts/codespaces-recover.sh",
+      };
+    }
+    if (error.response.data) {
+      return error.response.data;
+    }
   }
   return { detail: "Unexpected error" };
 }

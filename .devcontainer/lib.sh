@@ -98,6 +98,9 @@ start_frontend() {
   fi
 
   mkdir -p logs
+  if [[ -f frontend/.env.codespaces ]]; then
+    cp -f frontend/.env.codespaces frontend/.env
+  fi
   pushd frontend >/dev/null
   if [[ ! -d node_modules ]]; then
     echo "Installing frontend dependencies..."
