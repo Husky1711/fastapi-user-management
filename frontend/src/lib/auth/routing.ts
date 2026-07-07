@@ -1,5 +1,8 @@
 export function getHomePathForRole(role: string): string {
-  if (role === "super_admin" || role === "admin") {
+  if (role === "super_admin") {
+    return "/super-admin";
+  }
+  if (role === "admin") {
     return "/admin";
   }
   if (role === "organization_admin") {
@@ -9,5 +12,9 @@ export function getHomePathForRole(role: string): string {
 }
 
 export function isOrgAdminRole(role: string): boolean {
-  return role === "organization_admin" || role === "super_admin";
+  return role === "organization_admin";
+}
+
+export function isSuperAdminRole(role: string): boolean {
+  return role === "super_admin";
 }

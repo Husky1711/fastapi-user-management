@@ -1,14 +1,16 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { AuthBootstrapShell } from "@/components/AuthBootstrapShell";
-import { isOrgAdminRole } from "@/lib/auth/routing";
+import { isOrgAdminRole, isSuperAdminRole } from "@/lib/auth/routing";
 
 export function ProtectedRoute({
   adminOnly = false,
   orgAdminOnly = false,
+  superAdminOnly = false,
 }: {
   adminOnly?: boolean;
   orgAdminOnly?: boolean;
+  superAdminOnly?: boolean;
 }) {
   const { status, user } = useAuth();
 
@@ -18,6 +20,10 @@ export function ProtectedRoute({
 
   if (status !== "authenticated" || !user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (superAdminOnly && !isSuperAdminRole(user.role)) {
+    return <Navigate to="/unauthorized" replace />;
   }
 
   if (orgAdminOnly && !isOrgAdminRole(user.role)) {
