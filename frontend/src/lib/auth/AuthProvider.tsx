@@ -17,6 +17,7 @@ import {
   refreshAccessToken,
 } from "@/lib/apiClient";
 import { broadcastLogout, subscribeLogout } from "@/lib/auth/authChannel";
+import { getHomePathForRole } from "@/lib/auth/routing";
 import type { AuthStatus, TokenResponse, UserProfile } from "@/lib/auth/types";
 
 interface AuthContextValue {
@@ -28,10 +29,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function isAdminRole(role: string) {
-  return role === "admin" || role === "organization_admin" || role === "super_admin";
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -111,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applyLoginTokens(data);
       const profile = await fetchProfile();
       setStatus("authenticated");
-      navigate(isAdminRole(profile.role) ? "/admin" : "/dashboard", { replace: true });
+      navigate(getHomePathForRole(profile.role), { replace: true });
     },
     [fetchProfile, navigate],
   );

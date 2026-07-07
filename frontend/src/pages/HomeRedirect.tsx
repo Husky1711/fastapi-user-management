@@ -1,10 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { getHomePathForRole } from "@/lib/auth/routing";
 import { AuthBootstrapShell } from "@/components/AuthBootstrapShell";
-
-function isAdminRole(role: string) {
-  return role === "admin" || role === "organization_admin" || role === "super_admin";
-}
 
 export function HomeRedirect() {
   const { status, user, bootstrapError } = useAuth();
@@ -21,5 +18,5 @@ export function HomeRedirect() {
     return <Navigate to="/login" replace />;
   }
 
-  return <Navigate to={isAdminRole(user.role) ? "/admin" : "/dashboard"} replace />;
+  return <Navigate to={getHomePathForRole(user.role)} replace />;
 }

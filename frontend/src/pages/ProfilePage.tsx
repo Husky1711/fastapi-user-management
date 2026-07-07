@@ -10,16 +10,14 @@ import {
   revokeSession,
   updateProfile,
 } from "@/lib/profile/api";
+import { getHomePathForRole } from "@/lib/auth/routing";
+import { TwoFactorPanel } from "@/components/TwoFactorPanel";
 import type { ProfileTab, SessionInfo, UserProfileDetail } from "@/lib/profile/types";
 import styles from "@/pages/ProfilePage.module.css";
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
-}
-
-function isAdminRole(role: string) {
-  return role === "admin" || role === "organization_admin" || role === "super_admin";
 }
 
 function ProfileDetails({ profile }: { profile: UserProfileDetail }) {
@@ -149,6 +147,7 @@ function SecurityTab() {
   }
 
   return (
+  <>
     <div className={styles.card}>
       <h2>Change password</h2>
       <p className={styles.subtitle}>Uses POST /api/v1/password/change</p>
@@ -189,6 +188,8 @@ function SecurityTab() {
         </button>
       </form>
     </div>
+    <TwoFactorPanel />
+  </>
   );
 }
 
@@ -299,7 +300,7 @@ export function ProfilePage() {
     queryFn: fetchProfileDetail,
   });
 
-  const homeLink = user && isAdminRole(user.role) ? "/admin" : "/dashboard";
+  const homeLink = user ? getHomePathForRole(user.role) : "/dashboard";
 
   return (
     <main className={styles.page}>
