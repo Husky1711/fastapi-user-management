@@ -4,7 +4,11 @@ import { ComplianceShell } from "@/components/ComplianceShell";
 import { getApiError } from "@/lib/apiClient";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
+  addGroupMember,
   cleanupExpiredSessions,
+  createApiKey,
+  createGroup,
+  deleteGroup,
   fetchApiKeyStandardPermissions,
   fetchApiKeyStatistics,
   fetchApiKeys,
@@ -18,7 +22,10 @@ import {
   fetchPermissions,
   fetchSessionStatistics,
   fetchStandardPermissions,
+  removeGroupMember,
+  revokeApiKey,
 } from "@/lib/compliance/api";
+import { canManageUsers } from "@/lib/auth/routing";
 import {
   BreakdownTables,
   CatalogTable,
@@ -28,6 +35,7 @@ import {
   StatGrid,
 } from "@/lib/compliance/display";
 import styles from "@/pages/AdminPage.module.css";
+import formStyles from "@/pages/ProfilePage.module.css";
 
 type TabId =
   | "overview"
@@ -63,9 +71,17 @@ export function CompliancePage() {
   const [tab, setTab] = useState<TabId>("overview");
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupDescription, setGroupDescription] = useState("");
+  const [groupActionMessage, setGroupActionMessage] = useState<string | null>(null);
+  const [memberUserId, setMemberUserId] = useState("");
+  const [apiKeyName, setApiKeyName] = useState("");
+  const [apiKeyActionMessage, setApiKeyActionMessage] = useState<string | null>(null);
+  const [issuedKeyValue, setIssuedKeyValue] = useState<string | null>(null);
 
   const canCleanup =
     user?.role === "super_admin" || user?.role === "organization_admin";
+  const canManageGroups = user ? canManageUsers(user.role) : false;
 
   const auditStatsQuery = useQuery({
     queryKey: ["compliance", "audit-stats"],
@@ -138,6 +154,78 @@ export function CompliancePage() {
       void sessionStatsQuery.refetch();
     },
     onError: (err) => setCleanupMessage(getApiError(err).detail),
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: () =>
+      createGroup({
+        name: groupName.trim(),
+        description: groupDescription.trim() || undefined,
+      }),
+    onSuccess: (data) => {
+      setGroupActionMessage(data.message ?? "Group created.");
+      setGroupName("");
+      setGroupDescription("");
+      void groupsQuery.refetch();
+      void groupStatsQuery.refetch();
+    },
+    onError: (err) => setGroupActionMessage(getApiError(err).detail),
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: deleteGroup,
+    onSuccess: (data) => {
+      setGroupActionMessage(data.message ?? "Group deleted.");
+      setSelectedGroupId(null);
+      void groupsQuery.refetch();
+      void groupStatsQuery.refetch();
+    },
+    onError: (err) => setGroupActionMessage(getApiError(err).detail),
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: number; userId: number }) =>
+      addGroupMember(groupId, userId),
+    onSuccess: (data) => {
+      setGroupActionMessage(data.message ?? "Member added.");
+      setMemberUserId("");
+      void groupMembersQuery.refetch();
+      void groupsQuery.refetch();
+    },
+    onError: (err) => setGroupActionMessage(getApiError(err).detail),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: ({ groupId, userId }: { groupId: number; userId: number }) =>
+      removeGroupMember(groupId, userId),
+    onSuccess: (data) => {
+      setGroupActionMessage(data.message ?? "Member removed.");
+      void groupMembersQuery.refetch();
+      void groupsQuery.refetch();
+    },
+    onError: (err) => setGroupActionMessage(getApiError(err).detail),
+  });
+
+  const createApiKeyMutation = useMutation({
+    mutationFn: () => createApiKey({ key_name: apiKeyName.trim() }),
+    onSuccess: (data) => {
+      setApiKeyActionMessage(data.message ?? "API key created.");
+      setIssuedKeyValue(data.key_value ?? null);
+      setApiKeyName("");
+      void apiKeysQuery.refetch();
+      void apiKeyStatsQuery.refetch();
+    },
+    onError: (err) => setApiKeyActionMessage(getApiError(err).detail),
+  });
+
+  const revokeApiKeyMutation = useMutation({
+    mutationFn: revokeApiKey,
+    onSuccess: (data) => {
+      setApiKeyActionMessage(data.message ?? "API key revoked.");
+      void apiKeysQuery.refetch();
+      void apiKeyStatsQuery.refetch();
+    },
+    onError: (err) => setApiKeyActionMessage(getApiError(err).detail),
   });
 
   const activeError =
@@ -320,6 +408,33 @@ export function CompliancePage() {
         <section className={styles.section}>
           <h2>Groups</h2>
           <p className={styles.subtitle}>User groups in your organization.</p>
+          {groupActionMessage && <p className={styles.subtitle}>{groupActionMessage}</p>}
+          {canManageGroups && (
+            <form
+              className={formStyles.form}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!groupName.trim()) return;
+                createGroupMutation.mutate();
+              }}
+            >
+              <input
+                className={formStyles.input}
+                placeholder="Group name"
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+              />
+              <input
+                className={formStyles.input}
+                placeholder="Description (optional)"
+                value={groupDescription}
+                onChange={(event) => setGroupDescription(event.target.value)}
+              />
+              <button type="submit" className={formStyles.primaryBtn} disabled={createGroupMutation.isPending}>
+                Create group
+              </button>
+            </form>
+          )}
           <StatsPanel raw={groupStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
@@ -329,7 +444,7 @@ export function CompliancePage() {
                   <th>Name</th>
                   <th>Members</th>
                   <th>Active</th>
-                  <th />
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,6 +465,17 @@ export function CompliancePage() {
                         >
                           Members
                         </button>
+                        {canManageGroups && group.is_active !== false && (
+                          <button
+                            type="button"
+                            className={styles.tab}
+                            style={{ marginLeft: "0.5rem" }}
+                            onClick={() => deleteGroupMutation.mutate(group.id)}
+                            disabled={deleteGroupMutation.isPending}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -360,6 +486,27 @@ export function CompliancePage() {
           {selectedGroupId !== null && (
             <div style={{ marginTop: "1rem" }}>
               <h3>Group #{selectedGroupId} members</h3>
+              {canManageGroups && (
+                <form
+                  className={formStyles.form}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const userId = Number(memberUserId);
+                    if (!Number.isFinite(userId) || userId <= 0) return;
+                    addMemberMutation.mutate({ groupId: selectedGroupId, userId });
+                  }}
+                >
+                  <input
+                    className={formStyles.input}
+                    placeholder="User ID to add"
+                    value={memberUserId}
+                    onChange={(event) => setMemberUserId(event.target.value)}
+                  />
+                  <button type="submit" className={formStyles.primaryBtn} disabled={addMemberMutation.isPending}>
+                    Add member
+                  </button>
+                </form>
+              )}
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
@@ -368,11 +515,15 @@ export function CompliancePage() {
                       <th>Username</th>
                       <th>Email</th>
                       <th>Added</th>
+                      {canManageGroups && <th>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {groupMembers.length === 0 ? (
-                      <EmptyTableRow colSpan={4} message="This group has no members." />
+                      <EmptyTableRow
+                        colSpan={canManageGroups ? 5 : 4}
+                        message="This group has no members."
+                      />
                     ) : (
                       groupMembers.map((member) => (
                         <tr key={`${member.user_id}-${member.added_at}`}>
@@ -380,6 +531,23 @@ export function CompliancePage() {
                           <td>{member.username ?? "—"}</td>
                           <td>{member.email ?? "—"}</td>
                           <td>{formatTimestamp(member.added_at)}</td>
+                          {canManageGroups && (
+                            <td>
+                              <button
+                                type="button"
+                                className={styles.tab}
+                                onClick={() =>
+                                  removeMemberMutation.mutate({
+                                    groupId: selectedGroupId,
+                                    userId: member.user_id,
+                                  })
+                                }
+                                disabled={removeMemberMutation.isPending}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
@@ -395,6 +563,36 @@ export function CompliancePage() {
         <section className={styles.section}>
           <h2>API keys</h2>
           <p className={styles.subtitle}>Programmatic access keys for your organization.</p>
+          {apiKeyActionMessage && <p className={styles.subtitle}>{apiKeyActionMessage}</p>}
+          {issuedKeyValue && (
+            <p className={styles.subtitle}>
+              Copy this key now — it will not be shown again:{" "}
+              <code>{issuedKeyValue}</code>
+            </p>
+          )}
+          <form
+            className={formStyles.form}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!apiKeyName.trim()) return;
+              setIssuedKeyValue(null);
+              createApiKeyMutation.mutate();
+            }}
+          >
+            <input
+              className={formStyles.input}
+              placeholder="Key name"
+              value={apiKeyName}
+              onChange={(event) => setApiKeyName(event.target.value)}
+            />
+            <button type="submit" className={formStyles.primaryBtn} disabled={createApiKeyMutation.isPending}>
+              Issue API key
+            </button>
+          </form>
+          <p className={styles.subtitle}>
+            Test M2M auth: <code>GET /api/v1/integration/whoami</code> with header{" "}
+            <code>X-API-Key</code>.
+          </p>
           <StatsPanel raw={apiKeyStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
@@ -405,11 +603,12 @@ export function CompliancePage() {
                   <th>User</th>
                   <th>Active</th>
                   <th>Last used</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {apiKeys.length === 0 ? (
-                  <EmptyTableRow colSpan={5} message="No API keys issued yet." />
+                  <EmptyTableRow colSpan={6} message="No API keys issued yet." />
                 ) : (
                   apiKeys.map((key) => (
                     <tr key={key.id}>
@@ -418,6 +617,18 @@ export function CompliancePage() {
                       <td>{key.user_id ?? "—"}</td>
                       <td>{key.is_active ? "Yes" : "No"}</td>
                       <td>{formatTimestamp(key.last_used_at)}</td>
+                      <td>
+                        {key.is_active && (
+                          <button
+                            type="button"
+                            className={styles.tab}
+                            onClick={() => revokeApiKeyMutation.mutate(key.id)}
+                            disabled={revokeApiKeyMutation.isPending}
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}

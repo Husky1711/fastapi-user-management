@@ -109,6 +109,30 @@ export interface ApiKeysResponse {
   total_count?: number;
 }
 
+export interface CreateGroupResponse {
+  success: boolean;
+  group_id?: number;
+  group?: GroupRow;
+  message?: string;
+  error?: string;
+}
+
+export interface CreateApiKeyResponse {
+  success: boolean;
+  api_key_id?: number;
+  key_value?: string;
+  key_prefix?: string;
+  permissions?: string[];
+  message?: string;
+  error?: string;
+}
+
+export interface MutationResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
 export interface PasswordPolicyStatsResponse {
   success: boolean;
   statistics?: Record<string, unknown>;

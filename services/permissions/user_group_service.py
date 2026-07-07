@@ -292,7 +292,7 @@ class UserGroupService:
                     "error": "Group not found or inactive"
                 }
             
-            # Check if user is already in the group
+            # Check if user is already an active member
             existing = db.query(UserGroupMembership)\
                 .filter(UserGroupMembership.group_id == group_id)\
                 .filter(UserGroupMembership.user_id == user_id)\
@@ -303,6 +303,35 @@ class UserGroupService:
                 return {
                     "success": False,
                     "error": "User is already a member of this group"
+                }
+
+            # Reactivate a prior membership if the unique constraint would block a new row
+            inactive = db.query(UserGroupMembership)\
+                .filter(UserGroupMembership.group_id == group_id)\
+                .filter(UserGroupMembership.user_id == user_id)\
+                .filter(UserGroupMembership.is_active == False)\
+                .first()
+
+            if inactive:
+                inactive.is_active = True
+                inactive.added_by = added_by
+                inactive.added_at = datetime.utcnow()
+                inactive.expires_at = expires_at
+                db.commit()
+                db.refresh(inactive)
+
+                auth_logger.info(
+                    f"User re-added to group: {group.name}",
+                    user_id=user_id,
+                    group_id=group_id,
+                    added_by=added_by,
+                    event_type="user_added_to_group",
+                )
+
+                return {
+                    "success": True,
+                    "membership_id": inactive.id,
+                    "message": f"User added to group '{group.name}' successfully",
                 }
             
             # Create membership

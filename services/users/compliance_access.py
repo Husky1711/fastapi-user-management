@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from models.user_model import User, UserGroup
+from models.user_model import ApiKey, User, UserGroup
 from services.users.role_scope import can_view_user, filter_users_for_viewer
 
 
@@ -95,3 +95,29 @@ def filter_members_by_scope(
         return members
     allowed = set(manageable_ids)
     return [member for member in members if member.get("user_id") in allowed]
+
+
+_GROUP_MANAGER_ROLES = frozenset({"super_admin", "organization_admin", "admin"})
+
+
+def require_group_manager(viewer: User) -> None:
+    """Only staff roles may create or modify groups."""
+    if viewer.role not in _GROUP_MANAGER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions to manage groups",
+        )
+
+
+def require_api_key_record_access(db: Session, viewer: User, api_key_id: int) -> ApiKey:
+    """Ensure viewer may manage the given API key record."""
+    api_key = db.query(ApiKey).filter(ApiKey.id == api_key_id).first()
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    require_user_data_access(db, viewer, api_key.user_id)
+    if viewer.role != "super_admin" and api_key.organization_id != viewer.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot access API keys outside your organization",
+        )
+    return api_key

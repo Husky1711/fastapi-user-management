@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -15,10 +15,19 @@ from services.users import PasswordHistoryService
 from services.users.compliance_access import (
     filter_members_by_scope,
     manageable_user_ids,
+    require_api_key_record_access,
     require_group_access,
+    require_group_manager,
     require_user_data_access,
     resolve_organization_filter,
     scope_user_ids_for_query,
+)
+from schemas.compliance import (
+    AddGroupMemberRequest,
+    CreateApiKeyRequest,
+    CreateGroupRequest,
+    UpdateApiKeyRequest,
+    UpdateGroupRequest,
 )
 from utils.rate_limit_dependency import RateLimitDependency
 from utils.database import get_db
@@ -27,6 +36,17 @@ from utils.loggers import auth_logger
 # Create router for production endpoints
 router = APIRouter(prefix="/api/v1", tags=["Production Features"])
 security = HTTPBearer()
+
+
+def _require_current_user(db: Session, credentials: HTTPAuthorizationCredentials):
+    current_user = AuthService.get_current_user(db, credentials.credentials)
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return current_user
 
 # ============================================================================
 # AUDIT LOGGING ENDPOINTS
@@ -635,6 +655,195 @@ async def get_group_statistics(
             detail="Internal server error"
         )
 
+@router.post("/groups", response_model=Dict[str, Any])
+async def create_organization_group(
+    body: CreateGroupRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("groups_create")),
+):
+    """Create a user group in the viewer's organization (staff roles only)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_group_manager(current_user)
+
+        org_id = body.organization_id if current_user.role == "super_admin" else current_user.organization_id
+        if org_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="organization_id is required",
+            )
+        if current_user.role != "super_admin" and body.organization_id not in (None, current_user.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot create groups in another organization",
+            )
+
+        result = UserGroupService.create_group(
+            db=db,
+            organization_id=org_id,
+            name=body.name,
+            description=body.description,
+            created_by=current_user.id,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Create group endpoint error: {str(e)}",
+            error=str(e),
+            event_type="group_create_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.patch("/groups/{group_id}", response_model=Dict[str, Any])
+async def update_organization_group(
+    group_id: int,
+    body: UpdateGroupRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("groups_update")),
+):
+    """Update a user group (staff roles only)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_group_manager(current_user)
+        require_group_access(db, current_user, group_id)
+
+        result = UserGroupService.update_group(
+            db=db,
+            group_id=group_id,
+            name=body.name,
+            description=body.description,
+            updated_by=current_user.id,
+        )
+        if not result["success"]:
+            status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
+            raise HTTPException(status_code=status_code, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Update group endpoint error: {str(e)}",
+            group_id=group_id,
+            error=str(e),
+            event_type="group_update_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.delete("/groups/{group_id}", response_model=Dict[str, Any])
+async def delete_organization_group(
+    group_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("groups_delete")),
+):
+    """Soft-delete a user group (staff roles only)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_group_manager(current_user)
+        require_group_access(db, current_user, group_id)
+
+        result = UserGroupService.delete_group(
+            db=db,
+            group_id=group_id,
+            deleted_by=current_user.id,
+        )
+        if not result["success"]:
+            status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
+            raise HTTPException(status_code=status_code, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Delete group endpoint error: {str(e)}",
+            group_id=group_id,
+            error=str(e),
+            event_type="group_delete_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.post("/groups/{group_id}/members", response_model=Dict[str, Any])
+async def add_group_member(
+    group_id: int,
+    body: AddGroupMemberRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("group_members_add")),
+):
+    """Add a user to a group (staff roles only)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_group_manager(current_user)
+        require_group_access(db, current_user, group_id)
+        require_user_data_access(db, current_user, body.user_id)
+
+        result = UserGroupService.add_user_to_group(
+            db=db,
+            group_id=group_id,
+            user_id=body.user_id,
+            added_by=current_user.id,
+            expires_at=body.expires_at,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Add group member endpoint error: {str(e)}",
+            group_id=group_id,
+            error=str(e),
+            event_type="group_member_add_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.delete("/groups/{group_id}/members/{user_id}", response_model=Dict[str, Any])
+async def remove_group_member(
+    group_id: int,
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("group_members_remove")),
+):
+    """Remove a user from a group (staff roles only)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_group_manager(current_user)
+        require_group_access(db, current_user, group_id)
+        require_user_data_access(db, current_user, user_id)
+
+        result = UserGroupService.remove_user_from_group(
+            db=db,
+            group_id=group_id,
+            user_id=user_id,
+            removed_by=current_user.id,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Remove group member endpoint error: {str(e)}",
+            group_id=group_id,
+            user_id=user_id,
+            error=str(e),
+            event_type="group_member_remove_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
 # ============================================================================
 # API KEYS MANAGEMENT ENDPOINTS
 # ============================================================================
@@ -780,6 +989,115 @@ async def get_api_key_statistics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+
+@router.post("/api-keys", response_model=Dict[str, Any])
+async def create_user_api_key(
+    body: CreateApiKeyRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_create")),
+):
+    """Issue a new API key. Returns the secret once."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        target_user_id = body.user_id or current_user.id
+        target_user = require_user_data_access(db, current_user, target_user_id)
+
+        result = ApiKeyService.create_api_key(
+            db=db,
+            user_id=target_user.id,
+            organization_id=target_user.organization_id,
+            key_name=body.key_name,
+            permissions=body.permissions,
+            rate_limit_per_minute=body.rate_limit_per_minute,
+            rate_limit_per_hour=body.rate_limit_per_hour,
+            expires_at=body.expires_at,
+            created_by=current_user.id,
+        )
+        if not result["success"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Create API key endpoint error: {str(e)}",
+            error=str(e),
+            event_type="api_key_create_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.patch("/api-keys/{api_key_id}", response_model=Dict[str, Any])
+async def update_user_api_key(
+    api_key_id: int,
+    body: UpdateApiKeyRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_update")),
+):
+    """Update API key metadata (not the secret)."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_api_key_record_access(db, current_user, api_key_id)
+
+        result = ApiKeyService.update_api_key(
+            db=db,
+            api_key_id=api_key_id,
+            key_name=body.key_name,
+            permissions=body.permissions,
+            rate_limit_per_minute=body.rate_limit_per_minute,
+            rate_limit_per_hour=body.rate_limit_per_hour,
+            expires_at=body.expires_at,
+            updated_by=current_user.id,
+        )
+        if not result["success"]:
+            status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
+            raise HTTPException(status_code=status_code, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Update API key endpoint error: {str(e)}",
+            api_key_id=api_key_id,
+            error=str(e),
+            event_type="api_key_update_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+
+@router.delete("/api-keys/{api_key_id}", response_model=Dict[str, Any])
+async def revoke_user_api_key(
+    api_key_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_revoke")),
+):
+    """Revoke an API key."""
+    try:
+        current_user = _require_current_user(db, credentials)
+        require_api_key_record_access(db, current_user, api_key_id)
+
+        result = ApiKeyService.revoke_api_key(
+            db=db,
+            api_key_id=api_key_id,
+            revoked_by=current_user.id,
+        )
+        if not result["success"]:
+            status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
+            raise HTTPException(status_code=status_code, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        auth_logger.error(
+            f"Revoke API key endpoint error: {str(e)}",
+            api_key_id=api_key_id,
+            error=str(e),
+            event_type="api_key_revoke_endpoint_error",
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 # ============================================================================
 # PASSWORD HISTORY ENDPOINTS
