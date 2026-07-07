@@ -46,6 +46,9 @@ export function AppRouter() {
 
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="/admin" element={<AdminPage />} />
+            </Route>
+
+            <Route element={<ProtectedRoute userMgmtOnly />}>
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/users/new" element={<AdminCreateUserPage />} />
               <Route path="/admin/users/:userId" element={<AdminUserDetailPage />} />

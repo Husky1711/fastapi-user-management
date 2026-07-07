@@ -18,3 +18,11 @@ export function isOrgAdminRole(role: string): boolean {
 export function isSuperAdminRole(role: string): boolean {
   return role === "super_admin";
 }
+
+export function canManageUsers(role: string): boolean {
+  return (
+    role === "super_admin" ||
+    role === "organization_admin" ||
+    role === "admin"
+  );
+}

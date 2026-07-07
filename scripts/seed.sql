@@ -8,7 +8,9 @@
 USE fastapi_users;
 
 INSERT INTO organizations (id, name, description, status)
-VALUES (1, 'Default Organization', 'Codespaces development organization', 'active')
+VALUES
+(1, 'Default Organization', 'Codespaces development organization', 'active'),
+(2, 'System', 'Platform-level scope for super admins', 'active')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 INSERT INTO users (
@@ -66,9 +68,17 @@ INSERT INTO users (
     'active',
     '1234567890',
     'super_admin',
-    1,
+    2,
     0,
     0,
     0
 )
-ON DUPLICATE KEY UPDATE email = VALUES(email);
+ON DUPLICATE KEY UPDATE
+    email = VALUES(email),
+    role = VALUES(role),
+    organization_id = VALUES(organization_id);
+
+-- Ensure existing super admin is not tied to a customer organization
+UPDATE users
+SET organization_id = 2, role = 'super_admin'
+WHERE username = 'test_super_admin';
