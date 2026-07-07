@@ -2443,18 +2443,14 @@
           "Root"
         ],
         "summary": "Root",
-        "description": "Root endpoint with API information",
+        "description": "Root endpoint with API information (browsers in dev are sent to Swagger UI).",
         "operationId": "root__get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Root  Get"
-                }
+                "schema": {}
               }
             }
           }

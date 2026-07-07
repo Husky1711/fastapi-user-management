@@ -61,6 +61,9 @@ install_frontend_deps() {
   fi
 
   echo "Installing frontend dependencies..."
+  if [[ -f frontend/.env.codespaces ]]; then
+    cp -f frontend/.env.codespaces frontend/.env
+  fi
   (cd frontend && (npm ci || npm install))
 }
 

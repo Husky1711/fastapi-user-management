@@ -33,6 +33,11 @@ for path in "/health" "/docs" "/openapi.json"; do
 done
 ui_code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${UI_PORT}/" || echo "000")
 echo "UI /: HTTP ${ui_code}"
+login_code=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "http://127.0.0.1:${UI_PORT}/api/v1/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testadmin","password":"admin123"}' || echo "000")
+echo "UI proxy POST /api/v1/login: HTTP ${login_code}"
 echo ""
 
 if [[ -n "${CODESPACE_NAME:-}" ]]; then
