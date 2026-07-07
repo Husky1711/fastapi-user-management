@@ -39,6 +39,7 @@ export function SuperAdminShell({ children }: { children: ReactNode }) {
         >
           Organizations
         </Link>
+        <Link to="/compliance">Compliance</Link>
         <Link to="/admin/users">Users</Link>
         <Link to="/admin/users/new">Create user</Link>
         <Link to="/profile">Profile</Link>

@@ -5,6 +5,7 @@ import {
   canManageUsers,
   isOrgAdminRole,
   isSuperAdminRole,
+  canAccessCompliance,
 } from "@/lib/auth/routing";
 
 export function ProtectedRoute({
@@ -12,11 +13,13 @@ export function ProtectedRoute({
   orgAdminOnly = false,
   superAdminOnly = false,
   userMgmtOnly = false,
+  complianceOnly = false,
 }: {
   adminOnly?: boolean;
   orgAdminOnly?: boolean;
   superAdminOnly?: boolean;
   userMgmtOnly?: boolean;
+  complianceOnly?: boolean;
 }) {
   const { status, user } = useAuth();
 
@@ -41,6 +44,10 @@ export function ProtectedRoute({
   }
 
   if (userMgmtOnly && !canManageUsers(user.role)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  if (complianceOnly && !canAccessCompliance(user.role)) {
     return <Navigate to="/unauthorized" replace />;
   }
 

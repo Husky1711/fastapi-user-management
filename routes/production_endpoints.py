@@ -12,6 +12,7 @@ from services.permissions import UserPermissionService
 from services.permissions import UserGroupService
 from services.permissions import ApiKeyService
 from services.users import PasswordHistoryService
+from services.users import UserService
 from utils.rate_limit_dependency import RateLimitDependency
 from utils.database import get_db
 from utils.loggers import auth_logger
@@ -74,7 +75,7 @@ async def get_audit_logs(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get audit logs
@@ -151,7 +152,7 @@ async def get_audit_statistics(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get audit statistics
@@ -215,7 +216,7 @@ async def get_session_statistics(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get session statistics
@@ -270,7 +271,7 @@ async def cleanup_expired_sessions(
             )
         
         # Check permissions
-        if current_user.role not in ["SUPER_ADMIN", "ORGANIZATION_ADMIN"]:
+        if current_user.role not in ["super_admin", "organization_admin"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions for session cleanup"
@@ -339,14 +340,12 @@ async def get_user_permissions(
             target_user_id = current_user.id
         
         # Check permissions
-        if current_user.role == "SUPER_ADMIN":
+        if current_user.role == "super_admin":
             # Super admins can see all permissions
             pass
-        elif current_user.role in ["ORGANIZATION_ADMIN", "ADMIN"]:
+        elif current_user.role in ["organization_admin", "admin"]:
             # Organization admins can see permissions for users in their organization
             if target_user_id != current_user.id:
-                # Check if target user is in same organization
-                from services.user_service import UserService
                 target_user = UserService.get_user_by_id(db, target_user_id)
                 if not target_user or target_user.organization_id != current_user.organization_id:
                     raise HTTPException(
@@ -446,7 +445,7 @@ async def get_permission_statistics(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get permission statistics
@@ -509,7 +508,7 @@ async def get_organization_groups(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get organization groups
@@ -624,7 +623,7 @@ async def get_group_statistics(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get group statistics
@@ -692,14 +691,12 @@ async def get_user_api_keys(
             target_user_id = current_user.id
         
         # Check permissions
-        if current_user.role == "SUPER_ADMIN":
+        if current_user.role == "super_admin":
             # Super admins can see all API keys
             pass
-        elif current_user.role in ["ORGANIZATION_ADMIN", "ADMIN"]:
+        elif current_user.role in ["organization_admin", "admin"]:
             # Organization admins can see API keys for users in their organization
             if target_user_id != current_user.id:
-                # Check if target user is in same organization
-                from services.user_service import UserService
                 target_user = UserService.get_user_by_id(db, target_user_id)
                 if not target_user or target_user.organization_id != current_user.organization_id:
                     raise HTTPException(
@@ -798,7 +795,7 @@ async def get_api_key_statistics(
         
         # Apply organization filter for non-super admins
         filter_organization_id = organization_id
-        if current_user.role != "SUPER_ADMIN":
+        if current_user.role != "super_admin":
             filter_organization_id = current_user.organization_id
         
         # Get API key statistics
@@ -866,14 +863,12 @@ async def get_password_history(
             target_user_id = current_user.id
         
         # Check permissions
-        if current_user.role == "SUPER_ADMIN":
+        if current_user.role == "super_admin":
             # Super admins can see all password history
             pass
-        elif current_user.role in ["ORGANIZATION_ADMIN", "ADMIN"]:
+        elif current_user.role in ["organization_admin", "admin"]:
             # Organization admins can see password history for users in their organization
             if target_user_id != current_user.id:
-                # Check if target user is in same organization
-                from services.user_service import UserService
                 target_user = UserService.get_user_by_id(db, target_user_id)
                 if not target_user or target_user.organization_id != current_user.organization_id:
                     raise HTTPException(
@@ -949,14 +944,12 @@ async def get_password_policy_stats(
             target_user_id = current_user.id
         
         # Check permissions
-        if current_user.role == "SUPER_ADMIN":
+        if current_user.role == "super_admin":
             # Super admins can see all password policy stats
             pass
-        elif current_user.role in ["ORGANIZATION_ADMIN", "ADMIN"]:
+        elif current_user.role in ["organization_admin", "admin"]:
             # Organization admins can see password policy stats for users in their organization
             if target_user_id != current_user.id:
-                # Check if target user is in same organization
-                from services.user_service import UserService
                 target_user = UserService.get_user_by_id(db, target_user_id)
                 if not target_user or target_user.organization_id != current_user.organization_id:
                     raise HTTPException(

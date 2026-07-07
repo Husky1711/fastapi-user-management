@@ -40,6 +40,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         >
           Create user
         </Link>
+        <Link to="/compliance">Compliance</Link>
         <Link to="/profile">Profile</Link>
       </nav>
 
