@@ -11,12 +11,12 @@
   "portsAttributes": {
     "5173": {
       "label": "Web UI",
-      "onAutoForward": "openBrowser",
+      "onAutoForward": "notify",
       "visibility": "public"
     },
     "9000": {
-      "label": "FastAPI API",
-      "onAutoForward": "notify",
+      "label": "Swagger API Docs",
+      "onAutoForward": "openBrowser",
       "visibility": "public"
     },
     "3306": {

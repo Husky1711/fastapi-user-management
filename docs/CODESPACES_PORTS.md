@@ -3,7 +3,7 @@
 | Service | Port | Public URL |
 |---------|------|------------|
 | **Web UI (Vite)** | **5173** | `https://<codespace>-5173.app.github.dev` |
-| **FastAPI API** | **9000** | `https://<codespace>-9000.app.github.dev` |
+| **FastAPI API / Swagger** | **9000** | `https://<codespace>-9000.app.github.dev/docs` |
 | MySQL | 3306 | private |
 | Redis | 6379 | private |
 

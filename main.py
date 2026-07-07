@@ -6,7 +6,7 @@ Enterprise-grade user management with comprehensive security and monitoring
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from contextlib import asynccontextmanager
 import os
 import time
@@ -187,8 +187,13 @@ async def hello_world() -> Dict[str, Any]:
 
 # Root endpoint
 @app.get("/", tags=["Root"])
-async def root() -> Dict[str, Any]:
-    """Root endpoint with API information"""
+async def root(request: Request):
+    """Root endpoint with API information (browsers in dev are sent to Swagger UI)."""
+    if settings.app.environment == "development" and "text/html" in request.headers.get(
+        "accept", ""
+    ):
+        return RedirectResponse(url="/docs")
+
     return {
         "message": f"Welcome to {settings.app.name}",
         "version": settings.app.version,
