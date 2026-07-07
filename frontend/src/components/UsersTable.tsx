@@ -29,6 +29,7 @@ export function UsersTable({
             <th>Email</th>
             <th>Role</th>
             <th>Status</th>
+            <th>Manager</th>
             <th>Phone</th>
           </tr>
         </thead>
@@ -48,6 +49,7 @@ export function UsersTable({
                 <span className={styles.role}>{user.role}</span>
               </td>
               <td className={statusClass(user.status)}>{user.status}</td>
+              <td>{user.manager_username || "—"}</td>
               <td>{user.phone_number || "—"}</td>
             </tr>
           ))}

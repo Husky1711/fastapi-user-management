@@ -114,6 +114,7 @@
 }
 
 .primaryBtn,
+.secondaryBtn,
 .dangerBtn {
   margin-top: 0.5rem;
   padding: 0.65rem 1rem;
@@ -121,6 +122,12 @@
   border-radius: 0.5rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.secondaryBtn {
+  background: #fff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
 }
 
 .primaryBtn {

@@ -36,6 +36,11 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)
     print("Schema created successfully.")
 
+    migration_path = os.path.join(project_root, "scripts", "migrate_manager_id.py")
+    result = os.system(f'"{sys.executable}" "{migration_path}"')
+    if result != 0:
+        raise SystemExit(1)
+
 
 if __name__ == "__main__":
     main()

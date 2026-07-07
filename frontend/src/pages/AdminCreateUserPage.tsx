@@ -1,9 +1,9 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StaffShell } from "@/components/StaffShell";
-import { createUser } from "@/lib/admin/api";
-import { allowedCreateRoles } from "@/lib/admin/roles";
+import { createUser, fetchUsers } from "@/lib/admin/api";
+import { allowedCreateRoles, isManagerRole } from "@/lib/admin/roles";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getApiError } from "@/lib/apiClient";
 import styles from "@/pages/ProfilePage.module.css";
@@ -20,8 +20,28 @@ export function AdminCreateUserPage() {
   const [phone, setPhone] = useState("");
   const [autoPassword, setAutoPassword] = useState(true);
   const [password, setPassword] = useState("");
+  const [managerId, setManagerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: fetchUsers,
+    enabled: role === "user",
+  });
+
+  const managerOptions = useMemo(() => {
+    if (!user) {
+      return [];
+    }
+    if (user.role === "admin") {
+      return [{ id: user.id, username: user.username, role: user.role }];
+    }
+    if (!usersQuery.data) {
+      return [];
+    }
+    return usersQuery.data.filter((candidate) => isManagerRole(candidate.role));
+  }, [user, usersQuery.data]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -33,6 +53,8 @@ export function AdminCreateUserPage() {
         auto_generate_password: autoPassword,
         send_welcome_email: false,
         password: autoPassword ? undefined : password,
+        manager_id:
+          role === "user" && managerId ? Number(managerId) : undefined,
       }),
     onSuccess: (data) => {
       setError(null);
@@ -110,6 +132,19 @@ export function AdminCreateUserPage() {
                 ))}
               </select>
             </label>
+            {role === "user" && (
+              <label>
+                Reporting manager (optional)
+                <select value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+                  <option value="">No manager</option>
+                  {managerOptions.map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {manager.username} ({manager.role})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               Phone (optional)
               <input value={phone} onChange={(e) => setPhone(e.target.value)} />
