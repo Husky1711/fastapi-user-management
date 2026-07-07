@@ -82,3 +82,9 @@ ON DUPLICATE KEY UPDATE
 UPDATE users
 SET organization_id = 2, role = 'super_admin'
 WHERE username = 'test_super_admin';
+
+-- testuser reports to testadmin
+UPDATE users u
+JOIN users mgr ON mgr.username = 'testadmin'
+SET u.manager_id = mgr.id
+WHERE u.username = 'testuser';

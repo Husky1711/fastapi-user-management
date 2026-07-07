@@ -25,6 +25,7 @@ from schemas.login import (
     UserDetailResponse, ErrorResponse, SuccessResponse, LogoutResponse,
     HealthCheckResponse, RateLimitResponse, UserRole, UserStatus,
     AdminCreateUserRequest, AdminCreateUserResponse,
+    AdminUpdateUserRequest, AdminUpdateUserResponse,
     PasswordResetRequest, PasswordResetResponse, PasswordResetConfirm, PasswordResetConfirmResponse,
     UserProfileUpdate, UserProfileUpdateResponse, PasswordChangeRequest, PasswordChangeResponse
 )
@@ -769,6 +770,19 @@ async def get_all_users(
     )
     
     # Format response based on role
+    def user_row(user_obj: User) -> Dict[str, Any]:
+        row = UserService.serialize_user(db, user_obj)
+        return {
+            "id": row["id"],
+            "username": row["username"],
+            "email": row["email"],
+            "role": row["role"],
+            "status": row["status"],
+            "phone_number": row["phone_number"],
+            "manager_id": row["manager_id"],
+            "manager_username": row["manager_username"],
+        }
+
     if current_user_role == "super_admin":
         # Super admin sees all users grouped by organization
         response = {}
@@ -776,40 +790,18 @@ async def get_all_users(
             org_id = user.organization_id
             if org_id not in response:
                 response[org_id] = {"organization_id": org_id, "users": []}
-            response[org_id]["users"].append({
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "status": user.status,
-                "phone_number": user.phone_number
-            })
+            response[org_id]["users"].append(user_row(user))
         return response
     elif current_user_role in ("admin", "organization_admin"):
         # Admins and org admins see manageable users from their organization
         return {
             "organization_id": current_user_org_id,
-            "users": [{
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "status": user.status,
-                "phone_number": user.phone_number
-            } for user in users]
+            "users": [user_row(user) for user in users]
         }
     else:
         # Regular user sees only themselves
-        return {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "status": user.status,
-                "phone_number": user.phone_number
-            }
-        }
+        row = user_row(user)
+        return {"user": row}
 
 @router.get("/users/{user_id}")
 async def get_user_by_id(
@@ -854,20 +846,68 @@ async def get_user_by_id(
         )
     
     # Prepare response data
-    user_data = {
-        "id": specific_user.id,
-        "username": specific_user.username,
-        "email": specific_user.email,
-        "role": specific_user.role,
-        "organization_id": specific_user.organization_id,
-        "status": specific_user.status,
-        "phone_number": specific_user.phone_number
-    }
+    user_data = UserService.serialize_user(db, specific_user, include_timestamps=True)
     
     # Cache the profile for future requests
     cache_service.set_user_profile(user_id, user_data)
     
     return user_data
+
+@router.patch("/users/{user_id}", response_model=AdminUpdateUserResponse)
+async def update_user_by_admin(
+    user_id: int,
+    updates: AdminUpdateUserRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("profile_update")),
+):
+    """Update a manageable user (role, status, contact info, reporting manager)."""
+    from services.core import cache_service
+
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+
+    current_user = AuthService.get_current_user(db, credentials.credentials)
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if current_user.role == "user":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Users cannot update other users. Admin privileges required.",
+        )
+
+    update_data = updates.dict(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update",
+        )
+
+    result = UserService.update_user_by_admin(db, current_user, user_id, update_data)
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"],
+        )
+
+    updated_user = result["user"]
+    cache_service.invalidate_user_profile(updated_user.id)
+
+    user_response = UserResponse(
+        **UserService.serialize_user(db, updated_user, include_timestamps=True),
+    )
+
+    return AdminUpdateUserResponse(
+        success=True,
+        message=result["message"],
+        user=user_response,
+        correlation_id=correlation_id,
+    )
 
 @router.post("/debug-login", response_model=TokenResponse)
 async def debug_login(
@@ -1049,15 +1089,7 @@ async def create_user_by_admin(
         # Prepare response
         created_user = result["user"]
         user_response = UserResponse(
-            id=created_user.id,
-            username=created_user.username,
-            email=created_user.email,
-            role=created_user.role,
-            organization_id=created_user.organization_id,
-            status=created_user.status,
-            phone_number=created_user.phone_number,
-            created_at=created_user.created_at,
-            last_login=created_user.last_login
+            **UserService.serialize_user(db, created_user, include_timestamps=True),
         )
         
         return AdminCreateUserResponse(

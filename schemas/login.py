@@ -63,7 +63,9 @@ class UserResponse(BaseModel):
     organization_name: Optional[str] = Field(None, description="Organization name")
     status: UserStatus = Field(..., description="User status")
     phone_number: Optional[str] = Field(None, description="Phone number")
-    created_at: datetime = Field(..., description="Account creation date")
+    manager_id: Optional[int] = Field(None, description="Reporting manager user ID")
+    manager_username: Optional[str] = Field(None, description="Reporting manager username")
+    created_at: Optional[datetime] = Field(None, description="Account creation date")
     last_login: Optional[datetime] = Field(None, description="Last login timestamp")
     
     class Config:
@@ -198,6 +200,7 @@ class AdminCreateUserRequest(BaseModel):
     role: UserRole = Field(default=UserRole.USER, description="User role to assign")
     organization_id: Optional[int] = Field(None, description="Organization ID (inherited from creator if not specified)")
     phone_number: Optional[str] = Field(None, description="Phone number")
+    manager_id: Optional[int] = Field(None, description="Reporting manager (regular users only)")
     send_welcome_email: bool = Field(default=True, description="Send welcome email to new user")
     auto_generate_password: bool = Field(default=True, description="Auto-generate secure password")
     
@@ -238,6 +241,35 @@ class AdminCreateUserResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
     correlation_id: Optional[str] = Field(None, description="Request correlation ID")
     
+    class Config:
+        use_enum_values = True
+
+class AdminUpdateUserRequest(BaseModel):
+    """Schema for admin user update request"""
+    email: Optional[EmailStr] = Field(None, description="New email address")
+    phone_number: Optional[str] = Field(None, description="New phone number")
+    role: Optional[UserRole] = Field(None, description="New user role")
+    status: Optional[UserStatus] = Field(None, description="New user status")
+    manager_id: Optional[int] = Field(None, description="Reporting manager user ID (null clears)")
+    organization_id: Optional[int] = Field(None, description="Organization ID (super admin only)")
+
+    @validator("phone_number")
+    def validate_phone_number(cls, v):
+        if v is not None and not v.isdigit():
+            raise ValueError("Phone number must contain only digits")
+        return v
+
+    class Config:
+        use_enum_values = True
+
+class AdminUpdateUserResponse(BaseModel):
+    """Schema for admin user update response"""
+    success: bool = Field(..., description="Whether user update was successful")
+    message: str = Field(..., description="Success or error message")
+    user: Optional[UserResponse] = Field(None, description="Updated user details")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Update timestamp")
+    correlation_id: Optional[str] = Field(None, description="Request correlation ID")
+
     class Config:
         use_enum_values = True
 

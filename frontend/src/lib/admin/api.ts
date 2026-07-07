@@ -4,6 +4,8 @@ import type {
   AdminCreateUserPayload,
   AdminCreateUserResponse,
   AdminDashboardOverview,
+  AdminUpdateUserPayload,
+  AdminUpdateUserResponse,
   AdminUserDetail,
   AdminUserRow,
   AdminUsersListOrg,
@@ -33,6 +35,17 @@ export async function fetchAdminActivityStats(): Promise<AdminActivityStats> {
 
 export async function fetchUserById(userId: number): Promise<AdminUserDetail> {
   const { data } = await apiClient.get<AdminUserDetail>(`/api/v1/users/${userId}`);
+  return data;
+}
+
+export async function updateUser(
+  userId: number,
+  payload: AdminUpdateUserPayload,
+): Promise<AdminUpdateUserResponse> {
+  const { data } = await apiClient.patch<AdminUpdateUserResponse>(
+    `/api/v1/users/${userId}`,
+    payload,
+  );
   return data;
 }
 

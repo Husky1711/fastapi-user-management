@@ -58,10 +58,22 @@ class User(Base):
     # New fields for role-based system
     role = Column(String(20), default="user")  # super_admin, admin, user
     organization_id = Column(Integer, ForeignKey("organizations.id"), default=1)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     
     # Relationships
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     organization = relationship("Organization", back_populates="users")
+    manager = relationship(
+        "User",
+        remote_side="User.id",
+        foreign_keys=[manager_id],
+        back_populates="direct_reports",
+    )
+    direct_reports = relationship(
+        "User",
+        back_populates="manager",
+        foreign_keys=[manager_id],
+    )
 
 # New Production Tables (without foreign keys, using indexes)
 

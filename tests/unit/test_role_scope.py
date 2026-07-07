@@ -7,7 +7,7 @@ import unittest
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from services.users.role_scope import can_view_user, viewable_roles_for
+from services.users.role_scope import can_edit_user, can_view_user, viewable_roles_for
 
 
 class TestRoleScope(unittest.TestCase):
@@ -31,6 +31,15 @@ class TestRoleScope(unittest.TestCase):
 
     def test_viewable_roles_for_super_admin(self):
         self.assertIsNone(viewable_roles_for("super_admin"))
+
+    def test_can_edit_user_hierarchy(self):
+        self.assertFalse(can_edit_user("user", "user"))
+        self.assertTrue(can_edit_user("super_admin", "organization_admin"))
+        self.assertTrue(can_edit_user("organization_admin", "admin"))
+        self.assertTrue(can_edit_user("organization_admin", "user"))
+        self.assertFalse(can_edit_user("organization_admin", "organization_admin"))
+        self.assertTrue(can_edit_user("admin", "user"))
+        self.assertFalse(can_edit_user("admin", "admin"))
 
 
 if __name__ == "__main__":

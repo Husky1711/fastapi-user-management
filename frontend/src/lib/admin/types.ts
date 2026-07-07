@@ -41,6 +41,8 @@ export interface AdminUserRow {
   role: string;
   status: string;
   phone_number?: string | null;
+  manager_id?: number | null;
+  manager_username?: string | null;
 }
 
 export interface AdminUsersListOrg {
@@ -71,6 +73,7 @@ export interface AdminCreateUserPayload {
   send_welcome_email?: boolean;
   password?: string;
   organization_id?: number;
+  manager_id?: number;
 }
 
 export interface AdminCreateUserResponse {
@@ -83,4 +86,20 @@ export interface AdminCreateUserResponse {
 
 export interface AdminUserDetail extends AdminUserRow {
   organization_id: number;
+  organization_name?: string | null;
+}
+
+export interface AdminUpdateUserPayload {
+  email?: string;
+  phone_number?: string;
+  role?: string;
+  status?: string;
+  manager_id?: number | null;
+  organization_id?: number;
+}
+
+export interface AdminUpdateUserResponse {
+  success: boolean;
+  message: string;
+  user?: AdminUserDetail & { created_at?: string; last_login?: string | null };
 }

@@ -8,7 +8,8 @@ import secrets
 import string
 import re
 from schemas.login import RoleHierarchyValidator
-from services.users.role_scope import can_view_user, filter_users_for_viewer
+from services.users.role_scope import can_view_user, can_edit_user, filter_users_for_viewer, is_manager_role
+from models.user_model import Organization
 from utils.loggers import auth_logger
 
 class UserService:
@@ -140,6 +141,67 @@ class UserService:
         return ''.join(password)
 
     @staticmethod
+    def serialize_user(db: Session, user: User, include_timestamps: bool = False) -> Dict[str, Any]:
+        """Build API-friendly user payload with org and manager details."""
+        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
+        manager_username = None
+        if user.manager_id:
+            manager = db.query(User).filter(User.id == user.manager_id).first()
+            manager_username = manager.username if manager else None
+
+        payload: Dict[str, Any] = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "organization_id": user.organization_id,
+            "organization_name": org.name if org else None,
+            "status": user.status,
+            "phone_number": user.phone_number,
+            "manager_id": user.manager_id,
+            "manager_username": manager_username,
+        }
+        if include_timestamps:
+            payload["created_at"] = user.created_at
+            payload["last_login"] = user.last_login
+        return payload
+
+    @staticmethod
+    def validate_manager_assignment(
+        db: Session,
+        editor: User,
+        target_user: User,
+        manager_id: Optional[int],
+    ) -> Optional[str]:
+        if manager_id is None:
+            return None
+        if manager_id == target_user.id:
+            return "User cannot be their own manager"
+
+        manager = db.query(User).filter(User.id == manager_id).first()
+        if manager is None:
+            return "Manager not found"
+        if not is_manager_role(manager.role):
+            return "Manager must be an admin or organization admin"
+        if manager.organization_id != target_user.organization_id:
+            return "Manager must be in the same organization"
+        if target_user.role != "user":
+            return "Only regular users can have a reporting manager"
+
+        if editor.role == "admin":
+            if manager_id != editor.id:
+                return "Admins can only assign themselves as manager"
+        elif editor.role == "organization_admin":
+            if manager.role not in ("admin", "organization_admin"):
+                return "Users can only be assigned to an admin or organization admin"
+            if not can_view_user(editor.role, manager.role):
+                return "Cannot assign this manager"
+        elif editor.role != "super_admin":
+            return "Insufficient permissions to assign a manager"
+
+        return None
+
+    @staticmethod
     def validate_username(username: str) -> bool:
         """Validate username using basic length/character rules"""
         if not username:
@@ -152,7 +214,7 @@ class UserService:
         if not email:
             return False
         return bool(UserService._EMAIL_REGEX.match(email))
-    
+
     @staticmethod
     def create_user_by_admin(db: Session, creator_user: User, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -174,6 +236,7 @@ class UserService:
             role = user_data.get('role', 'user')
             organization_id = user_data.get('organization_id')
             phone_number = user_data.get('phone_number')
+            manager_id = user_data.get('manager_id')
             auto_generate_password = user_data.get('auto_generate_password', True)
             
             # Validate creator permissions
@@ -233,10 +296,21 @@ class UserService:
                 role=role,
                 organization_id=organization_id,
                 phone_number=phone_number or "0000000000",
-                status="active"
+                status="active",
             )
-            
+
             db.add(new_user)
+            db.flush()
+
+            if manager_id is not None:
+                manager_error = UserService.validate_manager_assignment(
+                    db, creator_user, new_user, manager_id
+                )
+                if manager_error:
+                    db.rollback()
+                    return {"success": False, "error": manager_error}
+                new_user.manager_id = manager_id
+
             db.commit()
             db.refresh(new_user)
             
@@ -273,3 +347,122 @@ class UserService:
                 "success": False,
                 "error": f"Failed to create user: {str(e)}"
             }
+
+    @staticmethod
+    def update_user_by_admin(
+        db: Session,
+        editor: User,
+        target_user_id: int,
+        updates: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Update a manageable user with role-based validation."""
+        try:
+            if editor.role == "user":
+                return {"success": False, "error": "Users cannot update other users"}
+
+            target = UserService.get_user_by_role_and_organization(
+                db,
+                target_user_id,
+                editor.role,
+                editor.organization_id,
+                editor.id,
+            )
+            if target is None:
+                return {"success": False, "error": "User not found or access denied"}
+
+            if not can_edit_user(editor.role, target.role):
+                return {
+                    "success": False,
+                    "error": f"Role '{editor.role}' cannot edit users with role '{target.role}'",
+                }
+
+            if target.id == editor.id:
+                return {
+                    "success": False,
+                    "error": "Use profile settings to update your own account",
+                }
+
+            new_role = updates.get("role", target.role)
+            if "role" in updates and new_role != target.role:
+                if not RoleHierarchyValidator.can_create_role(editor.role, new_role):
+                    return {
+                        "success": False,
+                        "error": f"Role '{editor.role}' cannot assign role '{new_role}'",
+                        "allowed_roles": RoleHierarchyValidator.get_allowed_roles(editor.role),
+                    }
+
+            new_org_id = updates.get("organization_id", target.organization_id)
+            if "organization_id" in updates and new_org_id != target.organization_id:
+                if editor.role != "super_admin":
+                    return {
+                        "success": False,
+                        "error": "Only super admins can change organization",
+                    }
+
+            if "email" in updates and updates["email"] != target.email:
+                if UserService.check_email_exists(db, updates["email"]):
+                    return {
+                        "success": False,
+                        "error": f"Email '{updates['email']}' already exists",
+                    }
+                target.email = updates["email"]
+
+            if "phone_number" in updates:
+                target.phone_number = updates["phone_number"] or "0000000000"
+
+            if "status" in updates:
+                target.status = updates["status"]
+
+            if "role" in updates:
+                target.role = new_role
+                if new_role != "user":
+                    target.manager_id = None
+
+            if "organization_id" in updates:
+                target.organization_id = new_org_id
+
+            effective_role = target.role
+            if "manager_id" in updates:
+                manager_id = updates["manager_id"]
+                if manager_id is not None and effective_role != "user":
+                    return {
+                        "success": False,
+                        "error": "Only regular users can have a reporting manager",
+                    }
+                manager_error = UserService.validate_manager_assignment(
+                    db, editor, target, manager_id
+                )
+                if manager_error:
+                    return {"success": False, "error": manager_error}
+                target.manager_id = manager_id
+
+            target.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(target)
+
+            auth_logger.info(
+                f"User updated by admin: {editor.username} updated user: {target.username}",
+                editor_id=editor.id,
+                editor_username=editor.username,
+                target_user_id=target.id,
+                target_username=target.username,
+                updates=list(updates.keys()),
+                event_type="admin_user_update",
+            )
+
+            return {
+                "success": True,
+                "user": target,
+                "message": f"User '{target.username}' updated successfully",
+            }
+        except Exception as e:
+            db.rollback()
+            auth_logger.error(
+                f"Error updating user by admin: {str(e)}",
+                editor_id=editor.id,
+                editor_username=editor.username,
+                target_user_id=target_user_id,
+                error=str(e),
+                event_type="admin_user_update_error",
+            )
+            return {"success": False, "error": f"Failed to update user: {str(e)}"}
