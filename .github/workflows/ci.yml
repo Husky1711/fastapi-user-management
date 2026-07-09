@@ -84,12 +84,8 @@ jobs:
       - name: List smoke tests
         run: python -c "import pytest; raise SystemExit(pytest.main(['--confcutdir=tests/smoke','tests/smoke','-m','smoke','--collect-only','-q']))"
 
-      - name: Auth smoke probe (diagnostic)
-        continue-on-error: true
-        run: python scripts/smoke_auth_probe.py
-
       - name: Run smoke tests
-        run: python scripts/run_smoke_tests.py
+        run: python scripts/smoke_auth_probe.py
 
       - name: Run unit tests (role scope + auth deps)
         if: always()
