@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.smoke.conftest import auth_headers, login
+from conftest import auth_headers, login
 
 pytestmark = pytest.mark.smoke
 
