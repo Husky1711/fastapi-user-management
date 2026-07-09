@@ -81,6 +81,15 @@ jobs:
       - name: Verify CI seed fixtures
         run: python scripts/verify_ci_seed.py
 
+      - name: ADR-002 browser auth checklist
+        run: python scripts/curl_auth_checklist.py
+        env:
+          AUTH_COOKIE__USE_HTTPONLY_REFRESH: "true"
+          AUTH_COOKIE__LEGACY_JSON_REFRESH: "true"
+          AUTH_COOKIE__SECURE: "false"
+          SECURITY__CORS_ORIGINS: '["http://localhost:5173"]'
+          CHECKLIST_ORIGIN: "http://localhost:5173"
+
       - name: List smoke tests
         run: python -c "import pytest; raise SystemExit(pytest.main(['--confcutdir=tests/smoke','tests/smoke','-m','smoke','--collect-only','-q']))"
 
@@ -109,3 +118,4 @@ jobs:
           pytest tests/unit/test_role_scope.py
           pytest tests/unit/test_auth_dependencies.py
           pytest tests/unit/test_cookie_auth.py
+          pytest tests/unit/test_browser_auth_contract.py
