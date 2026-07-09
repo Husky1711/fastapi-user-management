@@ -8,6 +8,7 @@ Strategy **A** (adopted): baseline revision creates tables from SQLAlchemy metad
 |----------|------|---------|
 | `20260708_baseline` | `alembic/versions/20260708_baseline_schema.py` | `Base.metadata.create_all()` — tables only |
 | `20260708_compliance_fks` | `alembic/versions/20260708_compliance_foreign_keys.py` | Compliance FKs + idempotent guards |
+| `20260709_core_fks` | `alembic/versions/20260709_core_foreign_keys_ondelete.py` | Core FK ondelete (`refresh_tokens`, `users`) |
 
 New schema changes: add a **new** revision; do not edit applied revisions.
 

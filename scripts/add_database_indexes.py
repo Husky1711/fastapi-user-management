@@ -146,7 +146,7 @@ class DatabaseIndexMigrator:
         indexes = [
             ("idx_user_sessions_user", "user_id", False),
             ("idx_user_sessions_active", "is_active", False),
-            ("idx_user_sessions_device", "device_info", False),
+            ("idx_user_sessions_device", "device_fingerprint", False),
             ("idx_user_sessions_user_active", ["user_id", "is_active"], False),
             ("idx_user_sessions_expires", "expires_at", False),
         ]

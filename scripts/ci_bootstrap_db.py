@@ -16,7 +16,7 @@ sys.path.insert(0, project_root)
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 
-from models.user_model import Organization, User  # noqa: E402
+from models.user_model import Organization, User, UserGroup, ApiKey  # noqa: E402
 from utils.database import SessionLocal, engine  # noqa: E402
 from utils.jwt_config import get_password_hash  # noqa: E402
 
@@ -24,6 +24,7 @@ SEED_USERS: tuple[tuple[str, str, str, str, int], ...] = (
     ("testadmin", "admin@test.com", "admin123", "admin", 1),
     ("testuser", "user@test.com", "user123", "user", 1),
     ("testorgadmin", "orgadmin@test.com", "orgadmin123", "organization_admin", 1),
+    ("testuser_org2", "user2@test.com", "user2123", "user", 2),
     ("test_super_admin", "test_super_admin@test.com", "TestSuperAdminPass123!", "super_admin", 2),
 )
 
@@ -95,6 +96,41 @@ def _seed_data() -> None:
         test_user = db.query(User).filter(User.username == "testuser").first()
         if admin and test_user:
             test_user.manager_id = admin.id
+
+        super_admin = db.query(User).filter(User.username == "test_super_admin").first()
+        org2_user = db.query(User).filter(User.username == "testuser_org2").first()
+        if super_admin and org2_user:
+            group = (
+                db.query(UserGroup)
+                .filter(UserGroup.name == "CI Org2 Group", UserGroup.organization_id == 2)
+                .first()
+            )
+            if group is None:
+                group = UserGroup(
+                    name="CI Org2 Group",
+                    description="Cross-org IDOR smoke fixture",
+                    organization_id=2,
+                    created_by=super_admin.id,
+                    is_active=True,
+                )
+                db.add(group)
+                db.flush()
+
+            api_key = (
+                db.query(ApiKey)
+                .filter(ApiKey.key_name == "CI Org2 API Key", ApiKey.organization_id == 2)
+                .first()
+            )
+            if api_key is None:
+                from services.permissions.api_key_service import ApiKeyService
+
+                ApiKeyService.create_api_key(
+                    db=db,
+                    user_id=org2_user.id,
+                    organization_id=2,
+                    key_name="CI Org2 API Key",
+                    created_by=super_admin.id,
+                )
 
         db.commit()
         print("Seed users and organizations are ready.")

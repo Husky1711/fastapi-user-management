@@ -9,6 +9,8 @@ from typing import Optional, Dict, Any, List
 from .auth_service import AuthService
 from .refresh_token_service import RefreshTokenService
 from .logout_service import LogoutService
+from .login_attempt_service import LoginAttemptService
+from services.audit import AuditLogService
 from models.user_model import User, RefreshToken
 from utils.loggers import auth_logger, security_logger
 from config.settings import settings
@@ -49,14 +51,22 @@ class EnhancedLoginService:
             Dict with login result and session info
         """
         try:
-            # Authenticate user
-            user = AuthService.authenticate_user(db, username, password)
-            if not user:
+            auth_result = LoginAttemptService.authenticate_with_lockout(
+                db=db,
+                username=username,
+                password=password,
+                ip_address=ip_address or "Unknown",
+                user_agent=user_agent or "Unknown",
+            )
+            if not auth_result["success"]:
                 return {
                     "success": False,
-                    "error": "Invalid credentials",
-                    "error_code": "INVALID_CREDENTIALS"
+                    "error": auth_result.get("error", "Login failed"),
+                    "error_code": auth_result.get("error_code", "LOGIN_FAILED"),
+                    "lockout_info": auth_result.get("lockout_info"),
                 }
+
+            user = auth_result["user"]
             
             # Check existing sessions
             existing_sessions = RefreshTokenService.get_user_tokens(db, user.id)
@@ -103,6 +113,22 @@ class EnhancedLoginService:
                 sessions_revoked=session_action.get("sessions_revoked", 0),
                 total_sessions=new_session_count,
                 event_type="login_success"
+            )
+
+            AuditLogService.log_authentication_event(
+                db=db,
+                event_type="login",
+                user_id=user.id,
+                username=user.username,
+                email=user.email,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                status="success",
+                metadata={
+                    "device_info": device_info,
+                    "login_type": "enhanced",
+                    "session_strategy": session_strategy,
+                },
             )
             
             return {
