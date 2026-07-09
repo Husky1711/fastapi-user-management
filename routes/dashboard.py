@@ -11,7 +11,6 @@ from typing import Dict, Any, List, Optional
 from services.users import UserService
 from services.users.role_scope import filter_users_for_viewer
 from services.sessions import UserSessionService
-from services.audit import AuditLogService
 from services.auth import RefreshTokenService
 from dependencies.auth import CurrentUser
 from utils.database import get_db
@@ -60,20 +59,21 @@ async def get_user_dashboard_overview(
         sessions = RefreshTokenService.get_user_tokens(db, current_user.id)
         active_sessions = [s for s in sessions if not s.is_revoked]
         
-        # Get last login from audit logs
-        last_login = user.last_login
+        # Get last login from user record or audit logs
+        last_login = current_user.last_login
         if not last_login:
-            # Try to get from audit logs
-            audit_logs = db.query(AuditLogService.get_logs_model()).filter(
-                AuditLogService.get_logs_model().user_id == current_user.id,
-                AuditLogService.get_logs_model().action == "login"
-            ).order_by(
-                AuditLogService.get_logs_model().created_at.desc()
-            ).first()
-            
-            if audit_logs:
-                last_login = audit_logs.created_at
-        
+            audit_entry = (
+                db.query(AuditLog)
+                .filter(
+                    AuditLog.user_id == current_user.id,
+                    AuditLog.action == "login",
+                )
+                .order_by(AuditLog.created_at.desc())
+                .first()
+            )
+            if audit_entry:
+                last_login = audit_entry.created_at
+
         org = (
             db.query(Organization).filter(Organization.id == current_user.organization_id).first()
             if current_user.organization_id
@@ -82,19 +82,19 @@ async def get_user_dashboard_overview(
 
         return {
             "profile": {
-                "username": user.username,
-                "email": user.email,
-                "role": user.role,
-                "status": user.status,
+                "username": current_user.username,
+                "email": current_user.email,
+                "role": current_user.role,
+                "status": current_user.status,
                 "organization_id": current_user.organization_id,
                 "organization_name": org.name if org else None,
-                "phone_number": user.phone_number,
-                "is_2fa_enabled": getattr(user, 'is_2fa_enabled', False),
-                "failed_login_attempts": getattr(user, 'failed_login_attempts', 0)
+                "phone_number": current_user.phone_number,
+                "is_2fa_enabled": getattr(current_user, "is_2fa_enabled", False),
+                "failed_login_attempts": getattr(current_user, "failed_login_attempts", 0),
             },
             "active_sessions": len(active_sessions),
             "last_login": last_login.isoformat() if last_login else None,
-            "account_created": user.created_at.isoformat() if user.created_at else None
+            "account_created": current_user.created_at.isoformat() if current_user.created_at else None,
         }
         
     except HTTPException:
