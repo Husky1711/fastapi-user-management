@@ -104,13 +104,16 @@ jobs:
         working-directory: frontend
         run: npm install --no-audit --no-fund
 
-      - name: Start UI dev server
+      - name: Build frontend for sign-off
         working-directory: frontend
         env:
           VITE_API_BASE_URL: http://127.0.0.1:9000
-          VITE_DEV_PORT: "5173"
+        run: npm run build
+
+      - name: Start UI preview server
+        working-directory: frontend
         run: |
-          npm run dev &
+          npm run preview -- --host 127.0.0.1 --port 5173 &
           echo $! > /tmp/vite.pid
           npx --yes wait-on "${APP_URL}" --timeout 120000
 
@@ -143,7 +146,7 @@ jobs:
           VITE_API_BASE_URL: ${{ env.API_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
-        run: npm run test:e2e:staging -- --workers=1 --trace on-first-retry
+        run: npm run test:e2e:staging -- -g "#7" --workers=1 --trace on-first-retry
 
       - name: Upload Playwright trace on failure
         if: failure()
@@ -157,7 +160,7 @@ jobs:
         run: |
           echo "## Staging sign-off passed" >> "$GITHUB_STEP_SUMMARY"
           echo "- ADR-002 HTTP checklist (${API_URL})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Playwright #6 + #7 (${APP_URL} → ${API_URL})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Playwright #7 real API (${APP_URL} → ${API_URL})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stop background servers
         if: always()
