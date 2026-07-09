@@ -183,14 +183,14 @@ def main() -> int:
     ]
 
     failures: list[str] = []
-    with TestClient(app) as client:
-        for name, check in checks:
-            try:
+    for name, check in checks:
+        try:
+            with TestClient(app) as client:
                 check(client)
-                print("PASS", name)
-            except Exception as exc:
-                print("FAIL", name, exc)
-                failures.append(name)
+            print("PASS", name)
+        except Exception as exc:
+            print("FAIL", name, exc)
+            failures.append(name)
 
     print(f"summary: {len(checks) - len(failures)} passed, {len(failures)} failed")
     return 1 if failures else 0
