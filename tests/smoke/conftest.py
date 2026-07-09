@@ -6,10 +6,10 @@ import os
 
 # CI-safe defaults must load before Settings is first imported.
 if os.getenv("GITHUB_ACTIONS"):
-    os.environ.setdefault("RATE_LIMIT__ENABLE_IP_LIMITS", "false")
-    os.environ.setdefault("RATE_LIMIT__ENABLE_USER_LIMITS", "false")
-    os.environ.setdefault("AUTH_COOKIE__USE_HTTPONLY_REFRESH", "false")
-    os.environ.setdefault("AUTH_COOKIE__LEGACY_JSON_REFRESH", "true")
+    os.environ["RATE_LIMIT__ENABLE_IP_LIMITS"] = "false"
+    os.environ["RATE_LIMIT__ENABLE_USER_LIMITS"] = "false"
+    os.environ["AUTH_COOKIE__USE_HTTPONLY_REFRESH"] = "false"
+    os.environ["AUTH_COOKIE__LEGACY_JSON_REFRESH"] = "true"
 
 import pytest
 
@@ -57,8 +57,9 @@ def _bootstrap_smoke_database() -> None:
     main()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def client():
+    """One TestClient for the smoke session (avoids repeated app lifespan churn in CI)."""
     from fastapi.testclient import TestClient
 
     from main import app

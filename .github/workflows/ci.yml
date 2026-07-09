@@ -85,7 +85,23 @@ jobs:
         run: python -c "import pytest; raise SystemExit(pytest.main(['--confcutdir=tests/smoke','tests/smoke','-m','smoke','--collect-only','-q']))"
 
       - name: Run smoke tests
-        run: python scripts/smoke_auth_probe.py
+        run: |
+          python scripts/smoke_auth_probe.py 2>&1 | tee smoke-output.txt
+
+      - name: Upload smoke output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-output
+          path: smoke-output.txt
+
+      - name: Summarize smoke failure
+        if: failure()
+        run: |
+          echo "## Smoke test output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 80 smoke-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run unit tests (role scope + auth deps)
         if: always()
