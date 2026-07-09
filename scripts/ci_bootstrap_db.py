@@ -92,52 +92,69 @@ def _seed_data() -> None:
                 user.password = hashed
                 user.status = "active"
 
+        db.flush()
+
         admin = db.query(User).filter(User.username == "testadmin").first()
         test_user = db.query(User).filter(User.username == "testuser").first()
         if admin and test_user:
             test_user.manager_id = admin.id
 
-        super_admin = db.query(User).filter(User.username == "test_super_admin").first()
-        org2_user = db.query(User).filter(User.username == "testuser_org2").first()
-        if super_admin and org2_user:
-            group = (
-                db.query(UserGroup)
-                .filter(UserGroup.name == "CI Org2 Group", UserGroup.organization_id == 2)
-                .first()
-            )
-            if group is None:
-                group = UserGroup(
-                    name="CI Org2 Group",
-                    description="Cross-org IDOR smoke fixture",
-                    organization_id=2,
-                    created_by=super_admin.id,
-                    is_active=True,
-                )
-                db.add(group)
-                db.flush()
+        super_admin = (
+            db.query(User).filter(User.username == "test_super_admin").one_or_none()
+        )
+        org2_user = (
+            db.query(User).filter(User.username == "testuser_org2").one_or_none()
+        )
+        if super_admin is None:
+            raise RuntimeError("Seed user test_super_admin missing after user upsert")
+        if org2_user is None:
+            raise RuntimeError("Seed user testuser_org2 missing after user upsert")
 
-            api_key = (
-                db.query(ApiKey)
-                .filter(ApiKey.key_name == "CI Org2 API Key", ApiKey.organization_id == 2)
-                .first()
+        group = (
+            db.query(UserGroup)
+            .filter(UserGroup.name == "CI Org2 Group", UserGroup.organization_id == 2)
+            .first()
+        )
+        if group is None:
+            group = UserGroup(
+                name="CI Org2 Group",
+                description="Cross-org IDOR smoke fixture",
+                organization_id=2,
+                created_by=super_admin.id,
+                is_active=True,
             )
-            if api_key is None:
-                from services.permissions.api_key_service import ApiKeyService
+            db.add(group)
+            db.flush()
 
-                result = ApiKeyService.create_api_key(
-                    db=db,
-                    user_id=org2_user.id,
-                    organization_id=2,
-                    key_name="CI Org2 API Key",
-                    created_by=super_admin.id,
+        api_key = (
+            db.query(ApiKey)
+            .filter(ApiKey.key_name == "CI Org2 API Key", ApiKey.organization_id == 2)
+            .first()
+        )
+        if api_key is None:
+            from services.permissions.api_key_service import ApiKeyService
+
+            result = ApiKeyService.create_api_key(
+                db=db,
+                user_id=org2_user.id,
+                organization_id=2,
+                key_name="CI Org2 API Key",
+                created_by=super_admin.id,
+            )
+            if not result.get("success"):
+                raise RuntimeError(
+                    f"Failed to seed CI Org2 API Key: {result.get('error')}"
                 )
-                if not result.get("success"):
-                    raise RuntimeError(
-                        f"Failed to seed CI Org2 API Key: {result.get('error')}"
-                    )
+            api_key_id = result.get("api_key_id")
+        else:
+            api_key_id = api_key.id
 
         db.commit()
-        print("Seed users and organizations are ready.")
+        print(
+            "Seed users and organizations are ready.",
+            f"org2_group_id={group.id}",
+            f"org2_api_key_id={api_key_id}",
+        )
     finally:
         db.close()
 
