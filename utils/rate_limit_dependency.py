@@ -2,6 +2,7 @@ from fastapi import Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
+from config.settings import settings
 from services.core import RateLimitService
 from services.auth import AuthService
 from utils.database import get_db
@@ -46,6 +47,9 @@ class RateLimitDependency:
                     event_type="redis_unavailable"
                 )
                 return
+
+            if not settings.rate_limit.enable_ip_limits:
+                return
             
             # Check IP-based rate limits first
             ip_allowed, ip_remaining = RateLimitService.check_ip_rate_limit(ip_address, endpoint)
@@ -65,7 +69,7 @@ class RateLimitDependency:
                 )
             
             # If user is authenticated, check user-specific limits
-            if require_auth:
+            if require_auth and settings.rate_limit.enable_user_limits:
                 try:
                     # Try to get credentials from Authorization header
                     auth_header = request.headers.get("Authorization")

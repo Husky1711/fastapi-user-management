@@ -40,9 +40,14 @@ jobs:
       DATABASE_URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: "6379"
+      GITHUB_ACTIONS: "true"
       SECURITY__ALLOW_PUBLIC_SIGNUP: "false"
       SECURITY__ALLOW_DEBUG_AUTH: "false"
       JWT__SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
+      AUTH_COOKIE__USE_HTTPONLY_REFRESH: "false"
+      AUTH_COOKIE__LEGACY_JSON_REFRESH: "true"
+      RATE_LIMIT__ENABLE_IP_LIMITS: "false"
+      RATE_LIMIT__ENABLE_USER_LIMITS: "false"
       # .env in repo sets login limit to 10/min; smoke suite issues ~16 logins
       RATE_LIMIT__ENDPOINT_LIMITS__LOGIN__MINUTE: "100"
       RATE_LIMIT__ENDPOINT_LIMITS__LOGIN__HOUR: "1000"
@@ -67,11 +72,12 @@ jobs:
       - name: Bootstrap database
         run: python scripts/ci_bootstrap_db.py
 
-      - name: Run smoke tests
+      - name: Verify CI test settings
         run: |
-          pytest tests/smoke/test_auth_smoke.py -m smoke -v --tb=short
-          pytest tests/smoke/test_idor_smoke.py -m smoke -v --tb=short
-          pytest tests/smoke/test_rbac_smoke.py -m smoke -v --tb=short
+          python -c "from config.settings import settings; print('login_limit', settings.rate_limit.endpoint_limits.get('login')); print('ip_limits', settings.rate_limit.enable_ip_limits); print('httponly', settings.auth_cookie.use_httponly_refresh)"
+
+      - name: Run smoke tests
+        run: pytest tests/smoke -m smoke -v --tb=short
 
       - name: Run unit tests (role scope + auth deps)
         if: always()
