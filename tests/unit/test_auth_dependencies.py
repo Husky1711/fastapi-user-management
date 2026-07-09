@@ -42,7 +42,8 @@ class TestRequireStaff(unittest.TestCase):
     def test_staff_roles_allowed(self):
         for role in STAFF_ROLES:
             with self.subTest(role=role):
-                self.assertIs(require_staff(_user(role)), _user(role))
+                user = _user(role)
+                self.assertIs(require_staff(user), user)
 
     def test_regular_user_denied(self):
         with self.assertRaises(HTTPException) as ctx:
