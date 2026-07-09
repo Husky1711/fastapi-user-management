@@ -25,7 +25,7 @@ def main() -> int:
             return 1
         print("PASS login")
 
-        refresh = client.post("/api/v1/refresh", json={})
+        refresh = client.post("/api/v1/refresh")
         if refresh.status_code != 200:
             print(f"FAIL refresh {refresh.status_code} {refresh.text}")
             return 1
@@ -35,8 +35,7 @@ def main() -> int:
             return 1
         print("PASS cookie_refresh")
 
-        # Simulate reload bootstrap: cookie-only refresh again
-        reload_refresh = client.post("/api/v1/refresh", json={})
+        reload_refresh = client.post("/api/v1/refresh")
         if reload_refresh.status_code != 200:
             print(f"FAIL reload_refresh {reload_refresh.status_code} {reload_refresh.text}")
             return 1

@@ -135,7 +135,7 @@ jobs:
             -b /tmp/proxy-cookies.txt \
             -H "Content-Type: application/json"
 
-      - name: E2E #7 bootstrap check (HTTP via UI proxy)
+      - name: "Bootstrap check via UI proxy (E2E 7 HTTP)"
         env:
           APP_URL: ${{ env.APP_URL }}
           CHECKLIST_USER: testuser
