@@ -55,7 +55,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} data-testid="login-page">
       <form className={styles.card} onSubmit={onSubmit}>
         <h1>Sign in</h1>
         {reason === "session_expired" && (
