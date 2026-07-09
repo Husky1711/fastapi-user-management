@@ -53,7 +53,7 @@ def _bootstrap_smoke_database() -> None:
     main()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def client():
     from fastapi.testclient import TestClient
 
