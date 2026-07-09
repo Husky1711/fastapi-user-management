@@ -29,7 +29,10 @@ def main() -> int:
         f"legacy_json={settings.auth_cookie.legacy_json_refresh}",
     )
 
-    bootstrap_main()
+    if not os.getenv("GITHUB_ACTIONS"):
+        bootstrap_main()
+    else:
+        print("skipping bootstrap (CI job already ran ci_bootstrap_db.py)")
 
     from main import app
 
