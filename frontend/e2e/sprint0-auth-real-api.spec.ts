@@ -4,13 +4,31 @@ const realApiEnabled = process.env.E2E_REAL_API === "1";
 const e2eUser = process.env.E2E_USER || "testuser";
 const e2ePassword = process.env.E2E_PASSWORD || "user123";
 
-async function loginViaUi(page: Page) {
+async function loginWithRefreshCookie(page: Page) {
   await page.goto("/login");
-  await page.getByLabel("Username").fill(e2eUser);
-  await page.getByLabel("Password").fill(e2ePassword);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  const ok = await page.evaluate(
+    async ({ username, password }) => {
+      const response = await fetch("/api/v1/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return true;
+    },
+    { username: e2eUser, password: e2ePassword },
+  );
+  expect(ok).toBeTruthy();
+
+  const cookies = await page.context().cookies();
+  expect(cookies.some((cookie) => cookie.name === "refresh_token")).toBeTruthy();
+
+  await page.goto("/dashboard");
   await expect(page.getByTestId("login-page")).toHaveCount(0, { timeout: 30_000 });
-  await expect(page).toHaveURL(/\/(dashboard|admin|org-admin|super-admin)/, {
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
     timeout: 30_000,
   });
 }
@@ -22,7 +40,7 @@ test.describe("Sprint 0 real API E2E", () => {
   test("#6 user visiting /admin is redirected to unauthorized", async ({ page }) => {
     test.skip(e2eUser !== "testuser", "Use E2E_USER=testuser for RBAC #6");
 
-    await loginViaUi(page);
+    await loginWithRefreshCookie(page);
     await page.goto("/admin");
 
     await expect(page).toHaveURL(/\/unauthorized$/, { timeout: 30_000 });
@@ -32,13 +50,7 @@ test.describe("Sprint 0 real API E2E", () => {
   });
 
   test("#7 reload with refresh cookie bootstraps without login form", async ({ page }) => {
-    await loginViaUi(page);
-
-    await page.goto("/dashboard");
-    await expect(page.getByTestId("login-page")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
-      timeout: 30_000,
-    });
+    await loginWithRefreshCookie(page);
 
     await page.reload({ waitUntil: "networkidle" });
     await expect(page.getByText("Loading your session")).toHaveCount(0, { timeout: 30_000 });

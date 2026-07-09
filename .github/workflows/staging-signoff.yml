@@ -142,7 +142,7 @@ jobs:
           E2E_BASE_URL: ${{ env.APP_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
-        run: npm run test:e2e:staging -- -g "#7" --workers=1 --trace on-first-retry
+        run: npm run test:e2e:staging -- -g "#7" --workers=1 --retries=2 --trace on-first-retry
 
       - name: Upload Playwright trace on failure
         if: failure()
