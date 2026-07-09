@@ -18,8 +18,8 @@ os.environ.setdefault("RATE_LIMIT__ENABLE_IP_LIMITS", "false")
 os.environ.setdefault("RATE_LIMIT__ENABLE_USER_LIMITS", "false")
 
 ORIGIN = os.getenv("CHECKLIST_ORIGIN", "http://localhost:5173")
-CHECKLIST_USER = os.getenv("CHECKLIST_USER", "testuser")
-CHECKLIST_PASSWORD = os.getenv("CHECKLIST_PASSWORD", "user123")
+CHECKLIST_USER = os.getenv("CHECKLIST_USER", "testadmin")
+CHECKLIST_PASSWORD = os.getenv("CHECKLIST_PASSWORD", "admin123")
 
 
 def _assert(condition: bool, message: str) -> None:

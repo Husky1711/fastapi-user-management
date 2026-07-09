@@ -46,7 +46,8 @@ class UserSignupRequest(BaseModel):
 class UserSigninRequest(BaseModel):
     """Schema for user login request"""
     username: str = Field(..., min_length=3, max_length=50, description="Username")
-    password: str = Field(..., min_length=8, max_length=100, description="Password")
+    # Login accepts any non-empty password; policy rules apply on signup/reset only.
+    password: str = Field(..., min_length=1, max_length=100, description="Password")
 
 class RefreshTokenRequest(BaseModel):
     """Schema for refresh token request"""
