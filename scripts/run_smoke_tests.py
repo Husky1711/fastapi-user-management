@@ -17,6 +17,15 @@ if os.getenv("GITHUB_ACTIONS"):
 
 
 def main() -> int:
+    from config.settings import settings
+
+    print(
+        "smoke settings:",
+        f"ip_limits={settings.rate_limit.enable_ip_limits}",
+        f"httponly={settings.auth_cookie.use_httponly_refresh}",
+        f"db={settings.get_database_url()}",
+    )
+
     import pytest
 
     return pytest.main(
@@ -41,6 +50,8 @@ def main() -> int:
             "no:metadata",
             "-p",
             "no:xdist",
+            "-p",
+            "no:anyio",
         ]
     )
 

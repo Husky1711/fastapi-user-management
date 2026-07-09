@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from models.user_model import ApiKey, User, UserGroup
-from tests.smoke.conftest import auth_headers, login
+from conftest import auth_headers, login
 from utils.database import SessionLocal
 
 pytestmark = pytest.mark.smoke
