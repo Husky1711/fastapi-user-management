@@ -53,13 +53,19 @@ def clear_refresh_cookie(response: Response) -> None:
 def resolve_refresh_token(
     request: Request, body_token: Optional[str]
 ) -> Optional[str]:
-    """Cookie takes precedence; body token is legacy fallback during transition."""
+    """
+    Resolve refresh token for refresh/logout.
+
+    When legacy JSON is enabled and the client sends a body token, prefer the body
+    so API/TestClient callers are not overridden by a stale httpOnly cookie after
+    rotation. Cookie-only browser clients (no body) still use the cookie.
+    """
+    if settings.auth_cookie.legacy_json_refresh and body_token:
+        return body_token
     cookie_token = get_refresh_token_from_request(request)
     if cookie_token:
         return cookie_token
-    if settings.auth_cookie.legacy_json_refresh and body_token:
-        return body_token
-    return None
+    return body_token
 
 
 def build_auth_token_response(

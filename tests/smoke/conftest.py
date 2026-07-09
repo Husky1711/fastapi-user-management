@@ -33,3 +33,14 @@ def login(client, username: str, password: str) -> dict:
 
 def auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
+
+
+def refresh_token_from_response(client, response_json: dict, fallback: str) -> str:
+    """Latest refresh token from JSON body or Set-Cookie (post-rotation)."""
+    token = response_json.get("refresh_token")
+    if token:
+        return token
+    cookie_token = client.cookies.get("refresh_token")
+    if cookie_token:
+        return cookie_token
+    return fallback
