@@ -53,7 +53,7 @@ def _bootstrap_smoke_database() -> None:
     main()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def client():
     from fastapi.testclient import TestClient
 
@@ -64,6 +64,7 @@ def client():
 
 
 def login(client, username: str, password: str) -> dict:
+    client.cookies.clear()
     response = client.post(
         "/api/v1/login",
         json={"username": username, "password": password},
