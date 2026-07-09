@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.smoke.conftest import auth_headers, login
+from tests.smoke.conftest import auth_headers, login, refresh_token_from_response
 
 pytestmark = pytest.mark.smoke
 
@@ -26,12 +26,17 @@ def test_login_refresh_logout(client) -> None:
     assert refresh.status_code == 200, refresh.text
     refreshed = refresh.json()
     assert refreshed.get("access_token")
-    refresh_token = refreshed.get("refresh_token") or tokens["refresh_token"]
+    rotated_refresh = refresh_token_from_response(
+        client, refreshed, tokens["refresh_token"]
+    )
+    assert rotated_refresh != tokens["refresh_token"], (
+        "Refresh should rotate the token; got the same value as login"
+    )
 
     client.cookies.clear()
     logout = client.post(
         "/api/v1/logout",
-        json={"refresh_token": refresh_token},
+        json={"refresh_token": rotated_refresh},
     )
     assert logout.status_code == 200, logout.text
 
