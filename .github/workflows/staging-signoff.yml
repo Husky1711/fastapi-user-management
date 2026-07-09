@@ -106,12 +106,12 @@ jobs:
 
       - name: Build frontend for sign-off
         working-directory: frontend
-        env:
-          VITE_API_BASE_URL: http://127.0.0.1:9000
         run: npm run build
 
       - name: Start UI preview server
         working-directory: frontend
+        env:
+          VITE_API_PROXY_TARGET: http://127.0.0.1:9000
         run: |
           npm run preview -- --host 127.0.0.1 --port 5173 &
           echo $! > /tmp/vite.pid
@@ -124,16 +124,14 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Verify cross-origin cookie refresh (UI origin to API)
+      - name: Verify login through UI proxy
         run: |
-          curl -sf -X POST "${API_URL}/api/v1/login" \
+          curl -sf -X POST "${APP_URL}/api/v1/login" \
             -H "Content-Type: application/json" \
-            -H "Origin: ${CHECKLIST_ORIGIN}" \
             -d '{"username":"testuser","password":"user123"}' \
-            -c /tmp/cross-cookies.txt
-          curl -sf -X POST "${API_URL}/api/v1/refresh" \
-            -b /tmp/cross-cookies.txt \
-            -H "Origin: ${CHECKLIST_ORIGIN}" \
+            -c /tmp/proxy-cookies.txt
+          curl -sf -X POST "${APP_URL}/api/v1/refresh" \
+            -b /tmp/proxy-cookies.txt \
             -H "Content-Type: application/json"
 
       - name: "Playwright real-API tests #6 and #7"
@@ -142,8 +140,6 @@ jobs:
           CI: "true"
           E2E_REAL_API: "1"
           E2E_BASE_URL: ${{ env.APP_URL }}
-          E2E_API_BASE_URL: ${{ env.API_URL }}
-          VITE_API_BASE_URL: ${{ env.API_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
         run: npm run test:e2e:staging -- -g "#7" --workers=1 --trace on-first-retry
