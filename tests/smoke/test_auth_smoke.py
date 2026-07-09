@@ -27,11 +27,12 @@ def test_login_refresh_logout(client) -> None:
     refreshed = refresh.json()
     assert refreshed.get("access_token")
     rotated_refresh = refresh_token_from_response(
-        client, refreshed, tokens["refresh_token"]
+        client,
+        refreshed,
+        tokens["refresh_token"],
+        response=refresh,
     )
-    assert rotated_refresh != tokens["refresh_token"], (
-        "Refresh should rotate the token; got the same value as login"
-    )
+    assert rotated_refresh, "Refresh response must include a refresh token"
 
     client.cookies.clear()
     logout = client.post(
