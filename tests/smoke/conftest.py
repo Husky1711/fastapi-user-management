@@ -2,7 +2,31 @@
 
 from __future__ import annotations
 
+import os
+
+# CI-safe defaults must load before Settings is first imported.
+if os.getenv("GITHUB_ACTIONS"):
+    os.environ.setdefault("RATE_LIMIT__ENABLE_IP_LIMITS", "false")
+    os.environ.setdefault("RATE_LIMIT__ENABLE_USER_LIMITS", "false")
+    os.environ.setdefault("AUTH_COOKIE__USE_HTTPONLY_REFRESH", "false")
+    os.environ.setdefault("AUTH_COOKIE__LEGACY_JSON_REFRESH", "true")
+
 import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reset_rate_limit_counters() -> None:
+    """Avoid cross-test 429s when Redis counters persist across pytest runs."""
+    try:
+        from utils.redis_config import RedisClient
+
+        if RedisClient.test_connection():
+            client = RedisClient.get_client()
+            keys = list(client.scan_iter(match="rate_limit:*"))
+            if keys:
+                client.delete(*keys)
+    except Exception:
+        pass
 
 
 @pytest.fixture(scope="session", autouse=True)
