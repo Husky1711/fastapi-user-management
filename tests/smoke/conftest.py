@@ -14,6 +14,21 @@ if os.getenv("GITHUB_ACTIONS"):
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limit_counters_before_test() -> None:
+    """Avoid cross-test 429s when Redis counters persist within a session."""
+    try:
+        from utils.redis_config import RedisClient
+
+        if RedisClient.test_connection():
+            client = RedisClient.get_client()
+            keys = list(client.scan_iter(match="rate_limit:*"))
+            if keys:
+                client.delete(*keys)
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _reset_rate_limit_counters() -> None:
     """Avoid cross-test 429s when Redis counters persist across pytest runs."""
@@ -31,6 +46,8 @@ def _reset_rate_limit_counters() -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap_smoke_database() -> None:
+    if os.getenv("GITHUB_ACTIONS"):
+        return
     from scripts.ci_bootstrap_db import main
 
     main()
