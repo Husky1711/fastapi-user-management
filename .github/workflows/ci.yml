@@ -38,8 +38,8 @@ jobs:
 
     env:
       DATABASE_URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
-      REDIS_HOST: 127.0.0.1
-      REDIS_PORT: "6379"
+      REDIS__HOST: 127.0.0.1
+      REDIS__PORT: "6379"
       GITHUB_ACTIONS: "true"
       SECURITY__ALLOW_PUBLIC_SIGNUP: "false"
       SECURITY__ALLOW_DEBUG_AUTH: "false"
@@ -77,7 +77,9 @@ jobs:
           python -c "from config.settings import settings; print('login_limit', settings.rate_limit.endpoint_limits.get('login')); print('ip_limits', settings.rate_limit.enable_ip_limits); print('httponly', settings.auth_cookie.use_httponly_refresh)"
 
       - name: Run smoke tests
-        run: pytest tests/smoke -m smoke -v --tb=short
+        run: |
+          python scripts/smoke_auth_probe.py
+          pytest tests/smoke -m smoke -v --tb=long --capture=no -x
 
       - name: Run unit tests (role scope + auth deps)
         if: always()
