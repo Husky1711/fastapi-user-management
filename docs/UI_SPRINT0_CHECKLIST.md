@@ -14,8 +14,9 @@
 
 **Staging sign-off (post-deploy, manual until env exists):**
 
-- [ ] Run `bash scripts/staging_post_deploy_smoke.sh` against `api/app.staging.*`
-- [ ] Run GitHub workflow **Staging E2E** (Playwright #6/#7 on real API)
+- [x] CI full-stack sign-off — workflow `Staging Sign-off` (`.github/workflows/staging-signoff.yml`)
+- [ ] Run `bash scripts/staging_post_deploy_smoke.sh` against deployed `api/app.staging.*` (when available)
+- [ ] Run GitHub workflow **Staging E2E** with production staging secrets
 
 ---
 

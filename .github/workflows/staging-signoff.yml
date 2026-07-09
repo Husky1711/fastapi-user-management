@@ -1,0 +1,144 @@
+name: Staging Sign-off
+
+# Full-stack ADR-002 sign-off over real HTTP (no external staging URLs required).
+# Spins up API + UI in the runner, then runs HTTP checklist and Playwright #6/#7.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/codespaces-local-db]
+    paths:
+      - ".github/workflows/staging-signoff.yml"
+      - "scripts/curl_auth_checklist.py"
+      - "scripts/staging_post_deploy_smoke.sh"
+      - "frontend/e2e/sprint0-auth-real-api.spec.ts"
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: fastapi_users
+          MYSQL_USER: fastapi
+          MYSQL_PASSWORD: fastapi
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
+      DB__URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
+      REDIS__HOST: 127.0.0.1
+      REDIS__PORT: "6379"
+      JWT__SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
+      AUTH_COOKIE__USE_HTTPONLY_REFRESH: "true"
+      AUTH_COOKIE__LEGACY_JSON_REFRESH: "true"
+      AUTH_COOKIE__SECURE: "false"
+      SECURITY__CORS_ORIGINS: '["http://127.0.0.1:5173","http://localhost:5173"]'
+      RATE_LIMIT__ENABLE_IP_LIMITS: "false"
+      RATE_LIMIT__ENABLE_USER_LIMITS: "false"
+      RATE_LIMIT__ENDPOINT_LIMITS__LOGIN__MINUTE: "100"
+      RATE_LIMIT__ENDPOINT_LIMITS__REFRESH__MINUTE: "100"
+      API_URL: http://127.0.0.1:9000
+      APP_URL: http://127.0.0.1:5173
+      CHECKLIST_ORIGIN: http://127.0.0.1:5173
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Bootstrap database
+        run: python scripts/ci_bootstrap_db.py
+
+      - name: Start API server
+        run: |
+          uvicorn main:app --host 127.0.0.1 --port 9000 &
+          echo $! > /tmp/uvicorn.pid
+          for i in $(seq 1 30); do
+            if curl -sf "${API_URL}/health" > /dev/null; then
+              echo "API ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API failed to start"
+          exit 1
+
+      - name: ADR-002 HTTP checklist
+        env:
+          CHECKLIST_BASE_URL: ${{ env.API_URL }}
+        run: python scripts/curl_auth_checklist.py
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Start UI dev server
+        working-directory: frontend
+        env:
+          VITE_API_PROXY_TARGET: http://127.0.0.1:9000
+          VITE_DEV_PORT: "5173"
+        run: |
+          npm run dev &
+          echo $! > /tmp/vite.pid
+          npx --yes wait-on "${APP_URL}" --timeout 120000
+
+      - name: Verify UI alive
+        run: curl -sf "${APP_URL}/" -o /dev/null
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright #6 and #7 (real API)
+        working-directory: frontend
+        env:
+          CI: "true"
+          E2E_REAL_API: "1"
+          E2E_BASE_URL: ${{ env.APP_URL }}
+          E2E_USER: testuser
+          E2E_PASSWORD: user123
+        run: npm run test:e2e:staging
+
+      - name: Sign-off summary
+        run: |
+          echo "## Staging sign-off passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ADR-002 HTTP checklist (${API_URL})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Playwright #6 + #7 (${APP_URL} → API proxy)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop background servers
+        if: always()
+        run: |
+          if [ -f /tmp/vite.pid ]; then kill "$(cat /tmp/vite.pid)" 2>/dev/null || true; fi
+          if [ -f /tmp/uvicorn.pid ]; then kill "$(cat /tmp/uvicorn.pid)" 2>/dev/null || true; fi
