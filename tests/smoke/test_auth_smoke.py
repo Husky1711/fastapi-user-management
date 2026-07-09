@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.smoke.conftest import auth_headers, login, refresh_token_from_response
+from tests.smoke.conftest import auth_headers, login
 
 pytestmark = pytest.mark.smoke
 
@@ -26,13 +26,8 @@ def test_login_refresh_logout(client) -> None:
     assert refresh.status_code == 200, refresh.text
     refreshed = refresh.json()
     assert refreshed.get("access_token")
-    rotated_refresh = refresh_token_from_response(
-        client,
-        refreshed,
-        tokens["refresh_token"],
-        response=refresh,
-    )
-    assert rotated_refresh, "Refresh response must include a refresh token"
+    assert refreshed.get("refresh_token"), f"refresh body missing token: {refreshed}"
+    rotated_refresh = refreshed["refresh_token"]
 
     client.cookies.clear()
     logout = client.post(

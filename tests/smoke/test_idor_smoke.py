@@ -19,17 +19,25 @@ pytestmark = pytest.mark.smoke
 def cross_org_ids() -> dict[str, int]:
     db = SessionLocal()
     try:
-        org2_user = db.query(User).filter(User.username == "testuser_org2").one()
+        org2_user = (
+            db.query(User).filter(User.username == "testuser_org2").one_or_none()
+        )
+        assert org2_user is not None, "Seed user testuser_org2 missing (bootstrap failed?)"
+
         group = (
             db.query(UserGroup)
             .filter(UserGroup.name == "CI Org2 Group", UserGroup.organization_id == 2)
-            .one()
+            .one_or_none()
         )
+        assert group is not None, "Seed group CI Org2 Group missing (bootstrap failed?)"
+
         api_key = (
             db.query(ApiKey)
             .filter(ApiKey.key_name == "CI Org2 API Key", ApiKey.organization_id == 2)
-            .one()
+            .one_or_none()
         )
+        assert api_key is not None, "Seed API key CI Org2 API Key missing (bootstrap failed?)"
+
         return {
             "org2_user_id": org2_user.id,
             "org2_group_id": group.id,
