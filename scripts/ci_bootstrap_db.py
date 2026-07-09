@@ -124,13 +124,17 @@ def _seed_data() -> None:
             if api_key is None:
                 from services.permissions.api_key_service import ApiKeyService
 
-                ApiKeyService.create_api_key(
+                result = ApiKeyService.create_api_key(
                     db=db,
                     user_id=org2_user.id,
                     organization_id=2,
                     key_name="CI Org2 API Key",
                     created_by=super_admin.id,
                 )
+                if not result.get("success"):
+                    raise RuntimeError(
+                        f"Failed to seed CI Org2 API Key: {result.get('error')}"
+                    )
 
         db.commit()
         print("Seed users and organizations are ready.")

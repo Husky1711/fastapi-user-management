@@ -18,19 +18,22 @@ def test_login_refresh_logout(client) -> None:
     assert profile.status_code == 200
     assert profile.json()["username"] == "testuser"
 
+    client.cookies.clear()
     refresh = client.post(
         "/api/v1/refresh",
         json={"refresh_token": tokens["refresh_token"]},
     )
-    assert refresh.status_code == 200
+    assert refresh.status_code == 200, refresh.text
     refreshed = refresh.json()
     assert refreshed.get("access_token")
+    refresh_token = refreshed.get("refresh_token") or tokens["refresh_token"]
 
+    client.cookies.clear()
     logout = client.post(
         "/api/v1/logout",
-        json={"refresh_token": refreshed.get("refresh_token", tokens["refresh_token"])},
+        json={"refresh_token": refresh_token},
     )
-    assert logout.status_code == 200
+    assert logout.status_code == 200, logout.text
 
 
 def test_alembic_head_matches_schema(client) -> None:
