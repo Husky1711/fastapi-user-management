@@ -14,9 +14,9 @@
 
 **Staging sign-off (post-deploy, manual until env exists):**
 
-- [x] CI full-stack sign-off — workflow `Staging Sign-off` (HTTP checklist + `signoff_bootstrap_check.py` via UI proxy)
+- [x] CI full-stack sign-off — workflow `Staging Sign-off` green on `ef7440d` (HTTP checklist + bootstrap via UI proxy)
 - [ ] Run `bash scripts/staging_post_deploy_smoke.sh` against deployed `api/app.staging.*` (when available)
-- [ ] Run GitHub workflow **Staging E2E** with production staging secrets
+- [ ] Run GitHub workflow **Staging E2E** with production staging secrets + browser Playwright #7
 
 ---
 
