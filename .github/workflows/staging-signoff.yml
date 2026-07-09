@@ -121,7 +121,7 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Playwright #6 and #7 (real API)
+      - name: "Playwright real-API tests #6 and #7"
         working-directory: frontend
         env:
           CI: "true"
@@ -129,7 +129,7 @@ jobs:
           E2E_BASE_URL: ${{ env.APP_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
-        run: npm run test:e2e:staging
+        run: npm run test:e2e:staging -- --workers=1
 
       - name: Sign-off summary
         run: |
