@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, feature/**]
+  pull_request:
+    branches: [main, master, feature/**]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: fastapi_users
+          MYSQL_USER: fastapi
+          MYSQL_PASSWORD: fastapi
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      SECURITY__ALLOW_PUBLIC_SIGNUP: "false"
+      SECURITY__ALLOW_DEBUG_AUTH: "false"
+      JWT_SECRET_KEY: ci-test-secret-key-at-least-32-characters-long
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Bootstrap database
+        run: python scripts/ci_bootstrap_db.py
+
+      - name: Run smoke tests
+        run: pytest tests/smoke -m smoke
+
+      - name: Run unit tests (role scope)
+        run: pytest tests/unit/test_role_scope.py

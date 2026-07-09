@@ -67,10 +67,45 @@ def _cleanup_orphans() -> None:
         op.execute(sa.text(sql))
 
 
+def _foreign_key_exists(table_name: str, constraint_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return any(
+        fk.get("name") == constraint_name for fk in inspector.get_foreign_keys(table_name)
+    )
+
+
+def _unique_constraint_exists(table_name: str, constraint_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return any(
+        uc.get("name") == constraint_name for uc in inspector.get_unique_constraints(table_name)
+    )
+
+
+def _create_foreign_key_if_missing(
+    name: str,
+    source_table: str,
+    referent_table: str,
+    local_cols: list[str],
+    remote_cols: list[str],
+    *,
+    ondelete: str,
+) -> None:
+    if _foreign_key_exists(source_table, name):
+        return
+    op.create_foreign_key(
+        name,
+        source_table,
+        referent_table,
+        local_cols,
+        remote_cols,
+        ondelete=ondelete,
+    )
+
+
 def upgrade() -> None:
     _cleanup_orphans()
 
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_sessions_user_id",
         "user_sessions",
         "users",
@@ -78,7 +113,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_sessions_refresh_token_id",
         "user_sessions",
         "refresh_tokens",
@@ -86,7 +121,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_audit_logs_user_id",
         "audit_logs",
         "users",
@@ -94,7 +129,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_audit_logs_organization_id",
         "audit_logs",
         "organizations",
@@ -102,7 +137,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_password_history_user_id",
         "password_history",
         "users",
@@ -110,7 +145,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_password_history_changed_by",
         "password_history",
         "users",
@@ -118,7 +153,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_login_attempts_user_id",
         "login_attempts",
         "users",
@@ -126,7 +161,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_permissions_user_id",
         "user_permissions",
         "users",
@@ -134,7 +169,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_permissions_granted_by",
         "user_permissions",
         "users",
@@ -142,7 +177,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_groups_organization_id",
         "user_groups",
         "organizations",
@@ -150,7 +185,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_groups_created_by",
         "user_groups",
         "users",
@@ -158,7 +193,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="RESTRICT",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_group_memberships_user_id",
         "user_group_memberships",
         "users",
@@ -166,7 +201,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_group_memberships_group_id",
         "user_group_memberships",
         "user_groups",
@@ -174,7 +209,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_user_group_memberships_added_by",
         "user_group_memberships",
         "users",
@@ -182,7 +217,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="RESTRICT",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_api_keys_user_id",
         "api_keys",
         "users",
@@ -190,7 +225,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_api_keys_organization_id",
         "api_keys",
         "organizations",
@@ -198,7 +233,7 @@ def upgrade() -> None:
         ["id"],
         ondelete="CASCADE",
     )
-    op.create_foreign_key(
+    _create_foreign_key_if_missing(
         "fk_api_keys_created_by",
         "api_keys",
         "users",
@@ -207,11 +242,12 @@ def upgrade() -> None:
         ondelete="RESTRICT",
     )
 
-    op.create_unique_constraint(
-        "uq_user_group_membership",
-        "user_group_memberships",
-        ["user_id", "group_id"],
-    )
+    if not _unique_constraint_exists("user_group_memberships", "uq_user_group_membership"):
+        op.create_unique_constraint(
+            "uq_user_group_membership",
+            "user_group_memberships",
+            ["user_id", "group_id"],
+        )
 
 
 def downgrade() -> None:
