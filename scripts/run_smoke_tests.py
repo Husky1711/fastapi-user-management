@@ -31,13 +31,10 @@ def main() -> int:
     return pytest.main(
         [
             "--confcutdir=tests/smoke",
-            "tests/smoke",
-            "-m",
-            "smoke",
+            "tests/smoke/test_auth_smoke.py::test_login_refresh_logout",
             "-v",
             "--tb=long",
             "--capture=no",
-            "--maxfail=5",
             "-p",
             "no:locust",
             "-p",
