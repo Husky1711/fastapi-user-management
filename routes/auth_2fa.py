@@ -10,6 +10,7 @@ from datetime import datetime
 
 from dependencies.auth import CurrentUser
 from utils.database import get_db
+from utils.rate_limit_dependency import RateLimitDependency
 from services.auth.two_factor_service import TwoFactorService
 from utils.loggers import auth_logger
 from schemas.auth_2fa import (
@@ -26,7 +27,8 @@ router = APIRouter(prefix="/api/v1", tags=["Two-Factor Authentication"])
 async def enable_2fa(
     request: Enable2FARequest,
     current_user: CurrentUser,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("2fa_enable")),
 ):
     """
     Enable Two-Factor Authentication for user
@@ -87,7 +89,8 @@ async def enable_2fa(
 async def verify_2fa_code(
     request: Verify2FARequest,
     current_user: CurrentUser,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("2fa_verify")),
 ):
     """
     Verify 2FA code to complete 2FA setup or login
@@ -151,7 +154,8 @@ async def verify_2fa_code(
 async def disable_2fa(
     request: Disable2FARequest,
     current_user: CurrentUser,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("2fa_disable")),
 ):
     """
     Disable Two-Factor Authentication for user
@@ -198,7 +202,8 @@ async def disable_2fa(
 @router.get("/2fa/status")
 async def get_2fa_status(
     current_user: CurrentUser,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("2fa_status")),
 ):
     """Get 2FA status for current user"""
     try:

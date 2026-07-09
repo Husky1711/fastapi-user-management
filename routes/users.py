@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from models.user_model import User
@@ -16,6 +16,7 @@ from schemas.login import (
     UserResponse,
 )
 from services.users import UserService
+from services.audit import AuditLogService
 from utils.database import get_db
 from utils.loggers import auth_logger
 from utils.production_logging import CorrelationIDGenerator
@@ -119,6 +120,7 @@ async def get_user_by_id(
 async def update_user_by_admin(
     user_id: int,
     updates: AdminUpdateUserRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("profile_update")),
@@ -153,6 +155,19 @@ async def update_user_by_admin(
     updated_user = result["user"]
     cache_service.invalidate_user_profile(updated_user.id)
 
+    AuditLogService.log_user_action(
+        db=db,
+        user_id=current_user.id,
+        action="update",
+        resource_type="user",
+        resource_id=updated_user.id,
+        new_values=update_data,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        correlation_id=correlation_id,
+        metadata={"target_username": updated_user.username},
+    )
+
     user_response = UserResponse(
         **UserService.serialize_user(db, updated_user, include_timestamps=True),
     )
@@ -166,6 +181,7 @@ async def update_user_by_admin(
 @router.post("/admin/users/create", response_model=AdminCreateUserResponse)
 async def create_user_by_admin(
     user_data: AdminCreateUserRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user"))
@@ -242,6 +258,24 @@ async def create_user_by_admin(
         
         # Prepare response
         created_user = result["user"]
+
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="create",
+            resource_type="user",
+            resource_id=created_user.id,
+            new_values={
+                "username": created_user.username,
+                "email": created_user.email,
+                "role": created_user.role,
+                "organization_id": created_user.organization_id,
+            },
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            correlation_id=correlation_id,
+        )
+
         user_response = UserResponse(
             **UserService.serialize_user(db, created_user, include_timestamps=True),
         )

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -565,6 +565,7 @@ async def get_group_statistics(
 @router.post("/groups", response_model=Dict[str, Any])
 async def create_organization_group(
     body: CreateGroupRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_create")),
@@ -594,6 +595,16 @@ async def create_organization_group(
         )
         if not result["success"]:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="create",
+            resource_type="group",
+            resource_id=result.get("group", {}).get("id"),
+            new_values={"name": body.name, "organization_id": org_id},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise
@@ -610,6 +621,7 @@ async def create_organization_group(
 async def update_organization_group(
     group_id: int,
     body: UpdateGroupRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_update")),
@@ -629,6 +641,16 @@ async def update_organization_group(
         if not result["success"]:
             status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
             raise HTTPException(status_code=status_code, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="update",
+            resource_type="group",
+            resource_id=group_id,
+            new_values=body.dict(exclude_unset=True),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise
@@ -645,6 +667,7 @@ async def update_organization_group(
 @router.delete("/groups/{group_id}", response_model=Dict[str, Any])
 async def delete_organization_group(
     group_id: int,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_delete")),
@@ -662,6 +685,15 @@ async def delete_organization_group(
         if not result["success"]:
             status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
             raise HTTPException(status_code=status_code, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="delete",
+            resource_type="group",
+            resource_id=group_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise
@@ -877,6 +909,7 @@ async def get_api_key_statistics(
 @router.post("/api-keys", response_model=Dict[str, Any])
 async def create_user_api_key(
     body: CreateApiKeyRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_create")),
@@ -899,6 +932,16 @@ async def create_user_api_key(
         )
         if not result["success"]:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="create",
+            resource_type="api_key",
+            resource_id=result.get("api_key_id"),
+            new_values={"key_name": body.key_name, "user_id": target_user.id},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise
@@ -915,6 +958,7 @@ async def create_user_api_key(
 async def update_user_api_key(
     api_key_id: int,
     body: UpdateApiKeyRequest,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_update")),
@@ -936,6 +980,16 @@ async def update_user_api_key(
         if not result["success"]:
             status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
             raise HTTPException(status_code=status_code, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="update",
+            resource_type="api_key",
+            resource_id=api_key_id,
+            new_values=body.dict(exclude_unset=True),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise
@@ -952,6 +1006,7 @@ async def update_user_api_key(
 @router.delete("/api-keys/{api_key_id}", response_model=Dict[str, Any])
 async def revoke_user_api_key(
     api_key_id: int,
+    request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_revoke")),
@@ -968,6 +1023,15 @@ async def revoke_user_api_key(
         if not result["success"]:
             status_code = status.HTTP_404_NOT_FOUND if "not found" in result["error"].lower() else status.HTTP_400_BAD_REQUEST
             raise HTTPException(status_code=status_code, detail=result["error"])
+        AuditLogService.log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="delete",
+            resource_type="api_key",
+            resource_id=api_key_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
         return result
     except HTTPException:
         raise

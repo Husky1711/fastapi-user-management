@@ -9,7 +9,6 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from models.user_model import User
 from routes.auth_common import create_api_router, security
 from schemas.login import RefreshTokenRequest, UserResponse, UserSigninRequest, UserSignupRequest
 from services.audit import AuditLogService
@@ -50,100 +49,46 @@ async def login(
     )
     
     try:
-        # Check if user exists first
-        user = db.query(User).filter(User.username == credentials.username).first()
-        
-        # Record login attempt (even before authentication)
-        LoginAttemptService.record_login_attempt(
+        auth_result = LoginAttemptService.authenticate_with_lockout(
             db=db,
             username=credentials.username,
+            password=credentials.password,
             ip_address=ip_address,
             user_agent=user_agent,
-            success=False,
-            failure_reason="Pending authentication",
-            user_id=user.id if user else None
         )
-        
-        # Check if account is locked
-        if user and LoginAttemptService.is_account_locked(user):
-            lockout_info = LoginAttemptService.get_lockout_info(user)
-            
-            # Log failed login (locked account)
-            auth_logger.login_failure(
-                username=credentials.username,
-                ip_address=ip_address,
-                reason="Account locked",
-                user_agent=user_agent,
-                correlation_id=correlation_id
-            )
-            
-            # Record failed attempt
-            LoginAttemptService.record_login_attempt(
-                db=db,
-                username=credentials.username,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                success=False,
-                failure_reason="Account locked",
-                user_id=user.id if user else None
-            )
-            
-            raise APIHTTPException(
-                status_code=status.HTTP_423_LOCKED,
-                detail=f"Account locked. Try again after {lockout_info['remaining_lockout_minutes']} minutes.",
-                error_code="ACCOUNT_LOCKED",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Authenticate user
-        user = AuthService.authenticate_user(db, credentials.username, credentials.password)
-        if not user:
-            # Get the user again to increment failed attempts
-            user = db.query(User).filter(User.username == credentials.username).first()
-            
-            if user:
-                # Increment failed attempts
-                LoginAttemptService.increment_failed_attempts(db, user)
-            
-            # Record failed login attempt
-            LoginAttemptService.record_login_attempt(
-                db=db,
-                username=credentials.username,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                success=False,
-                failure_reason="Invalid credentials",
-                user_id=user.id if user else None
-            )
-            
-            # Log failed login
+
+        if not auth_result["success"]:
+            if auth_result.get("error_code") == "ACCOUNT_LOCKED":
+                lockout_info = auth_result.get("lockout_info") or {}
+                auth_logger.login_failure(
+                    username=credentials.username,
+                    ip_address=ip_address,
+                    reason="Account locked",
+                    user_agent=user_agent,
+                    correlation_id=correlation_id,
+                )
+                raise APIHTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail=f"Account locked. Try again after {lockout_info.get('remaining_lockout_minutes', 0)} minutes.",
+                    error_code="ACCOUNT_LOCKED",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
             auth_logger.login_failure(
                 username=credentials.username,
                 ip_address=ip_address,
                 reason="Invalid credentials",
                 user_agent=user_agent,
-                correlation_id=correlation_id
+                correlation_id=correlation_id,
             )
-            
             raise APIHTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
                 error_code="INVALID_CREDENTIALS",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
-        # Reset failed attempts on successful authentication
-        LoginAttemptService.reset_failed_attempts(db, user)
-        
-        # Record successful login attempt
-        LoginAttemptService.record_login_attempt(
-            db=db,
-            username=user.username,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            success=True,
-            user_id=user.id
-        )
+
+        user = auth_result["user"]
         
         # Get device info for security
         device_info = f"{user_agent}"
@@ -402,7 +347,23 @@ async def login_with_session_control(
         )
         
         if not result["success"]:
-            error_code = "SESSION_EXISTS" if "session" in result.get("error", "").lower() else "LOGIN_FAILED"
+            error_code = result.get("error_code", "LOGIN_FAILED")
+            if error_code == "ACCOUNT_LOCKED":
+                lockout_info = result.get("lockout_info") or {}
+                raise APIHTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail=f"Account locked. Try again after {lockout_info.get('remaining_lockout_minutes', 0)} minutes.",
+                    error_code="ACCOUNT_LOCKED",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if error_code == "INVALID_CREDENTIALS":
+                raise APIHTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Incorrect username or password",
+                    error_code="INVALID_CREDENTIALS",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            error_code = "SESSION_EXISTS" if "session" in result.get("error", "").lower() else error_code
             raise APIHTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=result["error"],

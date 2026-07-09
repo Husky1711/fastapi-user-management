@@ -199,6 +199,10 @@ class RateLimitSettings(BaseSettings):
             "signup": {"minute": 10, "hour": 100},
             "password_change": {"minute": 10, "hour": 100},
             "password_reset": {"minute": 5, "hour": 50},
+            "2fa_enable": {"minute": 5, "hour": 20},
+            "2fa_verify": {"minute": 10, "hour": 50},
+            "2fa_disable": {"minute": 5, "hour": 20},
+            "2fa_status": {"minute": 30, "hour": 300},
         },
         description="Rate limits for specific endpoints"
     )

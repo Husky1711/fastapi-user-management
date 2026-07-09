@@ -5,10 +5,12 @@ Tracks failed login attempts and implements account lockout
 
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
+
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from models.user_model import User, LoginAttempt
+from services.auth.auth_service import AuthService
 from utils.loggers import security_logger
 from config.settings import settings
 
@@ -278,3 +280,78 @@ class LoginAttemptService:
                 event_type="get_attempts_error"
             )
             return []
+    
+    @staticmethod
+    def authenticate_with_lockout(
+        db: Session,
+        username: str,
+        password: str,
+        ip_address: str,
+        user_agent: str,
+    ) -> Dict[str, Any]:
+        """
+        Shared login path: lockout check, credential verify, attempt tracking.
+
+        Returns dict with success=True and user, or success=False with error_code
+        (ACCOUNT_LOCKED | INVALID_CREDENTIALS).
+        """
+        user_row = db.query(User).filter(User.username == username).first()
+
+        LoginAttemptService.record_login_attempt(
+            db=db,
+            username=username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            success=False,
+            failure_reason="Pending authentication",
+            user_id=user_row.id if user_row else None,
+        )
+
+        if user_row and LoginAttemptService.is_account_locked(user_row):
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Account locked",
+                user_id=user_row.id,
+            )
+            return {
+                "success": False,
+                "error_code": "ACCOUNT_LOCKED",
+                "error": "Account locked",
+                "lockout_info": LoginAttemptService.get_lockout_info(user_row),
+            }
+
+        user = AuthService.authenticate_user(db, username, password)
+        if not user:
+            user_row = db.query(User).filter(User.username == username).first()
+            if user_row:
+                LoginAttemptService.increment_failed_attempts(db, user_row)
+
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Invalid credentials",
+                user_id=user_row.id if user_row else None,
+            )
+            return {
+                "success": False,
+                "error_code": "INVALID_CREDENTIALS",
+                "error": "Invalid credentials",
+            }
+
+        LoginAttemptService.reset_failed_attempts(db, user)
+        LoginAttemptService.record_login_attempt(
+            db=db,
+            username=user.username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            success=True,
+            user_id=user.id,
+        )
+        return {"success": True, "user": user}
