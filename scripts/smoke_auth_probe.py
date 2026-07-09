@@ -67,28 +67,36 @@ def _load_cross_org_ids() -> dict[str, int]:
 
 
 def _run_auth_smoke(client) -> None:
-    tokens = _login(client, "testuser", "user123")
-    assert tokens.get("access_token")
-    assert tokens.get("refresh_token")
+    login = client.post(
+        "/api/v1/login",
+        json={"username": "testuser", "password": "user123"},
+    )
+    if login.status_code != 200:
+        raise AssertionError(f"login: {login.status_code} {login.text}")
+    tokens = login.json()
 
-    profile = client.get("/api/v1/profile", headers=_auth_headers(tokens["access_token"]))
-    assert profile.status_code == 200, profile.text
-    assert profile.json()["username"] == "testuser"
+    profile = client.get(
+        "/api/v1/profile",
+        headers=_auth_headers(tokens["access_token"]),
+    )
+    if profile.status_code != 200:
+        raise AssertionError(f"profile: {profile.status_code} {profile.text}")
 
     client.cookies.clear()
     refresh = client.post(
         "/api/v1/refresh",
         json={"refresh_token": tokens["refresh_token"]},
     )
-    assert refresh.status_code == 200, refresh.text
-    refreshed = refresh.json()
-    assert refreshed.get("access_token")
-    rotated = refreshed.get("refresh_token")
-    assert rotated, f"refresh body missing token: {refreshed}"
+    if refresh.status_code != 200:
+        raise AssertionError(f"refresh: {refresh.status_code} {refresh.text}")
+    rotated = refresh.json().get("refresh_token")
+    if not rotated:
+        raise AssertionError(f"refresh missing token: {refresh.json()}")
 
     client.cookies.clear()
     logout = client.post("/api/v1/logout", json={"refresh_token": rotated})
-    assert logout.status_code == 200, logout.text
+    if logout.status_code != 200:
+        raise AssertionError(f"logout: {logout.status_code} {logout.text}")
 
 
 def _run_schema_smoke(client) -> None:
@@ -183,14 +191,15 @@ def main() -> int:
     ]
 
     failures: list[str] = []
-    for name, check in checks:
-        try:
-            with TestClient(app) as client:
+    with TestClient(app) as client:
+        for name, check in checks:
+            try:
                 check(client)
-            print("PASS", name)
-        except Exception as exc:
-            print("FAIL", name, exc)
-            failures.append(name)
+                print("PASS", name)
+            except Exception as exc:
+                print("FAIL", name, exc)
+                failures.append(name)
+                break
 
     print(f"summary: {len(checks) - len(failures)} passed, {len(failures)} failed")
     return 1 if failures else 0
