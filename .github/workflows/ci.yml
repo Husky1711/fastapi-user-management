@@ -77,12 +77,21 @@ jobs:
         run: |
           python -c "from config.settings import settings; print('login_limit', settings.rate_limit.endpoint_limits.get('login')); print('ip_limits', settings.rate_limit.enable_ip_limits); print('httponly', settings.auth_cookie.use_httponly_refresh)"
 
+      - name: Verify CI seed fixtures
+        run: python scripts/verify_ci_seed.py
+
+      - name: List smoke tests
+        run: python -m pytest tests/smoke -m smoke --collect-only -q
+
       - name: Auth smoke probe (diagnostic)
         continue-on-error: true
         run: python scripts/smoke_auth_probe.py
 
       - name: Run smoke tests
-        run: pytest tests/smoke -m smoke -v --tb=long --capture=no -x
+        run: |
+          python -m pytest tests/smoke -m smoke -v --tb=long --capture=no --maxfail=5 --junitxml=smoke-junit.xml
+          echo "--- smoke junit ---"
+          cat smoke-junit.xml || true
 
       - name: Run unit tests (role scope + auth deps)
         if: always()

@@ -10,16 +10,21 @@ from typing import Dict, Any, Optional
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from main import app
 from utils.database import get_db
 from models.user_model import User
+
+
+def _get_app():
+    from main import app
+
+    return app
 
 
 class TestClientManager:
     """Manages test client and database sessions"""
     
     def __init__(self):
-        self.client = TestClient(app)
+        self.client = TestClient(_get_app())
         self.db_session: Optional[Session] = None
     
     def get_db_session(self) -> Session:
