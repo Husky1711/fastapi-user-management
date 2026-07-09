@@ -182,26 +182,33 @@ def main() -> int:
 
     from main import app
 
-    cross_org_ids = _load_cross_org_ids()
-    checks = [
-        ("auth_login_refresh_logout", lambda c: _run_auth_smoke(c)),
-        ("alembic_schema_users_list", lambda c: _run_schema_smoke(c)),
-        ("idor_cross_org", lambda c: _run_idor_smoke(c, cross_org_ids)),
-        ("rbac_dashboard_matrix", lambda c: _run_rbac_smoke(c)),
-    ]
-
     failures: list[str] = []
     with TestClient(app) as client:
-        for name, check in checks:
-            try:
-                check(client)
-                print("PASS", name)
-            except Exception as exc:
-                print("FAIL", name, exc)
-                failures.append(name)
-                break
+        try:
+            _run_auth_smoke(client)
+            print("PASS", "auth_login_refresh_logout")
+        except Exception as exc:
+            print("FAIL", "auth_login_refresh_logout", exc)
+            failures.append("auth_login_refresh_logout")
 
-    print(f"summary: {len(checks) - len(failures)} passed, {len(failures)} failed")
+    if not failures:
+        cross_org_ids = _load_cross_org_ids()
+        checks = [
+            ("alembic_schema_users_list", lambda c: _run_schema_smoke(c)),
+            ("idor_cross_org", lambda c: _run_idor_smoke(c, cross_org_ids)),
+            ("rbac_dashboard_matrix", lambda c: _run_rbac_smoke(c)),
+        ]
+        with TestClient(app) as client:
+            for name, check in checks:
+                try:
+                    check(client)
+                    print("PASS", name)
+                except Exception as exc:
+                    print("FAIL", name, exc)
+                    failures.append(name)
+                    break
+
+    print(f"summary: {4 - len(failures)} passed, {len(failures)} failed")
     return 1 if failures else 0
 
 
