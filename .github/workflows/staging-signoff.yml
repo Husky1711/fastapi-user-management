@@ -107,7 +107,7 @@ jobs:
       - name: Start UI dev server
         working-directory: frontend
         env:
-          VITE_API_PROXY_TARGET: http://127.0.0.1:9000
+          VITE_API_BASE_URL: http://127.0.0.1:9000
           VITE_DEV_PORT: "5173"
         run: |
           npm run dev &
@@ -121,15 +121,17 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Verify cookie auth through UI proxy
+      - name: Verify cross-origin cookie refresh (UI origin to API)
         run: |
-          curl -sf -X POST "${APP_URL}/api/v1/login" \
+          curl -sf -X POST "${API_URL}/api/v1/login" \
             -H "Content-Type: application/json" \
+            -H "Origin: ${CHECKLIST_ORIGIN}" \
             -d '{"username":"testuser","password":"user123"}' \
-            -c /tmp/ui-cookies.txt
-          curl -sf -X POST "${APP_URL}/api/v1/refresh" -b /tmp/ui-cookies.txt \
-            -H "Content-Type: application/json" \
-            -d '{}'
+            -c /tmp/cross-cookies.txt
+          curl -sf -X POST "${API_URL}/api/v1/refresh" \
+            -b /tmp/cross-cookies.txt \
+            -H "Origin: ${CHECKLIST_ORIGIN}" \
+            -H "Content-Type: application/json"
 
       - name: "Playwright real-API tests #6 and #7"
         working-directory: frontend
@@ -137,6 +139,8 @@ jobs:
           CI: "true"
           E2E_REAL_API: "1"
           E2E_BASE_URL: ${{ env.APP_URL }}
+          E2E_API_BASE_URL: ${{ env.API_URL }}
+          VITE_API_BASE_URL: ${{ env.API_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
         run: npm run test:e2e:staging -- --workers=1 --trace on-first-retry
@@ -153,7 +157,7 @@ jobs:
         run: |
           echo "## Staging sign-off passed" >> "$GITHUB_STEP_SUMMARY"
           echo "- ADR-002 HTTP checklist (${API_URL})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Playwright #6 + #7 (${APP_URL} → API proxy)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Playwright #6 + #7 (${APP_URL} → ${API_URL})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stop background servers
         if: always()

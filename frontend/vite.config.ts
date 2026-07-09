@@ -28,6 +28,19 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: apiTarget,
           changeOrigin: true,
+          secure: false,
+          configure: (proxy) => {
+            proxy.on("proxyRes", (proxyRes) => {
+              const raw = proxyRes.headers["set-cookie"];
+              if (!raw) {
+                return;
+              }
+              const cookies = Array.isArray(raw) ? raw : [raw];
+              proxyRes.headers["set-cookie"] = cookies.map((cookie) =>
+                cookie.replace(/;\s*Secure/gi, "").replace(/Domain=[^;]+/gi, ""),
+              );
+            });
+          },
         },
       },
     },
