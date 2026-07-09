@@ -165,14 +165,15 @@ def setup_security_middleware(app: FastAPI) -> None:
         app.add_middleware(HTTPSRedirectMiddleware)
         security_logger.info("HTTPS redirect middleware enabled", event_type="middleware_setup")
     
-    # Add CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.security.cors_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
-    )
+    # Add CORS middleware (explicit origins + credentials for browser SPA)
+    if settings.security.enable_cors:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.security.cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
+        )
     
     security_logger.info(
         "Security middleware setup completed",
@@ -284,6 +285,7 @@ def setup_error_handlers(app: FastAPI) -> None:
             status_code=500,
             content={
                 "detail": "Internal server error",
+                "error_code": "INTERNAL_ERROR",
                 "status_code": 500,
                 "request_id": request_id,
                 "timestamp": time.time()

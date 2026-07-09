@@ -285,6 +285,18 @@ class SecuritySettings(BaseSettings):
                 return json.loads(text)
             return [origin.strip() for origin in text.split(",") if origin.strip()]
         return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def reject_wildcard_with_credentials(cls, value: list) -> list:
+        """Browsers reject credentialed requests when Allow-Origin is *."""
+        if "*" in value:
+            filtered = [origin for origin in value if origin != "*"]
+            return filtered or [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
+        return value
     
     class Config:
         env_prefix = "SECURITY_"
