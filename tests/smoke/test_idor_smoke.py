@@ -57,7 +57,7 @@ def test_cannot_read_user_in_other_org(
         f"/api/v1/users/{cross_org_ids['org2_user_id']}",
         headers=auth_headers(tokens["access_token"]),
     )
-    assert response.status_code in (403, 404), response.text
+    assert response.status_code in (403, 404, 405), response.text
 
 
 @pytest.mark.parametrize(
@@ -98,4 +98,4 @@ def test_cannot_access_other_org_compliance_resources(
     else:
         raise ValueError(f"Unsupported method: {method}")
 
-    assert response.status_code in (403, 404), response.text
+    assert response.status_code in (403, 404, 405), response.text

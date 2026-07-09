@@ -65,6 +65,7 @@ jobs:
         run: pytest tests/smoke -m smoke
 
       - name: Run unit tests (role scope + auth deps)
+        if: always()
         run: |
           pytest tests/unit/test_role_scope.py
           pytest tests/unit/test_auth_dependencies.py

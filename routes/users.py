@@ -83,37 +83,29 @@ async def get_user_by_id(
     _: None = Depends(RateLimitDependency.check_rate_limit("user_detail"))
 ):
     """Get specific user by ID based on current user's role and organization"""
-    # Import cache service
     from services.core import cache_service
-    
-    # Check cache first
-    cached_profile = cache_service.get_user_profile(user_id)
-    if cached_profile:
-        # Return cached profile
-        return cached_profile
-    
-    # Use database user as source of truth (JWT claims can be stale after role changes)
+
     current_user_role = current_user.role
     current_user_org_id = current_user.organization_id
     current_user_id = current_user.id
-    
-    # Get specific user based on role
+
     specific_user = UserService.get_user_by_role_and_organization(
         db, user_id, current_user_role, current_user_org_id, current_user_id
     )
-    
+
     if specific_user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found or access denied"
+            detail="User not found or access denied",
         )
-    
-    # Prepare response data
+
+    cached_profile = cache_service.get_user_profile(user_id)
+    if cached_profile:
+        return cached_profile
+
     user_data = UserService.serialize_user(db, specific_user, include_timestamps=True)
-    
-    # Cache the profile for future requests
     cache_service.set_user_profile(user_id, user_data)
-    
+
     return user_data
 
 @router.patch("/users/{user_id}", response_model=AdminUpdateUserResponse)
