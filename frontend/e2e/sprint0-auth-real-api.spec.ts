@@ -40,7 +40,8 @@ test.describe("Sprint 0 real API E2E", () => {
       timeout: 30_000,
     });
 
-    await page.reload();
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByText("Loading your session")).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId("login-page")).toHaveCount(0, { timeout: 30_000 });
     await expect(page).not.toHaveURL(/\/login/);
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible({
