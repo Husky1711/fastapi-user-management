@@ -4,17 +4,16 @@ Role-based dashboard endpoints for different user types
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, time
 from typing import Dict, Any, List, Optional
 
 from services.users import UserService
 from services.users.role_scope import filter_users_for_viewer
-from services.auth import AuthService
 from services.sessions import UserSessionService
 from services.audit import AuditLogService
 from services.auth import RefreshTokenService
+from dependencies.auth import CurrentUser
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
 from models.user_model import User, RefreshToken, AuditLog, Organization
@@ -33,7 +32,6 @@ from schemas.dashboard import (
 )
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
-security = HTTPBearer()
 
 
 # ============================================================================
@@ -42,7 +40,7 @@ security = HTTPBearer()
 
 @router.get("/user/overview", response_model=UserDashboardOverview)
 async def get_user_dashboard_overview(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -57,16 +55,9 @@ async def get_user_dashboard_overview(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Get active session count
-        sessions = RefreshTokenService.get_user_tokens(db, user.id)
+        sessions = RefreshTokenService.get_user_tokens(db, current_user.id)
         active_sessions = [s for s in sessions if not s.is_revoked]
         
         # Get last login from audit logs
@@ -74,7 +65,7 @@ async def get_user_dashboard_overview(
         if not last_login:
             # Try to get from audit logs
             audit_logs = db.query(AuditLogService.get_logs_model()).filter(
-                AuditLogService.get_logs_model().user_id == user.id,
+                AuditLogService.get_logs_model().user_id == current_user.id,
                 AuditLogService.get_logs_model().action == "login"
             ).order_by(
                 AuditLogService.get_logs_model().created_at.desc()
@@ -84,8 +75,8 @@ async def get_user_dashboard_overview(
                 last_login = audit_logs.created_at
         
         org = (
-            db.query(Organization).filter(Organization.id == user.organization_id).first()
-            if user.organization_id
+            db.query(Organization).filter(Organization.id == current_user.organization_id).first()
+            if current_user.organization_id
             else None
         )
 
@@ -95,7 +86,7 @@ async def get_user_dashboard_overview(
                 "email": user.email,
                 "role": user.role,
                 "status": user.status,
-                "organization_id": user.organization_id,
+                "organization_id": current_user.organization_id,
                 "organization_name": org.name if org else None,
                 "phone_number": user.phone_number,
                 "is_2fa_enabled": getattr(user, 'is_2fa_enabled', False),
@@ -111,7 +102,7 @@ async def get_user_dashboard_overview(
     except Exception as e:
         api_logger.error(
             f"User dashboard overview error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="user_dashboard_error"
         )
@@ -123,7 +114,7 @@ async def get_user_dashboard_overview(
 
 @router.get("/user/activity", response_model=UserActivityResponse)
 async def get_user_activity(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     limit: int = 20,
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
@@ -138,14 +129,7 @@ async def get_user_activity(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Get audit logs for this user
         from sqlalchemy import and_
         from datetime import datetime, timedelta
@@ -157,7 +141,7 @@ async def get_user_activity(
         
         # Recent activity (last 20 logs)
         recent_activity = db.query(AuditLog).filter(
-            AuditLog.user_id == user.id
+            AuditLog.user_id == current_user.id
         ).order_by(
             AuditLog.created_at.desc()
         ).limit(limit).all()
@@ -165,7 +149,7 @@ async def get_user_activity(
         # Login statistics
         logins_today = db.query(AuditLog).filter(
             and_(
-                AuditLog.user_id == user.id,
+                AuditLog.user_id == current_user.id,
                 AuditLog.action == "login",
                 AuditLog.created_at >= today_start
             )
@@ -173,7 +157,7 @@ async def get_user_activity(
         
         logins_this_week = db.query(AuditLog).filter(
             and_(
-                AuditLog.user_id == user.id,
+                AuditLog.user_id == current_user.id,
                 AuditLog.action == "login",
                 AuditLog.created_at >= week_ago
             )
@@ -181,7 +165,7 @@ async def get_user_activity(
         
         logins_this_month = db.query(AuditLog).filter(
             and_(
-                AuditLog.user_id == user.id,
+                AuditLog.user_id == current_user.id,
                 AuditLog.action == "login",
                 AuditLog.created_at >= month_ago
             )
@@ -210,7 +194,7 @@ async def get_user_activity(
     except Exception as e:
         api_logger.error(
             f"User activity error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="user_activity_error"
         )
@@ -222,7 +206,7 @@ async def get_user_activity(
 
 @router.get("/user/sessions", response_model=UserSessionsResponse)
 async def get_user_sessions_dashboard(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -238,16 +222,9 @@ async def get_user_sessions_dashboard(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Get user's active sessions
-        sessions = RefreshTokenService.get_user_tokens(db, user.id)
+        sessions = RefreshTokenService.get_user_tokens(db, current_user.id)
         active_sessions = [s for s in sessions if not s.is_revoked]
         
         # Format session data
@@ -273,7 +250,7 @@ async def get_user_sessions_dashboard(
     except Exception as e:
         api_logger.error(
             f"User sessions dashboard error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="user_sessions_dashboard_error"
         )
@@ -289,7 +266,7 @@ async def get_user_sessions_dashboard(
 
 @router.get("/admin/overview", response_model=AdminDashboardOverview)
 async def get_admin_dashboard_overview(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -304,22 +281,15 @@ async def get_admin_dashboard_overview(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is admin
-        if user.role != "admin":
+        if current_user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         
         # Users this admin can manage (regular users in their organization)
         all_users = filter_users_for_viewer(db.query(User), "admin", org_id).all()
@@ -395,7 +365,7 @@ async def get_admin_dashboard_overview(
     except Exception as e:
         api_logger.error(
             f"Admin dashboard overview error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="admin_dashboard_error"
         )
@@ -407,7 +377,7 @@ async def get_admin_dashboard_overview(
 
 @router.get("/admin/users/stats", response_model=AdminUsersStats)
 async def get_admin_users_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -422,22 +392,15 @@ async def get_admin_users_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is admin
-        if user.role != "admin":
+        if current_user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         
         # Users this admin can manage (regular users in their organization)
         all_users = filter_users_for_viewer(db.query(User), "admin", org_id).all()
@@ -483,7 +446,7 @@ async def get_admin_users_stats(
     except Exception as e:
         api_logger.error(
             f"Admin users stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="admin_users_stats_error"
         )
@@ -495,7 +458,7 @@ async def get_admin_users_stats(
 
 @router.get("/admin/activity/stats", response_model=AdminActivityStats)
 async def get_admin_activity_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     limit: int = 20,
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
@@ -510,22 +473,15 @@ async def get_admin_activity_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is admin
-        if user.role != "admin":
+        if current_user.role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         
         viewable_user_ids = [
             u.id
@@ -604,7 +560,7 @@ async def get_admin_activity_stats(
     except Exception as e:
         api_logger.error(
             f"Admin activity stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="admin_activity_stats_error"
         )
@@ -620,7 +576,7 @@ async def get_admin_activity_stats(
 
 @router.get("/organization-admin/overview")
 async def get_organization_admin_overview(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -635,22 +591,15 @@ async def get_organization_admin_overview(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is organization admin
-        if user.role != "organization_admin":
+        if current_user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         
         # Users this org admin can manage (excludes system-wide super admins)
         all_users = filter_users_for_viewer(
@@ -723,7 +672,7 @@ async def get_organization_admin_overview(
     except Exception as e:
         api_logger.error(
             f"Organization admin dashboard overview error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="org_admin_dashboard_error"
         )
@@ -735,7 +684,7 @@ async def get_organization_admin_overview(
 
 @router.get("/organization-admin/users/stats")
 async def get_organization_admin_users_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -749,22 +698,15 @@ async def get_organization_admin_users_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is organization admin
-        if user.role != "organization_admin":
+        if current_user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         
         all_users = filter_users_for_viewer(
             db.query(User), "organization_admin", org_id
@@ -819,7 +761,7 @@ async def get_organization_admin_users_stats(
     except Exception as e:
         api_logger.error(
             f"Organization admin users stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="org_admin_users_stats_error"
         )
@@ -831,7 +773,7 @@ async def get_organization_admin_users_stats(
 
 @router.get("/organization-admin/sessions/stats")
 async def get_organization_admin_sessions_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -845,22 +787,15 @@ async def get_organization_admin_sessions_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is organization admin
-        if user.role != "organization_admin":
+        if current_user.role != "organization_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin access required"
             )
         
-        org_id = user.organization_id if hasattr(user, 'organization_id') else None
+        org_id = current_user.organization_id
         viewable_user_ids = [
             u.id
             for u in filter_users_for_viewer(
@@ -908,7 +843,7 @@ async def get_organization_admin_sessions_stats(
     except Exception as e:
         api_logger.error(
             f"Organization admin sessions stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="org_admin_sessions_stats_error"
         )
@@ -924,7 +859,7 @@ async def get_organization_admin_sessions_stats(
 
 @router.get("/super-admin/overview")
 async def get_super_admin_overview(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -939,16 +874,9 @@ async def get_super_admin_overview(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is super admin
-        if user.role != "super_admin":
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super admin access required"
@@ -1040,7 +968,7 @@ async def get_super_admin_overview(
     except Exception as e:
         api_logger.error(
             f"Super admin dashboard overview error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="super_admin_dashboard_error"
         )
@@ -1052,7 +980,7 @@ async def get_super_admin_overview(
 
 @router.get("/super-admin/users/stats")
 async def get_super_admin_users_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -1066,16 +994,9 @@ async def get_super_admin_users_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is super admin
-        if user.role != "super_admin":
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super admin access required"
@@ -1160,7 +1081,7 @@ async def get_super_admin_users_stats(
     except Exception as e:
         api_logger.error(
             f"Super admin users stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="super_admin_users_stats_error"
         )
@@ -1172,7 +1093,7 @@ async def get_super_admin_users_stats(
 
 @router.get("/super-admin/organizations/stats")
 async def get_super_admin_organizations_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -1186,16 +1107,9 @@ async def get_super_admin_organizations_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is super admin
-        if user.role != "super_admin":
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super admin access required"
@@ -1259,7 +1173,7 @@ async def get_super_admin_organizations_stats(
     except Exception as e:
         api_logger.error(
             f"Super admin organizations stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="super_admin_orgs_stats_error"
         )
@@ -1271,7 +1185,7 @@ async def get_super_admin_organizations_stats(
 
 @router.get("/super-admin/sessions/stats")
 async def get_super_admin_sessions_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("dashboard"))
 ):
@@ -1285,16 +1199,9 @@ async def get_super_admin_sessions_stats(
     """
     try:
         # Verify JWT token and get user
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Check if user is super admin
-        if user.role != "super_admin":
+        if current_user.role != "super_admin":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Super admin access required"
@@ -1333,7 +1240,7 @@ async def get_super_admin_sessions_stats(
     except Exception as e:
         api_logger.error(
             f"Super admin sessions stats error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="super_admin_sessions_stats_error"
         )

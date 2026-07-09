@@ -4,13 +4,13 @@ from datetime import datetime
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from models.user_model import RefreshToken
-from routes.auth_common import create_api_router, security
+from dependencies.auth import CurrentUser
+from routes.auth_common import create_api_router
 from schemas.login import SessionInfo, SuccessResponse
-from services.auth import AuthService, EnhancedLoginService, RefreshTokenService, RefreshTokenService
+from services.auth import AuthService, EnhancedLoginService, RefreshTokenService
 from utils.database import get_db
 from utils.loggers import auth_logger
 from utils.rate_limit_dependency import RateLimitDependency
@@ -19,21 +19,14 @@ router = create_api_router(tags=["Sessions"])
 
 @router.get("/sessions/info", response_model=Dict[str, Any])
 async def get_session_info(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("sessions"))
 ):
     """Get detailed session information for current user"""
     try:
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        session_info = EnhancedLoginService.get_user_session_info(db, user.id)
+
+        session_info = EnhancedLoginService.get_user_session_info(db, current_user.id)
         return session_info
         
     except HTTPException:
@@ -41,7 +34,7 @@ async def get_session_info(
     except Exception as e:
         auth_logger.error(
             f"Session info error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id if 'user' in locals() else None,
             error=str(e),
             event_type="session_info_error"
         )
@@ -52,22 +45,15 @@ async def get_session_info(
 
 @router.post("/sessions/revoke-others", response_model=SuccessResponse)
 async def revoke_other_sessions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_revoke"))
 ):
     """Revoke all other sessions except current one"""
     try:
-        user = AuthService.get_current_user(db, credentials.credentials)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
+
         # Get current session ID (simplified - would need proper token tracking)
-        result = EnhancedLoginService.revoke_other_sessions(db, user.id, 0)
+        result = EnhancedLoginService.revoke_other_sessions(db, current_user.id, 0)
         
         if not result["success"]:
             raise HTTPException(
@@ -84,7 +70,7 @@ async def revoke_other_sessions(
     except Exception as e:
         auth_logger.error(
             f"Revoke other sessions error: {str(e)}",
-            user_id=user.id if 'user' in locals() else None,
+            user_id=current_user.id if 'user' in locals() else None,
             error=str(e),
             event_type="revoke_other_sessions_error"
         )
@@ -94,22 +80,13 @@ async def revoke_other_sessions(
         )
 @router.get("/sessions", response_model=list[SessionInfo])
 async def get_user_sessions(
-    credentials: HTTPAuthorizationCredentials = Depends(security), 
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("sessions"))
 ):
     """Get all active sessions for current user"""
-    # Verify JWT token
-    user = AuthService.get_current_user(db, credentials.credentials)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
     # Get user's active sessions
-    sessions = RefreshTokenService.get_user_tokens(db, user.id)
+    sessions = RefreshTokenService.get_user_tokens(db, current_user.id)
     
     return [SessionInfo(
         id=session.id,
@@ -123,24 +100,15 @@ async def get_user_sessions(
 @router.delete("/sessions/{session_id}")
 async def revoke_session(
     session_id: int, 
-    credentials: HTTPAuthorizationCredentials = Depends(security), 
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_revoke"))
 ):
     """Revoke a specific session"""
-    # Verify JWT token
-    user = AuthService.get_current_user(db, credentials.credentials)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
     # Find and revoke the session
     session = db.query(RefreshToken).filter(
         RefreshToken.id == session_id,
-        RefreshToken.user_id == user.id,
+        RefreshToken.user_id == current_user.id,
         RefreshToken.is_revoked == False
     ).first()
     

@@ -1,11 +1,11 @@
 """Profile and password self-service endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from models.user_model import Organization, User
-from routes.auth_common import create_api_router, security
+from dependencies.auth import CurrentUser
+from routes.auth_common import create_api_router
 from schemas.login import (
     PasswordChangeRequest,
     PasswordChangeResponse,
@@ -18,7 +18,6 @@ from schemas.login import (
     UserResponse,
 )
 from services.audit import AuditLogService
-from services.auth import AuthService
 from services.users import PasswordResetService, ProfileUpdateService
 from utils.database import get_db
 from utils.loggers import auth_logger
@@ -212,7 +211,7 @@ async def validate_reset_token(token: str):
 # User Profile Management Endpoints
 @router.get("/profile", response_model=UserResponse)
 async def get_user_profile(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db)
     # Rate limiting removed - profile endpoint is read-only, no risk of abuse
 ):
@@ -225,15 +224,6 @@ async def get_user_profile(
     - Created date, last login
     """
     try:
-        # Get current user from JWT token
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         organization_name = None
         if current_user.organization_id:
             org = db.query(Organization).filter(
@@ -271,7 +261,7 @@ async def get_user_profile(
 @router.put("/profile", response_model=UserProfileUpdateResponse)
 async def update_user_profile(
     profile_data: UserProfileUpdate,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("profile_update"))
 ):
@@ -293,15 +283,6 @@ async def update_user_profile(
     CorrelationIDGenerator.set(correlation_id)
     
     try:
-        # Get current user from JWT token
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Convert Pydantic model to dictionary
         profile_data_dict = profile_data.dict(exclude_unset=True)
         
@@ -357,7 +338,7 @@ async def update_user_profile(
 @router.post("/password/change", response_model=PasswordChangeResponse)
 async def change_password(
     password_data: PasswordChangeRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("password_change"))
 ):
@@ -383,15 +364,6 @@ async def change_password(
     CorrelationIDGenerator.set(correlation_id)
     
     try:
-        # Get current user from JWT token
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Use the service to change password
         result = ProfileUpdateService.change_user_password(
             db, current_user.id, password_data.current_password, password_data.new_password

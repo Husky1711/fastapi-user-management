@@ -64,5 +64,7 @@ jobs:
       - name: Run smoke tests
         run: pytest tests/smoke -m smoke
 
-      - name: Run unit tests (role scope)
-        run: pytest tests/unit/test_role_scope.py
+      - name: Run unit tests (role scope + auth deps)
+        run: |
+          pytest tests/unit/test_role_scope.py
+          pytest tests/unit/test_auth_dependencies.py

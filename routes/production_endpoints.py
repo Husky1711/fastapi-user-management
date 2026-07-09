@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import json
 
-from services.auth import AuthService
 from services.audit import AuditLogService
 from services.sessions import UserSessionService
 from services.permissions import UserPermissionService
@@ -30,23 +28,13 @@ from schemas.compliance import (
     UpdateGroupRequest,
 )
 from utils.rate_limit_dependency import RateLimitDependency
+from dependencies.auth import CurrentUser
 from utils.database import get_db
 from utils.loggers import auth_logger
 
 # Create router for production endpoints
 router = APIRouter(prefix="/api/v1", tags=["Production Features"])
-security = HTTPBearer()
 
-
-def _require_current_user(db: Session, credentials: HTTPAuthorizationCredentials):
-    current_user = AuthService.get_current_user(db, credentials.credentials)
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return current_user
 
 # ============================================================================
 # AUDIT LOGGING ENDPOINTS
@@ -54,7 +42,7 @@ def _require_current_user(db: Session, credentials: HTTPAuthorizationCredentials
 
 @router.get("/audit/logs", response_model=Dict[str, Any])
 async def get_audit_logs(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
     organization_id: int = Query(None, description="Filter by organization ID"),
@@ -83,15 +71,6 @@ async def get_audit_logs(
     - Role-based access control
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Parse dates if provided
         start_datetime = None
         end_datetime = None
@@ -143,7 +122,7 @@ async def get_audit_logs(
 
 @router.get("/audit/statistics", response_model=Dict[str, Any])
 async def get_audit_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     start_date: str = Query(None, description="Start date (ISO format)"),
@@ -159,15 +138,6 @@ async def get_audit_statistics(
     - Super Admins can see all statistics
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Parse dates if provided
         start_datetime = None
         end_datetime = None
@@ -216,7 +186,7 @@ async def get_audit_statistics(
 
 @router.get("/sessions/statistics", response_model=Dict[str, Any])
 async def get_session_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_statistics"))
@@ -230,15 +200,6 @@ async def get_session_statistics(
     - Super Admins can see all statistics
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Apply organization filter for non-super admins
         filter_organization_id = resolve_organization_filter(current_user, organization_id)
         scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
@@ -274,7 +235,7 @@ async def get_session_statistics(
 
 @router.post("/sessions/cleanup", response_model=Dict[str, Any])
 async def cleanup_expired_sessions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_cleanup"))
 ):
@@ -286,15 +247,6 @@ async def cleanup_expired_sessions(
     - Only Super Admins and Organization Admins can perform cleanup
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Check permissions
         if current_user.role not in ["super_admin", "organization_admin"]:
             raise HTTPException(
@@ -333,7 +285,7 @@ async def cleanup_expired_sessions(
 
 @router.get("/permissions", response_model=Dict[str, Any])
 async def get_user_permissions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
     include_expired: bool = Query(False, description="Include expired permissions"),
@@ -350,15 +302,6 @@ async def get_user_permissions(
     - Super Admins can see all permissions
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         target_user_id = user_id or current_user.id
         require_user_data_access(db, current_user, target_user_id)
         
@@ -394,7 +337,7 @@ async def get_user_permissions(
 
 @router.get("/permissions/standard", response_model=Dict[str, str])
 async def get_standard_permissions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    _current_user: CurrentUser,
     _: None = Depends(RateLimitDependency.check_rate_limit("permissions_standard"))
 ):
     """
@@ -422,7 +365,7 @@ async def get_standard_permissions(
 
 @router.get("/permissions/statistics", response_model=Dict[str, Any])
 async def get_permission_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     _: None = Depends(RateLimitDependency.check_rate_limit("permission_statistics"))
@@ -436,15 +379,6 @@ async def get_permission_statistics(
     - Super Admins can see all statistics
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         filter_organization_id = resolve_organization_filter(current_user, organization_id)
         scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
@@ -482,7 +416,7 @@ async def get_permission_statistics(
 
 @router.get("/groups", response_model=Dict[str, Any])
 async def get_organization_groups(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     include_inactive: bool = Query(False, description="Include inactive groups"),
@@ -497,15 +431,6 @@ async def get_organization_groups(
     - Super Admins can see all groups
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         filter_organization_id = resolve_organization_filter(current_user, organization_id)
         
         result = UserGroupService.get_organization_groups(
@@ -539,7 +464,7 @@ async def get_organization_groups(
 @router.get("/groups/{group_id}/members", response_model=Dict[str, Any])
 async def get_group_members(
     group_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     include_inactive: bool = Query(False, description="Include inactive memberships"),
     _: None = Depends(RateLimitDependency.check_rate_limit("group_members"))
@@ -553,15 +478,6 @@ async def get_group_members(
     - Super Admins can see all group members
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         require_group_access(db, current_user, group_id)
         scoped_user_ids = manageable_user_ids(
             db, current_user.role, current_user.organization_id, current_user.id
@@ -601,7 +517,7 @@ async def get_group_members(
 
 @router.get("/groups/statistics", response_model=Dict[str, Any])
 async def get_group_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     _: None = Depends(RateLimitDependency.check_rate_limit("group_statistics"))
@@ -615,15 +531,6 @@ async def get_group_statistics(
     - Super Admins can see all statistics
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         filter_organization_id = resolve_organization_filter(current_user, organization_id)
         scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
@@ -658,13 +565,12 @@ async def get_group_statistics(
 @router.post("/groups", response_model=Dict[str, Any])
 async def create_organization_group(
     body: CreateGroupRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_create")),
 ):
     """Create a user group in the viewer's organization (staff roles only)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_group_manager(current_user)
 
         org_id = body.organization_id if current_user.role == "super_admin" else current_user.organization_id
@@ -704,13 +610,12 @@ async def create_organization_group(
 async def update_organization_group(
     group_id: int,
     body: UpdateGroupRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_update")),
 ):
     """Update a user group (staff roles only)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_group_manager(current_user)
         require_group_access(db, current_user, group_id)
 
@@ -740,13 +645,12 @@ async def update_organization_group(
 @router.delete("/groups/{group_id}", response_model=Dict[str, Any])
 async def delete_organization_group(
     group_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("groups_delete")),
 ):
     """Soft-delete a user group (staff roles only)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_group_manager(current_user)
         require_group_access(db, current_user, group_id)
 
@@ -775,13 +679,12 @@ async def delete_organization_group(
 async def add_group_member(
     group_id: int,
     body: AddGroupMemberRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("group_members_add")),
 ):
     """Add a user to a group (staff roles only)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_group_manager(current_user)
         require_group_access(db, current_user, group_id)
         require_user_data_access(db, current_user, body.user_id)
@@ -812,13 +715,12 @@ async def add_group_member(
 async def remove_group_member(
     group_id: int,
     user_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("group_members_remove")),
 ):
     """Remove a user from a group (staff roles only)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_group_manager(current_user)
         require_group_access(db, current_user, group_id)
         require_user_data_access(db, current_user, user_id)
@@ -850,7 +752,7 @@ async def remove_group_member(
 
 @router.get("/api-keys", response_model=Dict[str, Any])
 async def get_user_api_keys(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
     include_inactive: bool = Query(False, description="Include inactive keys"),
@@ -866,15 +768,6 @@ async def get_user_api_keys(
     - Super Admins can see all API keys
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         target_user_id = user_id or current_user.id
         require_user_data_access(db, current_user, target_user_id)
         
@@ -908,7 +801,7 @@ async def get_user_api_keys(
 
 @router.get("/api-keys/standard-permissions", response_model=Dict[str, str])
 async def get_standard_api_permissions(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    _current_user: CurrentUser,
     _: None = Depends(RateLimitDependency.check_rate_limit("api_permissions"))
 ):
     """
@@ -936,7 +829,7 @@ async def get_standard_api_permissions(
 
 @router.get("/api-keys/statistics", response_model=Dict[str, Any])
 async def get_api_key_statistics(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_key_statistics"))
@@ -950,15 +843,6 @@ async def get_api_key_statistics(
     - Super Admins can see all statistics
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         filter_organization_id = resolve_organization_filter(current_user, organization_id)
         scoped_user_ids = scope_user_ids_for_query(db, current_user, None)
         
@@ -993,13 +877,12 @@ async def get_api_key_statistics(
 @router.post("/api-keys", response_model=Dict[str, Any])
 async def create_user_api_key(
     body: CreateApiKeyRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_create")),
 ):
     """Issue a new API key. Returns the secret once."""
     try:
-        current_user = _require_current_user(db, credentials)
         target_user_id = body.user_id or current_user.id
         target_user = require_user_data_access(db, current_user, target_user_id)
 
@@ -1032,13 +915,12 @@ async def create_user_api_key(
 async def update_user_api_key(
     api_key_id: int,
     body: UpdateApiKeyRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_update")),
 ):
     """Update API key metadata (not the secret)."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_api_key_record_access(db, current_user, api_key_id)
 
         result = ApiKeyService.update_api_key(
@@ -1070,13 +952,12 @@ async def update_user_api_key(
 @router.delete("/api-keys/{api_key_id}", response_model=Dict[str, Any])
 async def revoke_user_api_key(
     api_key_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("api_keys_revoke")),
 ):
     """Revoke an API key."""
     try:
-        current_user = _require_current_user(db, credentials)
         require_api_key_record_access(db, current_user, api_key_id)
 
         result = ApiKeyService.revoke_api_key(
@@ -1105,7 +986,7 @@ async def revoke_user_api_key(
 
 @router.get("/password/history", response_model=Dict[str, Any])
 async def get_password_history(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
     limit: int = Query(10, description="Maximum number of records"),
@@ -1121,15 +1002,6 @@ async def get_password_history(
     - Super Admins can see all password history
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         target_user_id = user_id or current_user.id
         require_user_data_access(db, current_user, target_user_id)
         
@@ -1163,7 +1035,7 @@ async def get_password_history(
 
 @router.get("/password/policy-stats", response_model=Dict[str, Any])
 async def get_password_policy_stats(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
     _: None = Depends(RateLimitDependency.check_rate_limit("password_policy_stats"))
@@ -1178,15 +1050,6 @@ async def get_password_policy_stats(
     - Super Admins can see all password policy stats
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         target_user_id = user_id or current_user.id
         require_user_data_access(db, current_user, target_user_id)
         
