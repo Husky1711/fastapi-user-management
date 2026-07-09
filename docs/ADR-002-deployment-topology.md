@@ -103,6 +103,16 @@ Release manifest pins both. Roll back UI and API together when OpenAPI contract 
 
 ## Post-deploy smoke (required)
 
+Use `scripts/staging_post_deploy_smoke.sh` or `scripts/curl_auth_checklist.py` with real URLs:
+
+```bash
+STAGING_API_URL=https://api.staging.example.com \
+STAGING_APP_URL=https://app.staging.example.com \
+bash scripts/staging_post_deploy_smoke.sh
+```
+
+Equivalent manual curls:
+
 ```bash
 # UI alive
 curl -sf https://app.staging.example.com/ -o /dev/null
@@ -110,7 +120,7 @@ curl -sf https://app.staging.example.com/ -o /dev/null
 # API alive
 curl -sf https://api.staging.example.com/health
 
-# Cookie + CORS
+# Cookie + CORS (or: CHECKLIST_BASE_URL=... CHECKLIST_ORIGIN=... python scripts/curl_auth_checklist.py)
 curl -v -X POST https://api.staging.example.com/api/v1/login \
   -H "Content-Type: application/json" \
   -H "Origin: https://app.staging.example.com" \
@@ -123,6 +133,9 @@ curl -v -X POST https://api.staging.example.com/api/v1/refresh \
   -b cookies.txt
 # Expect: new access_token in body; rotated Set-Cookie
 ```
+
+**GitHub Actions:** run workflow `Staging E2E` (manual) after configuring repository secrets:
+`STAGING_API_URL`, `STAGING_APP_URL`, `STAGING_CHECKLIST_USER`, `STAGING_CHECKLIST_PASSWORD`.
 
 ## Production gaps (post-MVP)
 
