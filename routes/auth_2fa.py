@@ -4,13 +4,12 @@ Handles Two-Factor Authentication setup and management
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 
+from dependencies.auth import CurrentUser
 from utils.database import get_db
-from services.auth import AuthService
 from services.auth.two_factor_service import TwoFactorService
 from utils.loggers import auth_logger
 from schemas.auth_2fa import (
@@ -22,12 +21,11 @@ from schemas.auth_2fa import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["Two-Factor Authentication"])
-security = HTTPBearer()
 
 @router.post("/2fa/enable", response_model=Enable2FAResponse)
 async def enable_2fa(
     request: Enable2FARequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db)
 ):
     """
@@ -43,14 +41,6 @@ async def enable_2fa(
     7. 2FA is enabled
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
-            )
-        
         # Generate 2FA secret
         secret = TwoFactorService.generate_secret()
         
@@ -84,7 +74,7 @@ async def enable_2fa(
     except Exception as e:
         auth_logger.error(
             f"2FA enable error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="2fa_enable_error"
         )
@@ -96,7 +86,7 @@ async def enable_2fa(
 @router.post("/2fa/verify", response_model=Verify2FAResponse)
 async def verify_2fa_code(
     request: Verify2FARequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db)
 ):
     """
@@ -107,14 +97,6 @@ async def verify_2fa_code(
     2. Login with 2FA enabled
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
-            )
-        
         # Verify TOTP code
         if not current_user.two_factor_secret:
             raise HTTPException(
@@ -156,7 +138,7 @@ async def verify_2fa_code(
     except Exception as e:
         auth_logger.error(
             f"2FA verify error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="2fa_verify_error"
         )
@@ -168,21 +150,13 @@ async def verify_2fa_code(
 @router.post("/2fa/disable", response_model=Disable2FAResponse)
 async def disable_2fa(
     request: Disable2FARequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db)
 ):
     """
     Disable Two-Factor Authentication for user
     """
     try:
-        # Get current user
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
-            )
-        
         # Verify with 2FA code before disabling
         if current_user.two_factor_secret:
             is_valid = TwoFactorService.verify_totp(
@@ -212,7 +186,7 @@ async def disable_2fa(
     except Exception as e:
         auth_logger.error(
             f"2FA disable error: {str(e)}",
-            user_id=current_user.id if 'current_user' in locals() else None,
+            user_id=current_user.id,
             error=str(e),
             event_type="2fa_disable_error"
         )
@@ -223,18 +197,11 @@ async def disable_2fa(
 
 @router.get("/2fa/status")
 async def get_2fa_status(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db)
 ):
     """Get 2FA status for current user"""
     try:
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
-            )
-        
         return {
             "is_enabled": current_user.is_2fa_enabled,
             "has_secret": current_user.two_factor_secret is not None,

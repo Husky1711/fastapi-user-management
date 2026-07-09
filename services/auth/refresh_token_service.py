@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional, List
+from config.settings import settings
 from models.user_model import RefreshToken, User
 from services.sessions import UserSessionService
 from utils.jwt_config import hash_token
@@ -20,7 +21,7 @@ class RefreshTokenService:
         token = secrets.token_urlsafe(32)
 
         token_hash = hash_token(token)
-        expires_at = datetime.utcnow() + timedelta(days=7)
+        expires_at = datetime.utcnow() + timedelta(days=settings.jwt.refresh_token_expire_days)
 
         db_refresh_token = RefreshToken(
             user_id=user.id,

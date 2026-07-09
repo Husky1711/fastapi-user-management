@@ -3,11 +3,11 @@
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from models.user_model import User
-from routes.auth_common import create_api_router, security
+from dependencies.auth import CurrentUser
+from routes.auth_common import create_api_router
 from schemas.login import (
     AdminCreateUserRequest,
     AdminCreateUserResponse,
@@ -15,7 +15,6 @@ from schemas.login import (
     AdminUpdateUserResponse,
     UserResponse,
 )
-from services.auth import AuthService
 from services.users import UserService
 from utils.database import get_db
 from utils.loggers import auth_logger
@@ -26,24 +25,15 @@ router = create_api_router(tags=["Users"])
 
 @router.get("/users")
 async def get_all_users(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("users_list"))
 ):
     """Get users based on current user's role and organization"""
-    # Verify JWT token and get user info
-    user = AuthService.get_current_user(db, credentials.credentials)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
     # Use database user as source of truth (JWT claims can be stale after role changes)
-    current_user_role = user.role
-    current_user_org_id = user.organization_id
-    current_user_id = user.id
+    current_user_role = current_user.role
+    current_user_org_id = current_user.organization_id
+    current_user_id = current_user.id
     
     # Get users based on role
     users = UserService.get_users_by_role_and_organization(
@@ -81,28 +71,19 @@ async def get_all_users(
         }
     else:
         # Regular user sees only themselves
-        row = user_row(user)
+        row = user_row(current_user)
         return {"user": row}
 
 @router.get("/users/{user_id}")
 async def get_user_by_id(
     user_id: int,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("user_detail"))
 ):
     """Get specific user by ID based on current user's role and organization"""
     # Import cache service
     from services.core import cache_service
-    
-    # Verify JWT token and get user info
-    user = AuthService.get_current_user(db, credentials.credentials)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
     
     # Check cache first
     cached_profile = cache_service.get_user_profile(user_id)
@@ -111,9 +92,9 @@ async def get_user_by_id(
         return cached_profile
     
     # Use database user as source of truth (JWT claims can be stale after role changes)
-    current_user_role = user.role
-    current_user_org_id = user.organization_id
-    current_user_id = user.id
+    current_user_role = current_user.role
+    current_user_org_id = current_user.organization_id
+    current_user_id = current_user.id
     
     # Get specific user based on role
     specific_user = UserService.get_user_by_role_and_organization(
@@ -138,7 +119,7 @@ async def get_user_by_id(
 async def update_user_by_admin(
     user_id: int,
     updates: AdminUpdateUserRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("profile_update")),
 ):
@@ -148,13 +129,6 @@ async def update_user_by_admin(
     correlation_id = CorrelationIDGenerator.generate()
     CorrelationIDGenerator.set(correlation_id)
 
-    current_user = AuthService.get_current_user(db, credentials.credentials)
-    if current_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
     if current_user.role == "user":
         raise HTTPException(
@@ -192,7 +166,7 @@ async def update_user_by_admin(
 @router.post("/admin/users/create", response_model=AdminCreateUserResponse)
 async def create_user_by_admin(
     user_data: AdminCreateUserRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user"))
 ):
@@ -223,15 +197,6 @@ async def create_user_by_admin(
     CorrelationIDGenerator.set(correlation_id)
     
     try:
-        # Get current user from JWT token
-        current_user = AuthService.get_current_user(db, credentials.credentials)
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
         # Check if user has permission to create users
         if current_user.role == "user":
             raise HTTPException(
