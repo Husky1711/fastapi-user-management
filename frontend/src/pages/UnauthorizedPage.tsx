@@ -5,7 +5,7 @@ export function UnauthorizedPage() {
   const { user } = useAuth();
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 480 }}>
+    <main data-testid="unauthorized-page" style={{ padding: "2rem", maxWidth: 480 }}>
       <h1>403 — Unauthorized</h1>
       <p>
         {user
