@@ -19,9 +19,11 @@ REQUIRED_USERS = (
 
 
 def main() -> int:
+    from config.settings import settings
     from models.user_model import ApiKey, User, UserGroup
     from utils.database import SessionLocal
 
+    print("database_url", settings.get_database_url())
     db = SessionLocal()
     errors: list[str] = []
     try:
