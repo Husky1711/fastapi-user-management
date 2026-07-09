@@ -3,10 +3,14 @@ import { expect, test, type Page } from "@playwright/test";
 const realApiEnabled = process.env.E2E_REAL_API === "1";
 const e2eUser = process.env.E2E_USER || "testuser";
 const e2ePassword = process.env.E2E_PASSWORD || "user123";
+const e2eApiBase =
+  process.env.E2E_API_BASE_URL || process.env.VITE_API_BASE_URL || "http://127.0.0.1:9000";
+const e2eAppOrigin = process.env.E2E_BASE_URL || "http://127.0.0.1:5173";
 
 async function loginViaApi(page: Page) {
-  const login = await page.request.post("/api/v1/login", {
+  const login = await page.request.post(`${e2eApiBase}/api/v1/login`, {
     data: { username: e2eUser, password: e2ePassword },
+    headers: { Origin: e2eAppOrigin },
   });
   expect(login.ok(), `login failed: ${login.status()} ${await login.text()}`).toBeTruthy();
 
