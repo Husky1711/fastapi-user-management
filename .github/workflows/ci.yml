@@ -41,6 +41,7 @@ jobs:
       DB__URL: mysql+pymysql://fastapi:fastapi@127.0.0.1:3306/fastapi_users
       REDIS__HOST: 127.0.0.1
       REDIS__PORT: "6379"
+      REDIS__SOCKET_CONNECT_TIMEOUT: "1"
       GITHUB_ACTIONS: "true"
       SECURITY__ALLOW_PUBLIC_SIGNUP: "false"
       SECURITY__ALLOW_DEBUG_AUTH: "false"
@@ -81,7 +82,7 @@ jobs:
         run: python scripts/verify_ci_seed.py
 
       - name: List smoke tests
-        run: python -c "import sys; raise SystemExit(__import__('pytest').main(['--confcutdir=tests/smoke','tests/smoke','-m','smoke','--collect-only','-q']))"
+        run: python -c "import pytest; raise SystemExit(pytest.main(['--confcutdir=tests/smoke','tests/smoke','-m','smoke','--collect-only','-q']))"
 
       - name: Auth smoke probe (diagnostic)
         continue-on-error: true
