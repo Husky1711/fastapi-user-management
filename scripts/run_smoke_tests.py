@@ -185,6 +185,36 @@ def _cases(cross_org_ids: dict[str, int]) -> list[tuple[str, object, dict]]:
     ]
 
 
+def _run_auth_probe(client) -> None:
+    login = client.post(
+        "/api/v1/login",
+        json={"username": "testuser", "password": "user123"},
+    )
+    if login.status_code != 200:
+        raise RuntimeError(f"probe login failed: {login.status_code} {login.text}")
+    tokens = login.json()
+    profile = client.get(
+        "/api/v1/profile",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    if profile.status_code != 200:
+        raise RuntimeError(f"probe profile failed: {profile.status_code} {profile.text}")
+    client.cookies.clear()
+    refresh = client.post(
+        "/api/v1/refresh",
+        json={"refresh_token": tokens["refresh_token"]},
+    )
+    if refresh.status_code != 200:
+        raise RuntimeError(f"probe refresh failed: {refresh.status_code} {refresh.text}")
+    rotated = refresh.json().get("refresh_token")
+    if not rotated:
+        raise RuntimeError(f"probe refresh missing token: {refresh.json()}")
+    client.cookies.clear()
+    logout = client.post("/api/v1/logout", json={"refresh_token": rotated})
+    if logout.status_code != 200:
+        raise RuntimeError(f"probe logout failed: {logout.status_code} {logout.text}")
+
+
 def main() -> int:
     from config.settings import settings
     from fastapi.testclient import TestClient
@@ -197,6 +227,15 @@ def main() -> int:
         f"httponly={settings.auth_cookie.use_httponly_refresh}",
         f"db={settings.get_database_url()}",
     )
+
+    with TestClient(app) as probe_client:
+        try:
+            _run_auth_probe(probe_client)
+            print("PASS inline_auth_probe")
+        except Exception as exc:
+            print("FAIL inline_auth_probe", exc)
+            traceback.print_exc()
+            return 1
 
     cross_org_ids = _load_cross_org_ids()
     cases = _cases(cross_org_ids)
