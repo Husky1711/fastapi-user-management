@@ -121,6 +121,16 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Verify cookie auth through UI proxy
+        run: |
+          curl -sf -X POST "${APP_URL}/api/v1/login" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"testuser","password":"user123"}' \
+            -c /tmp/ui-cookies.txt
+          curl -sf -X POST "${APP_URL}/api/v1/refresh" -b /tmp/ui-cookies.txt \
+            -H "Content-Type: application/json" \
+            -d '{}'
+
       - name: "Playwright real-API tests #6 and #7"
         working-directory: frontend
         env:
@@ -129,7 +139,15 @@ jobs:
           E2E_BASE_URL: ${{ env.APP_URL }}
           E2E_USER: testuser
           E2E_PASSWORD: user123
-        run: npm run test:e2e:staging -- --workers=1
+        run: npm run test:e2e:staging -- --workers=1 --trace on-first-retry
+
+      - name: Upload Playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-signoff-trace
+          path: frontend/test-results/
+          if-no-files-found: ignore
 
       - name: Sign-off summary
         run: |
