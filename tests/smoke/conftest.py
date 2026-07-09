@@ -35,11 +35,21 @@ def auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def refresh_token_from_response(client, response_json: dict, fallback: str) -> str:
+def refresh_token_from_response(
+    client,
+    response_json: dict,
+    fallback: str,
+    *,
+    response=None,
+) -> str:
     """Latest refresh token from JSON body or Set-Cookie (post-rotation)."""
     token = response_json.get("refresh_token")
     if token:
         return token
+    if response is not None:
+        cookie_token = response.cookies.get("refresh_token")
+        if cookie_token:
+            return cookie_token
     cookie_token = client.cookies.get("refresh_token")
     if cookie_token:
         return cookie_token
