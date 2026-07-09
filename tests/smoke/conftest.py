@@ -17,6 +17,8 @@ import pytest
 @pytest.fixture(autouse=True)
 def _clear_rate_limit_counters_before_test() -> None:
     """Avoid cross-test 429s when Redis counters persist within a session."""
+    if os.getenv("GITHUB_ACTIONS"):
+        return
     try:
         from utils.redis_config import RedisClient
 
@@ -32,6 +34,8 @@ def _clear_rate_limit_counters_before_test() -> None:
 @pytest.fixture(scope="session", autouse=True)
 def _reset_rate_limit_counters() -> None:
     """Avoid cross-test 429s when Redis counters persist across pytest runs."""
+    if os.getenv("GITHUB_ACTIONS"):
+        return
     try:
         from utils.redis_config import RedisClient
 
