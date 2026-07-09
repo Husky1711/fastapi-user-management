@@ -91,10 +91,8 @@ jobs:
         run: |
           python scripts/run_smoke_tests.py 2>&1 | tee smoke-output.txt
           EXIT=${PIPESTATUS[0]}
-          echo "--- smoke junit ---"
-          cat smoke-junit.xml || true
           echo "--- smoke tail ---"
-          tail -n 100 smoke-output.txt || true
+          tail -n 120 smoke-output.txt || true
           exit $EXIT
 
       - name: Run unit tests (role scope + auth deps)
