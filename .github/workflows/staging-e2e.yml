@@ -1,0 +1,66 @@
+name: Staging E2E
+
+# Manual sign-off against deployed staging (ADR-002). Configure repository secrets:
+#   STAGING_API_URL, STAGING_APP_URL, STAGING_CHECKLIST_USER, STAGING_CHECKLIST_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_playwright:
+        description: Run Playwright #6/#7 against deployed staging UI
+        type: boolean
+        default: true
+
+jobs:
+  staging-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: ADR-002 post-deploy smoke (real HTTP)
+        env:
+          CHECKLIST_BASE_URL: ${{ secrets.STAGING_API_URL }}
+          CHECKLIST_APP_URL: ${{ secrets.STAGING_APP_URL }}
+          CHECKLIST_ORIGIN: ${{ secrets.STAGING_APP_URL }}
+          CHECKLIST_USER: ${{ secrets.STAGING_CHECKLIST_USER }}
+          CHECKLIST_PASSWORD: ${{ secrets.STAGING_CHECKLIST_PASSWORD }}
+        run: python scripts/curl_auth_checklist.py
+
+  staging-playwright:
+    if: inputs.run_playwright
+    needs: staging-smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Sprint 0 E2E against real staging API
+        env:
+          CI: "true"
+          E2E_REAL_API: "1"
+          E2E_BASE_URL: ${{ secrets.STAGING_APP_URL }}
+          E2E_USER: ${{ secrets.STAGING_CHECKLIST_USER }}
+          E2E_PASSWORD: ${{ secrets.STAGING_CHECKLIST_PASSWORD }}
+        run: npm run test:e2e:staging
