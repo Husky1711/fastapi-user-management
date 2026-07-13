@@ -6,7 +6,24 @@ on:
   pull_request:
     branches: [main, master, feature/**]
 
+permissions:
+  contents: read
+
 jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: critical
+          comment-summary-in-pr: on-failure
+
   smoke:
     runs-on: ubuntu-latest
 
@@ -112,6 +129,18 @@ jobs:
           tail -n 80 smoke-output.txt >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Export OpenAPI schema
+        if: always()
+        run: python scripts/export_openapi.py artifacts/openapi.json
+
+      - name: Upload OpenAPI artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-schema
+          path: artifacts/openapi.json
+          if-no-files-found: warn
+
       - name: Run unit tests (role scope + auth deps)
         if: always()
         run: |
@@ -119,3 +148,16 @@ jobs:
           pytest tests/unit/test_auth_dependencies.py
           pytest tests/unit/test_cookie_auth.py
           pytest tests/unit/test_browser_auth_contract.py
+          pytest tests/unit/test_dashboard_cache.py
+          pytest tests/unit/test_api_error_contract.py
+          pytest tests/unit/test_backup_url_parse.py
+          pytest tests/unit/test_otel_setup.py
+          pytest tests/unit/test_audit_log_service.py
+
+      - name: Alembic downgrade smoke (latest revision)
+        if: always()
+        run: pytest tests/integration/test_alembic_downgrade.py -q --tb=short
+
+      - name: Schema constraint tests
+        if: always()
+        run: pytest tests/integration/test_schema_constraints.py -q --tb=short

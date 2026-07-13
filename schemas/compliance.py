@@ -24,6 +24,10 @@ class AddGroupMemberRequest(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class GrantGroupPermissionRequest(BaseModel):
+    permission_name: str = Field(..., min_length=3, max_length=100)
+
+
 class CreateApiKeyRequest(BaseModel):
     key_name: str = Field(..., min_length=1, max_length=100)
     user_id: Optional[int] = None

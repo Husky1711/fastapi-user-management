@@ -1,6 +1,6 @@
 """Profile and password self-service endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from models.user_model import Organization, User
@@ -19,6 +19,7 @@ from schemas.login import (
 )
 from services.audit import AuditLogService
 from services.users import PasswordResetService, ProfileUpdateService
+from config.settings import settings
 from utils.database import get_db
 from utils.loggers import auth_logger
 from utils.production_logging import CorrelationIDGenerator
@@ -29,54 +30,63 @@ router = create_api_router(tags=["Profile"])
 @router.post("/password/reset-request", response_model=PasswordResetResponse)
 async def request_password_reset(
     request_data: PasswordResetRequest,
+    request: Request,
     db: Session = Depends(get_db),
-    _: None = Depends(RateLimitDependency.check_rate_limit("password_reset_request"))
+    _: None = Depends(
+        RateLimitDependency.check_rate_limit("password_reset_request", require_auth=False)
+    ),
 ):
     """
     Request password reset for a user
     
     **Flow:**
     1. User provides email address
-    2. System generates secure reset token
-    3. Token stored in Redis with 15-minute expiration
-    4. Email sent with reset link (TODO: implement email service)
-    5. User clicks link and submits new password
+    2. System stores a hashed reset token in MySQL (Redis mirrors for latency)
+    3. Email sent with reset link when EMAIL__ENABLE_EMAILS is on
+    4. User clicks link and submits new password
     
     **Security Features:**
-    - Rate limiting (5 requests per minute)
+    - Rate limiting (IP + per-email buckets)
     - Token expiration (15 minutes)
-    - Secure token generation
+    - Secure token generation (only hash stored)
     - No email enumeration (same response for valid/invalid emails)
     """
-    # Generate correlation ID
-    correlation_id = CorrelationIDGenerator.generate()
+    # Prefer middleware request ID; fall back to a fresh correlation ID.
+    correlation_id = getattr(request.state, "request_id", None) or CorrelationIDGenerator.generate()
     CorrelationIDGenerator.set(correlation_id)
-    
-    try:
-        # Use the service to handle password reset request
-        result = PasswordResetService.request_password_reset(db, request_data.email)
-        
-        # Send password reset email if user exists
-        if result["success"] and result.get("reset_token"):
+
+    from services.core import RateLimitService
+    from utils.redis_config import RedisClient
+    from utils.api_errors import APIHTTPException
+    import time as _time
+
+    if settings.rate_limit.enable_email_limits and RedisClient.test_connection():
+        email_allowed, email_remaining = RateLimitService.check_email_rate_limit(
+            str(request_data.email), "password_reset_request"
+        )
+        if not email_allowed:
+            retry_after = RateLimitService.get_retry_after(email_remaining)
             try:
-                from utils.email_service import get_email_service
-                email_service = get_email_service()
-                
-                # Get username from database
-                user = db.query(User).filter(User.email == request_data.email).first()
-                if user:
-                    email_service.send_password_reset_email(
-                        to_email=request_data.email,
-                        reset_token=result["reset_token"],
-                        username=user.username
-                    )
-            except Exception as e:
-                auth_logger.error(
-                    f"Failed to send password reset email: {str(e)}",
-                    email=request_data.email,
-                    error=str(e),
-                    event_type="password_reset_email_error"
-                )
+                from utils.metrics import metrics
+
+                metrics.inc_rate_limit()
+            except Exception:
+                pass
+            raise APIHTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded for email. Try again in {retry_after} seconds.",
+                error_code="RATE_LIMIT_EXCEEDED",
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Reset": str(int(_time.time()) + retry_after),
+                },
+            )
+
+    try:
+        client_ip = request.client.host if request.client else None
+        result = PasswordResetService.request_password_reset(
+            db, request_data.email, requested_ip=client_ip
+        )
         
         if not result["success"]:
             raise HTTPException(
@@ -87,9 +97,9 @@ async def request_password_reset(
         return PasswordResetResponse(
             success=True,
             message=result["message"],
-            reset_token=result.get("reset_token"),  # Remove in production
+            reset_token=result.get("reset_token"),
             expires_in_minutes=result["expires_in_minutes"],
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
         )
         
     except HTTPException:
@@ -111,17 +121,19 @@ async def request_password_reset(
 async def confirm_password_reset(
     reset_data: PasswordResetConfirm,
     db: Session = Depends(get_db),
-    _: None = Depends(RateLimitDependency.check_rate_limit("password_reset_confirm"))
+    _: None = Depends(
+        RateLimitDependency.check_rate_limit("password_reset_confirm", require_auth=False)
+    ),
 ):
     """
     Confirm password reset with token and new password
     
     **Flow:**
     1. User submits reset token and new password
-    2. System validates token from Redis
-    3. System verifies token hasn't expired
+    2. System validates hashed token from the database
+    3. System verifies token hasn't expired or been used
     4. System updates user password
-    5. System invalidates reset token
+    5. System marks the reset token as used
     
     **Security Features:**
     - Token validation and expiration check
@@ -167,7 +179,10 @@ async def confirm_password_reset(
         )
 
 @router.get("/password/reset/validate/{token}")
-async def validate_reset_token(token: str):
+async def validate_reset_token(
+    token: str,
+    db: Session = Depends(get_db),
+):
     """
     Validate a password reset token without consuming it
     
@@ -180,7 +195,7 @@ async def validate_reset_token(token: str):
     - 400: Token is invalid or expired
     """
     try:
-        result = PasswordResetService.validate_reset_token(token)
+        result = PasswordResetService.validate_reset_token(db, token)
         
         if not result["valid"]:
             raise HTTPException(
@@ -207,6 +222,50 @@ async def validate_reset_token(token: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+
+@router.post("/email/verify")
+async def verify_email(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("email_verify", require_auth=False)),
+):
+    """Confirm email ownership with a verification token."""
+    from services.users.email_verification_service import EmailVerificationService
+
+    token = (body or {}).get("token")
+    if not token or not isinstance(token, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="token is required",
+        )
+    result = EmailVerificationService.verify_token(db, token)
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"],
+        )
+    return result
+
+
+@router.post("/email/resend-verification")
+async def resend_email_verification(
+    body: dict,
+    db: Session = Depends(get_db),
+    _: None = Depends(
+        RateLimitDependency.check_rate_limit("email_resend_verification", require_auth=False)
+    ),
+):
+    """Resend verification email (does not reveal whether the account exists)."""
+    from services.users.email_verification_service import EmailVerificationService
+
+    email = (body or {}).get("email")
+    if not email or not isinstance(email, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="email is required",
+        )
+    return EmailVerificationService.resend_for_email(db, email.strip())
+
 
 # User Profile Management Endpoints
 @router.get("/profile", response_model=UserResponse)
@@ -294,10 +353,6 @@ async def update_user_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=result["error"]
             )
-        
-        # Invalidate profile cache after update
-        from services.core import cache_service
-        cache_service.invalidate_user_profile(current_user.id)
         
         # Prepare response
         updated_user = result["user"]

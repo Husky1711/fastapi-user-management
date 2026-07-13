@@ -10,9 +10,11 @@ This module contains core infrastructure services including:
 
 from .rate_limit_service import RateLimitService
 from .cache_service import CacheService, cache_service
+from .retention_service import RetentionService
 
 __all__ = [
     "RateLimitService",
     "CacheService",
-    "cache_service"
+    "cache_service",
+    "RetentionService",
 ]

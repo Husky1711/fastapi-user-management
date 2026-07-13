@@ -1,0 +1,32 @@
+# Direct production dependencies. Compile the lock with:
+#   pip install pip-tools
+#   pip-compile --output-file=requirements.lock requirements.in
+# Install with: pip install -r requirements.lock
+
+fastapi==0.119.1
+uvicorn==0.38.0
+SQLAlchemy==2.0.44
+alembic==1.16.2
+PyMySQL==1.1.2
+psycopg[binary]==3.2.2
+redis==6.4.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+PyJWT==2.10.1
+bcrypt==5.0.0
+pyotp==2.9.0
+qrcode==8.2
+email-validator==2.3.0
+python-multipart==0.0.20
+python-dotenv==1.1.1
+Jinja2==3.1.6
+httpx==0.27.2
+requests==2.32.4
+cryptography==46.0.3
+aiosmtplib==5.0.0
+pillow==12.0.0
+psutil==7.1.2
+Brotli==1.1.0
+python-socketio==5.14.2
+# Windows console/dev helpers used by some tooling paths
+pywin32==311; sys_platform == "win32"

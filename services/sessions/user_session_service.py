@@ -8,6 +8,7 @@ Each login creates a linked user_sessions row with refresh_token_id set.
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import UserSession, User, RefreshToken
+from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -67,7 +68,7 @@ class UserSessionService:
         )
         for session in sessions:
             session.is_active = False
-            session.last_activity = datetime.utcnow()
+            session.last_activity = utc_now()
 
         if sessions:
             db.commit()
@@ -94,7 +95,7 @@ class UserSessionService:
         )
         for session in sessions:
             session.is_active = False
-            session.last_activity = datetime.utcnow()
+            session.last_activity = utc_now()
 
         if sessions:
             db.commit()
@@ -148,7 +149,7 @@ class UserSessionService:
             
             # Set default expiration if not provided
             if not expires_at:
-                expires_at = datetime.utcnow() + timedelta(hours=24)
+                expires_at = utc_now() + timedelta(hours=24)
             
             # Create session entry
             session = UserSession(
@@ -167,8 +168,8 @@ class UserSessionService:
                 country=country,
                 city=city,
                 is_active=True,
-                last_activity=datetime.utcnow(),
-                created_at=datetime.utcnow(),
+                last_activity=utc_now(),
+                created_at=utc_now(),
                 expires_at=expires_at
             )
             
@@ -250,7 +251,7 @@ class UserSessionService:
                 }
             
             # Update activity timestamp
-            session.last_activity = datetime.utcnow()
+            session.last_activity = utc_now()
             
             # Update access token hash if provided
             if access_token_hash:
@@ -308,7 +309,7 @@ class UserSessionService:
             
             # Deactivate session
             session.is_active = False
-            session.last_activity = datetime.utcnow()
+            session.last_activity = utc_now()
             
             db.commit()
             
@@ -372,7 +373,7 @@ class UserSessionService:
             deactivated_count = 0
             for session in sessions:
                 session.is_active = False
-                session.last_activity = datetime.utcnow()
+                session.last_activity = utc_now()
                 deactivated_count += 1
             
             db.commit()
@@ -486,7 +487,7 @@ class UserSessionService:
             Dictionary with cleanup result
         """
         try:
-            current_time = datetime.utcnow()
+            current_time = utc_now()
             
             # Find expired sessions
             expired_sessions = db.query(UserSession)\

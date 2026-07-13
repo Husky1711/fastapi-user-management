@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from models.user_model import User
+from utils.datetime_utc import utc_now
 from utils.database import get_db
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -70,11 +71,12 @@ class ProfileUpdateService:
                 }
             
             # Update timestamp
-            user.updated_at = datetime.utcnow()
+            user.updated_at = utc_now()
             
             # Save changes
             db.commit()
             db.refresh(user)
+            UserService._invalidate_user_cache(user.id, full=False)
             
             # Log profile update
             auth_logger.info(
@@ -128,7 +130,7 @@ class ProfileUpdateService:
                 }
             
             # Verify current password
-            if not verify_password(current_password, user.password):
+            if not verify_password(current_password, user.password_hash):
                 # Log failed password change attempt
                 auth_logger.warning(
                     f"Failed password change attempt for user: {user.username} - incorrect current password",
@@ -143,7 +145,7 @@ class ProfileUpdateService:
                 }
             
             # Check if new password is different
-            if verify_password(new_password, user.password):
+            if verify_password(new_password, user.password_hash):
                 return {
                     "success": False,
                     "error": "New password must be different from current password"
@@ -164,13 +166,14 @@ class ProfileUpdateService:
             # Save current password to history before updating
             if settings.password_policy.enable_password_history:
                 PasswordHistoryService.save_password_history(
-                    db, user_id, user.password, user_id, "password_change"
+                    db, user_id, user.password_hash, user_id, "password_change"
                 )
             
             # Update password
             hashed_password = get_password_hash(new_password)
-            user.password = hashed_password
-            user.updated_at = datetime.utcnow()
+            user.password_hash = hashed_password
+            user.updated_at = utc_now()
+            user.password_changed_at = utc_now()
             
             db.commit()
             db.refresh(user)

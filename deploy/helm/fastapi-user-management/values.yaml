@@ -37,3 +37,26 @@ resources:
   requests:
     cpu: 100m
     memory: 256Mi
+
+# See docs/CONTAINER_HARDENING.md — image USER is 10001.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Required when readOnlyRootFilesystem is true
+tmpVolume:
+  enabled: true
+  mountPath: /tmp
+
+# Logical mysqldump CronJob — see docs/BACKUP_RESTORE.md (prefer managed PITR in prod)
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  retentionDays: 30
+  mountPath: /backups

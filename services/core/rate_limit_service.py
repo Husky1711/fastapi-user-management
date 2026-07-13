@@ -162,6 +162,25 @@ class RateLimitService:
         return endpoint_allowed, endpoint_remaining
     
     @staticmethod
+    def check_email_rate_limit(email: str, endpoint: str) -> Tuple[bool, Dict[str, int]]:
+        """Check rate limit for a normalized email (e.g. password-reset bombing)."""
+        if not settings.rate_limit.enable_email_limits:
+            return True, {}
+
+        email_limits = getattr(settings.rate_limit, "email_limits", None) or {}
+        limits = email_limits.get(endpoint)
+        if not limits:
+            return True, {}
+
+        normalized = (email or "").strip().lower()
+        if not normalized:
+            return True, {}
+
+        return RateLimitService.check_rate_limit(
+            endpoint, f"email:{normalized}", limits
+        )
+
+    @staticmethod
     def get_retry_after(remaining_counts: Dict[str, int]) -> int:
         """Calculate retry after seconds"""
         if not remaining_counts:

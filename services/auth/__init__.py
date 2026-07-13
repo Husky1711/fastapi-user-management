@@ -6,21 +6,19 @@ This module contains all authentication-related services including:
 - Enhanced login with session management
 - Logout functionality
 - Refresh token management
-- Auto-refresh token service
+- Two-factor authentication
 """
 
 from .auth_service import AuthService
 from .enhanced_login_service import EnhancedLoginService
 from .logout_service import LogoutService
 from .refresh_token_service import RefreshTokenService
-from .auto_refresh_service import AutoRefreshTokenService
 from .two_factor_service import TwoFactorService
 
 __all__ = [
     "AuthService",
-    "EnhancedLoginService", 
+    "EnhancedLoginService",
     "LogoutService",
     "RefreshTokenService",
-    "AutoRefreshTokenService",
-    "TwoFactorService"
+    "TwoFactorService",
 ]

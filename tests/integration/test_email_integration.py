@@ -64,7 +64,7 @@ class EmailIntegrationTester:
             "username": username,
             "password": "TestPass123",
             "email": email,
-            "phone_number": f"123456{timestamp}"
+            "organization_id": 1,
         }
         
         try:

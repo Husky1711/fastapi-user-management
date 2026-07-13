@@ -1,4 +1,15 @@
 """
+DEPRECATED — do not run against production or shared databases.
+
+Index definitions live in Alembic revisions under `alembic/versions/`
+(including soft-delete composites and redundant-index cleanup). Prefer:
+
+    alembic upgrade head
+
+This script is retained only for historical reference. See also
+`scripts/add_database_indexes_v2.py`.
+
+---
 Database Index Migration Script
 Adds performance indexes to improve query speed by 5-10x
 """

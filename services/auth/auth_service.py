@@ -30,10 +30,25 @@ class AuthService:
         track_compliance_session: bool = True,
     ) -> Tuple[str, str]:
         """Create access + refresh tokens; optionally link a user_sessions analytics row."""
+        from config.settings import settings
+
+        # Enforce max concurrent auth sessions (revoke oldest before issuing new).
+        existing = RefreshTokenService.get_user_tokens(db, user.id)
+        max_sessions = settings.session.max_sessions_per_user
+        if len(existing) >= max_sessions:
+            overflow = len(existing) - max_sessions + 1
+            for session in sorted(existing, key=lambda s: s.created_at)[:overflow]:
+                RefreshTokenService.revoke_token_by_id(
+                    db, session.id, reason="max_sessions_enforced"
+                )
+
+        from services.permissions.rbac_catalog_service import RbacCatalogService
+
+        role = RbacCatalogService.apply_effective_role(db, user)
         user_data = {
             "username": user.username,
             "id": user.id,
-            "role": user.role,
+            "role": role,
             "organization_id": user.organization_id,
             "email": user.email,
         }
@@ -75,11 +90,21 @@ class AuthService:
         if username is None or user_id is None:
             return None
 
-        return UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
+        if user is not None:
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            RbacCatalogService.apply_effective_role(db, user)
+        return user
 
     @staticmethod
     def register_user(
-        db: Session, username: str, password: str, email: str, phone_number: str = None
+        db: Session,
+        username: str,
+        password: str,
+        email: str,
+        organization_id: int,
+        phone_number: str = None,
     ) -> User:
         """Register a new user"""
         from services.users import UserService
@@ -90,7 +115,9 @@ class AuthService:
         if UserService.check_email_exists(db, email):
             raise ValueError("Email already exists")
 
-        return UserService.create_user(db, username, password, email, phone_number)
+        return UserService.create_user(
+            db, username, password, email, organization_id, phone_number
+        )
 
     @staticmethod
     def hash_password(password: str) -> str:

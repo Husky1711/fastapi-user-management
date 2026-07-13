@@ -12,6 +12,30 @@ export interface SignupPayload {
   username: string;
   email: string;
   password: string;
+  organization_id: number;
+}
+
+export interface TwoFactorChallengeResponse {
+  requires_2fa: true;
+  challenge_token: string;
+  message: string;
+}
+
+export function isTwoFactorChallenge(
+  data: TokenResponse | TwoFactorChallengeResponse,
+): data is TwoFactorChallengeResponse {
+  return "requires_2fa" in data && data.requires_2fa === true;
+}
+
+export async function completeLoginWith2fa(
+  challengeToken: string,
+  totpCode: string,
+): Promise<TokenResponse> {
+  const { data } = await apiClient.post<TokenResponse>("/api/v1/login/2fa", {
+    challenge_token: challengeToken,
+    totp_code: totpCode,
+  });
+  return data;
 }
 
 export interface SignupResponse extends UserProfile {

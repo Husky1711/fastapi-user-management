@@ -92,6 +92,29 @@ class EnhancedLoginService:
                     "error_code": session_action["error_code"],
                     "existing_sessions": existing_count
                 }
+
+            from services.auth.login_2fa_service import Login2FAService
+
+            if Login2FAService.enrollment_required(db, user):
+                return {
+                    "success": False,
+                    "error": "Two-factor authentication enrollment is required for this organization",
+                    "error_code": "2FA_ENROLLMENT_REQUIRED",
+                }
+
+            if Login2FAService.requires_2fa(user):
+                challenge_token = Login2FAService.create_challenge(
+                    user_id=user.id,
+                    ip_address=ip_address or "Unknown",
+                    user_agent=user_agent or "Unknown",
+                    device_info=device_info or "Unknown",
+                )
+                return {
+                    "success": True,
+                    "requires_2fa": True,
+                    "challenge_token": challenge_token,
+                    "message": "Two-factor authentication required",
+                }
             
             # Create new tokens
             access_token, refresh_token = AuthService.create_tokens_for_user(
@@ -241,11 +264,20 @@ class EnhancedLoginService:
             return {"allow_login": True}  # Default to allow
     
     @staticmethod
-    def get_user_session_info(db: Session, user_id: int) -> Dict[str, Any]:
-        """Get comprehensive session information for a user"""
+    def get_user_session_info(
+        db: Session, user_id: int, current_refresh_token: str | None = None
+    ) -> Dict[str, Any]:
+        """Get comprehensive auth-session information for a user (refresh_tokens rows)."""
         try:
             sessions = RefreshTokenService.get_user_tokens(db, user_id)
-            
+            current_id = None
+            if current_refresh_token:
+                current = RefreshTokenService.get_active_token_for_user(
+                    db, user_id, current_refresh_token
+                )
+                if current:
+                    current_id = current.id
+
             session_info = []
             for session in sessions:
                 session_info.append({
@@ -255,14 +287,15 @@ class EnhancedLoginService:
                     "user_agent": session.user_agent,
                     "created_at": session.created_at.isoformat(),
                     "expires_at": session.expires_at.isoformat(),
-                    "is_current": False  # Would need to compare with current token
+                    "is_current": session.id == current_id if current_id else False,
                 })
             
             return {
                 "user_id": user_id,
                 "total_sessions": len(sessions),
                 "sessions": session_info,
-                "max_sessions": settings.session.max_sessions_per_user
+                "max_sessions": settings.session.max_sessions_per_user,
+                "session_kind": "auth_session",
             }
             
         except Exception as e:
@@ -312,11 +345,3 @@ class EnhancedLoginService:
                 event_type="revoke_other_sessions_error"
             )
             return {"success": False, "error": str(e)}
-
-# Add session settings to config if not exists
-class SessionSettings:
-    """Session management settings"""
-    max_sessions_per_user: int = 5
-    allow_multiple_sessions: bool = True
-    auto_revoke_old_sessions: bool = True
-    session_timeout_hours: int = 24

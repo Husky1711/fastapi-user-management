@@ -1,55 +1,73 @@
 #!/usr/bin/env python3
 """
-Database Backup Script
-Automated daily MySQL database backup with compression and rotation
+Database backup — mysqldump with compression and retention rotation.
+
+Credentials: DATABASE_URL / DB_URL via config.settings (no hardcoded passwords).
+See docs/BACKUP_RESTORE.md for RPO/RTO and restore steps.
 """
 
-import os
-import sys
-import subprocess
+from __future__ import annotations
+
 import gzip
+import os
 import shutil
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
-# Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from config.settings import settings
-from utils.email_service import get_email_service
-from utils.loggers import api_logger
+from config.settings import settings  # noqa: E402
+from utils.email_service import get_email_service  # noqa: E402
+from utils.loggers import api_logger  # noqa: E402
+
+
+def _mysql_dump_config(url: str) -> dict[str, str]:
+    """Parse SQLAlchemy-style MySQL URL into mysqldump connection fields."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"mysql", "mysql+pymysql", "mysql+mysqldb"}:
+        raise ValueError(
+            f"backup_database.py supports MySQL URLs only; got scheme={parsed.scheme!r}"
+        )
+    database = (parsed.path or "").lstrip("/").split("?")[0]
+    if not database:
+        raise ValueError("DATABASE_URL must include a database name path")
+    return {
+        "host": parsed.hostname or "localhost",
+        "port": str(parsed.port or 3306),
+        "user": unquote(parsed.username or ""),
+        "password": unquote(parsed.password or ""),
+        "database": database,
+    }
 
 
 class DatabaseBackupManager:
-    """Manage database backups with automated rotation"""
-    
-    def __init__(self):
-        self.db_name = "fastapi_users"
-        self.db_user = "root"
-        self.db_password = "Sandhya@332"
-        self.db_host = "localhost"
-        self.db_port = "3306"
-        self.backup_dir = Path(project_root) / "backups"
-        self.retention_days = 30
-        
+    """Manage database backups with automated rotation."""
+
+    def __init__(self) -> None:
+        cfg = _mysql_dump_config(settings.get_database_url())
+        self.db_host = cfg["host"]
+        self.db_port = cfg["port"]
+        self.db_user = cfg["user"]
+        self.db_password = cfg["password"]
+        self.db_name = cfg["database"]
+        self.backup_dir = Path(
+            os.getenv("BACKUP_DIR", str(Path(project_root) / "backups"))
+        )
+        self.retention_days = int(
+            os.getenv("BACKUP_RETENTION_DAYS", "30")
+        )
+
     def create_backup(self) -> tuple[bool, str]:
-        """
-        Create a compressed database backup
-        
-        Returns:
-            tuple: (success, backup_file_path)
-        """
         try:
-            # Create backup directory if it doesn't exist
             self.backup_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate backup filename with timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
             backup_file = self.backup_dir / f"backup_{timestamp}.sql"
             compressed_file = self.backup_dir / f"backup_{timestamp}.sql.gz"
-            
-            # Run mysqldump
+
             cmd = [
                 "mysqldump",
                 f"--host={self.db_host}",
@@ -59,238 +77,175 @@ class DatabaseBackupManager:
                 "--single-transaction",
                 "--routines",
                 "--triggers",
-                self.db_name
+                self.db_name,
             ]
-            
+
             api_logger.info(
-                f"Starting database backup",
+                "Starting database backup",
                 db_name=self.db_name,
                 timestamp=timestamp,
-                event_type="backup_started"
+                event_type="backup_started",
             )
-            
-            # Execute mysqldump and compress
-            with open(backup_file, 'w') as f:
+
+            with open(backup_file, "w", encoding="utf-8") as f:
                 result = subprocess.run(
                     cmd,
                     stdout=f,
                     stderr=subprocess.PIPE,
-                    text=True
+                    text=True,
+                    check=False,
                 )
-            
+
             if result.returncode != 0:
                 api_logger.error(
                     f"mysqldump failed: {result.stderr}",
                     error=result.stderr,
-                    event_type="backup_failed"
+                    event_type="backup_failed",
                 )
+                if backup_file.exists():
+                    backup_file.unlink()
                 return False, ""
-            
-            # Compress backup file
-            with open(backup_file, 'rb') as f_in:
-                with gzip.open(compressed_file, 'wb') as f_out:
+
+            with open(backup_file, "rb") as f_in:
+                with gzip.open(compressed_file, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            
-            # Remove uncompressed file
             backup_file.unlink()
-            
-            # Get file size
-            file_size = compressed_file.stat().st_size / (1024 * 1024)  # MB
-            
+
+            file_size = compressed_file.stat().st_size / (1024 * 1024)
             api_logger.info(
-                f"Database backup completed successfully",
+                "Database backup completed successfully",
                 backup_file=str(compressed_file),
                 file_size_mb=round(file_size, 2),
                 timestamp=timestamp,
-                event_type="backup_completed"
+                event_type="backup_completed",
             )
-            
             return True, str(compressed_file)
-            
+
         except Exception as e:
             api_logger.error(
                 f"Backup failed: {str(e)}",
                 error=str(e),
-                event_type="backup_error"
+                event_type="backup_error",
             )
             return False, ""
-    
+
     def cleanup_old_backups(self) -> int:
-        """
-        Delete backups older than retention period
-        
-        Returns:
-            int: Number of backups deleted
-        """
         try:
             cutoff_date = datetime.now() - timedelta(days=self.retention_days)
             deleted_count = 0
-            
-            # Find all backup files
             for backup_file in self.backup_dir.glob("backup_*.sql.gz"):
-                # Parse timestamp from filename
-                timestamp_str = backup_file.stem.split('_')[1:3]  # ['2025-10-26', '020000']
+                timestamp_str = backup_file.stem.split("_")[1:3]
                 try:
-                    backup_date = datetime.strptime('_'.join(timestamp_str), "%Y-%m-%d_%H%M%S")
-                    
-                    if backup_date < cutoff_date:
-                        backup_file.unlink()
-                        deleted_count += 1
-                        api_logger.info(
-                            f"Deleted old backup: {backup_file.name}",
-                            backup_file=str(backup_file),
-                            event_type="backup_cleanup"
-                        )
+                    backup_date = datetime.strptime(
+                        "_".join(timestamp_str), "%Y-%m-%d_%H%M%S"
+                    )
                 except ValueError:
-                    # Skip files with invalid names
                     continue
-            
-            if deleted_count > 0:
+                if backup_date < cutoff_date:
+                    backup_file.unlink()
+                    deleted_count += 1
+                    api_logger.info(
+                        f"Deleted old backup: {backup_file.name}",
+                        backup_file=str(backup_file),
+                        event_type="backup_cleanup",
+                    )
+            if deleted_count:
                 api_logger.info(
                     f"Cleaned up {deleted_count} old backups",
                     deleted_count=deleted_count,
                     retention_days=self.retention_days,
-                    event_type="backup_cleanup_completed"
+                    event_type="backup_cleanup_completed",
                 )
-            
             return deleted_count
-            
         except Exception as e:
             api_logger.error(
                 f"Cleanup failed: {str(e)}",
                 error=str(e),
-                event_type="backup_cleanup_error"
+                event_type="backup_cleanup_error",
             )
             return 0
-    
+
     def get_backup_stats(self) -> dict:
-        """Get backup statistics"""
         try:
             backup_files = list(self.backup_dir.glob("backup_*.sql.gz"))
-            
             if not backup_files:
                 return {
                     "total_backups": 0,
                     "total_size_mb": 0,
                     "oldest_backup": None,
-                    "newest_backup": None
+                    "newest_backup": None,
+                    "retention_days": self.retention_days,
                 }
-            
-            total_size = sum(f.stat().st_size for f in backup_files) / (1024 * 1024)  # MB
-            
-            # Get oldest and newest backups
+            total_size = sum(f.stat().st_size for f in backup_files) / (1024 * 1024)
             backup_files.sort(key=lambda f: f.stat().st_mtime)
-            oldest = backup_files[0]
-            newest = backup_files[-1]
-            
             return {
                 "total_backups": len(backup_files),
                 "total_size_mb": round(total_size, 2),
-                "oldest_backup": oldest.name,
-                "newest_backup": newest.name,
-                "retention_days": self.retention_days
+                "oldest_backup": backup_files[0].name,
+                "newest_backup": backup_files[-1].name,
+                "retention_days": self.retention_days,
             }
-            
         except Exception as e:
             api_logger.error(
                 f"Failed to get backup stats: {str(e)}",
                 error=str(e),
-                event_type="backup_stats_error"
+                event_type="backup_stats_error",
             )
             return {}
-    
-    def send_backup_notification(self, success: bool, backup_file: str = ""):
-        """Send email notification about backup status"""
+
+    def send_backup_notification(self, success: bool, backup_file: str = "") -> None:
         try:
             if not settings.email.enable_emails:
                 return
-            
+            notify = (
+                os.getenv("BACKUP__NOTIFY_EMAIL")
+                or os.getenv("BACKUP_NOTIFY_EMAIL")
+                or settings.email.from_email
+            )
+            if not notify:
+                return
             email_service = get_email_service()
-            admin_email = "psaiprasad1728@gmail.com"
-            
             if success:
                 stats = self.get_backup_stats()
-                subject = f"✅ Database Backup Successful - {datetime.now().strftime('%Y-%m-%d')}"
-                body = f"""
-Database backup completed successfully!
-
-Backup File: {backup_file}
-Backup Size: {stats.get('total_size_mb', 0)} MB
-Total Backups: {stats.get('total_backups', 0)}
-Retention: {self.retention_days} days
-
-The database has been backed up successfully.
-                """
+                subject = f"Database Backup Successful - {datetime.now().strftime('%Y-%m-%d')}"
+                body = (
+                    "Database backup completed successfully!\n\n"
+                    f"Backup File: {backup_file}\n"
+                    f"Backup Size: {stats.get('total_size_mb', 0)} MB\n"
+                    f"Total Backups: {stats.get('total_backups', 0)}\n"
+                    f"Retention: {self.retention_days} days\n"
+                )
             else:
-                subject = f"❌ Database Backup Failed - {datetime.now().strftime('%Y-%m-%d')}"
-                body = f"""
-Database backup failed!
-
-Please check the backup logs for more details.
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-Action required: Manual backup may be needed.
-                """
-            
+                subject = f"Database Backup Failed - {datetime.now().strftime('%Y-%m-%d')}"
+                body = (
+                    "Database backup failed!\n\n"
+                    f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    "Action required: Manual backup may be needed.\n"
+                )
             email_service.send_email(
-                to_email=admin_email,
+                to_email=notify,
                 subject=subject,
                 html_content=f"<pre>{body}</pre>",
-                plain_text_content=body
+                plain_text_content=body,
             )
-            
         except Exception as e:
-            # Don't fail backup if email fails
             api_logger.error(
-                f"Failed to send backup notification: {str(e)}",
+                f"Backup notification failed: {str(e)}",
                 error=str(e),
-                event_type="backup_notification_error"
+                event_type="backup_notify_error",
             )
 
+    def run(self) -> int:
+        success, path = self.create_backup()
+        if success:
+            self.cleanup_old_backups()
+        self.send_backup_notification(success, path)
+        return 0 if success else 1
 
-def main():
-    """Main backup function"""
-    print("🔄 DATABASE BACKUP STARTING")
-    print("=" * 50)
-    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    manager = DatabaseBackupManager()
-    
-    # Create backup
-    print("\n1. Creating database backup...")
-    success, backup_file = manager.create_backup()
-    
-    if success:
-        print(f"✅ Backup created: {backup_file}")
-        
-        # Cleanup old backups
-        print("\n2. Cleaning up old backups...")
-        deleted_count = manager.cleanup_old_backups()
-        print(f"✅ Deleted {deleted_count} old backups")
-        
-        # Get statistics
-        print("\n3. Backup statistics:")
-        stats = manager.get_backup_stats()
-        print(f"   Total backups: {stats.get('total_backups', 0)}")
-        print(f"   Total size: {stats.get('total_size_mb', 0)} MB")
-        print(f"   Oldest: {stats.get('oldest_backup', 'N/A')}")
-        print(f"   Newest: {stats.get('newest_backup', 'N/A')}")
-        
-        # Send notification
-        print("\n4. Sending notification...")
-        manager.send_backup_notification(success=True, backup_file=backup_file)
-        print("✅ Notification sent")
-        
-        print("\n🎉 Backup process completed successfully!")
-        return 0
-    else:
-        print("❌ Backup failed!")
-        
-        # Send failure notification
-        manager.send_backup_notification(success=False)
-        
-        return 1
+
+def main() -> int:
+    return DatabaseBackupManager().run()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

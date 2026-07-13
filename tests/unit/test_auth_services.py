@@ -38,15 +38,33 @@ class TestAuthService:
         assert not auth_service.verify_password(wrong_password, hashed)
 
     def test_legacy_sha256_password_verification(self):
-        """Legacy SHA-256 hashes remain valid until login-time rehash."""
+        """Legacy SHA-256 hashes remain valid when PASSWORD__ALLOW_LEGACY_SHA256_HASHES=true."""
         import hashlib
+
+        from config.settings import settings
 
         auth_service = AuthService()
         password = "admin123"
         legacy_hash = hashlib.sha256(password.encode()).hexdigest()
 
+        assert settings.password_policy.allow_legacy_sha256_hashes is True
         assert auth_service.verify_password(password, legacy_hash)
         assert not auth_service.verify_password("wrong", legacy_hash)
+
+    def test_legacy_sha256_rejected_when_disabled(self):
+        """Cutover: reject SHA-256 when allow_legacy_sha256_hashes is false."""
+        import hashlib
+        from unittest.mock import patch
+
+        auth_service = AuthService()
+        password = "admin123"
+        legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+
+        with patch(
+            "utils.jwt_config.settings.password_policy.allow_legacy_sha256_hashes",
+            False,
+        ):
+            assert not auth_service.verify_password(password, legacy_hash)
 
 
 @pytest.mark.unit

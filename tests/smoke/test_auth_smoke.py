@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.smoke.conftest import auth_headers, login
+from tests.utils.csrf import CSRF_HEADERS
 
 pytestmark = pytest.mark.smoke
 
@@ -22,6 +23,7 @@ def test_login_refresh_logout(client) -> None:
     refresh = client.post(
         "/api/v1/refresh",
         json={"refresh_token": tokens["refresh_token"]},
+        headers=CSRF_HEADERS,
     )
     assert refresh.status_code == 200, refresh.text
     refreshed = refresh.json()
@@ -33,6 +35,7 @@ def test_login_refresh_logout(client) -> None:
     logout = client.post(
         "/api/v1/logout",
         json={"refresh_token": rotated_refresh},
+        headers=CSRF_HEADERS,
     )
     assert logout.status_code == 200, logout.text
 

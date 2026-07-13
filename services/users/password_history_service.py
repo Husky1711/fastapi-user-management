@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from models.user_model import PasswordHistory, User
+from utils.datetime_utc import utc_now
 from utils.jwt_config import verify_password
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
@@ -37,7 +38,7 @@ class PasswordHistoryService:
                 password_hash=old_password_hash,
                 changed_by=changed_by,
                 change_reason=change_reason,
-                created_at=datetime.utcnow()
+                created_at=utc_now()
             )
             
             db.add(password_history)
@@ -213,7 +214,7 @@ class PasswordHistoryService:
             Dictionary with cleanup result
         """
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=older_than_days)
+            cutoff_date = utc_now() - timedelta(days=older_than_days)
             
             # Get records to delete (old records beyond keep_count)
             old_records = db.query(PasswordHistory)\
@@ -276,7 +277,7 @@ class PasswordHistoryService:
                 .count()
             
             # Get recent changes (last 30 days)
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            thirty_days_ago = utc_now() - timedelta(days=30)
             recent_changes = db.query(PasswordHistory)\
                 .filter(PasswordHistory.user_id == user_id)\
                 .filter(PasswordHistory.created_at >= thirty_days_ago)\
@@ -296,7 +297,7 @@ class PasswordHistoryService:
                     "total_password_changes": total_changes,
                     "recent_changes_30_days": recent_changes,
                     "last_change_date": last_change_date.isoformat() if last_change_date else None,
-                    "password_age_days": (datetime.utcnow() - last_change_date).days if last_change_date else None
+                    "password_age_days": (utc_now() - last_change_date).days if last_change_date else None
                 }
             }
             

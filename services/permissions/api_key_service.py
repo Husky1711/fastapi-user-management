@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import ApiKey, User, Organization
+from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -40,12 +41,49 @@ class ApiKeyService:
     }
     
     @staticmethod
+    def validate_permissions(
+        permissions: Optional[List[str]],
+        db: Optional[Session] = None,
+    ) -> Dict[str, Any]:
+        """Validate API-key permission strings against the standard catalog."""
+        catalog = ApiKeyService.STANDARD_API_PERMISSIONS
+        if db is not None:
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            catalog = RbacCatalogService.list_api_key_permission_names(db)
+
+        if permissions is None:
+            return {
+                "success": True,
+                "permissions": ["read:users", "read:organizations"],
+            }
+        if not isinstance(permissions, list):
+            return {"success": False, "error": "Permissions must be a list of strings"}
+        cleaned: List[str] = []
+        for permission in permissions:
+            if not isinstance(permission, str) or not permission.strip():
+                return {
+                    "success": False,
+                    "error": "Permissions must be non-empty strings",
+                }
+            name = permission.strip()
+            if name not in catalog:
+                return {
+                    "success": False,
+                    "error": f"Invalid permission: {name}",
+                }
+            if name not in cleaned:
+                cleaned.append(name)
+        return {"success": True, "permissions": cleaned}
+
+    @staticmethod
     def generate_api_key(
         key_name: str,
         permissions: List[str] = None,
         rate_limit_per_minute: int = 100,
         rate_limit_per_hour: int = 1000,
-        expires_at: datetime = None
+        expires_at: datetime = None,
+        db: Optional[Session] = None,
     ) -> Dict[str, str]:
         """
         Generate a new API key
@@ -69,18 +107,11 @@ class ApiKeyService:
             
             # Create hash for storage
             key_hash = hashlib.sha256(key_value.encode()).hexdigest()
-            
-            # Set default permissions if none provided
-            if not permissions:
-                permissions = ["read:users", "read:organizations"]
-            
-            # Validate permissions
-            for permission in permissions:
-                if permission not in ApiKeyService.STANDARD_API_PERMISSIONS:
-                    return {
-                        "success": False,
-                        "error": f"Invalid permission: {permission}"
-                    }
+
+            validated = ApiKeyService.validate_permissions(permissions, db=db)
+            if not validated["success"]:
+                return validated
+            permissions = validated["permissions"]
             
             return {
                 "success": True,
@@ -91,7 +122,7 @@ class ApiKeyService:
                 "rate_limit_per_minute": rate_limit_per_minute,
                 "rate_limit_per_hour": rate_limit_per_hour,
                 "expires_at": expires_at.isoformat() if expires_at else None,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": utc_now().isoformat()
             }
             
         except Exception as e:
@@ -143,7 +174,8 @@ class ApiKeyService:
                 permissions=permissions,
                 rate_limit_per_minute=rate_limit_per_minute,
                 rate_limit_per_hour=rate_limit_per_hour,
-                expires_at=expires_at
+                expires_at=expires_at,
+                db=db,
             )
             
             if not key_data["success"]:
@@ -162,7 +194,7 @@ class ApiKeyService:
                 last_used_at=None,
                 expires_at=expires_at,
                 is_active=True,
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
                 created_by=created_by or user_id
             )
             
@@ -242,7 +274,7 @@ class ApiKeyService:
                 }
             
             # Check if key is expired
-            if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+            if api_key.expires_at and api_key.expires_at < utc_now():
                 return {
                     "success": False,
                     "error": "API key has expired",
@@ -250,7 +282,7 @@ class ApiKeyService:
                 }
             
             # Update last used timestamp
-            api_key.last_used_at = datetime.utcnow()
+            api_key.last_used_at = utc_now()
             db.commit()
             
             # Parse permissions
@@ -532,14 +564,10 @@ class ApiKeyService:
                 api_key.key_name = key_name
             
             if permissions is not None:
-                # Validate permissions
-                for permission in permissions:
-                    if permission not in ApiKeyService.STANDARD_API_PERMISSIONS:
-                        return {
-                            "success": False,
-                            "error": f"Invalid permission: {permission}"
-                        }
-                api_key.permissions = json.dumps(permissions)
+                validated = ApiKeyService.validate_permissions(permissions, db=db)
+                if not validated["success"]:
+                    return validated
+                api_key.permissions = json.dumps(validated["permissions"])
             
             if rate_limit_per_minute is not None:
                 api_key.rate_limit_per_minute = rate_limit_per_minute
@@ -612,10 +640,10 @@ class ApiKeyService:
             active_keys = query.filter(ApiKey.is_active == True).count()
             
             # Get expired API keys
-            expired_keys = query.filter(ApiKey.expires_at < datetime.utcnow()).count()
+            expired_keys = query.filter(ApiKey.expires_at < utc_now()).count()
             
             # Get recently used keys (last 24 hours)
-            recent_usage = query.filter(ApiKey.last_used_at > datetime.utcnow() - timedelta(hours=24)).count()
+            recent_usage = query.filter(ApiKey.last_used_at > utc_now() - timedelta(hours=24)).count()
             
             return {
                 "success": True,
@@ -653,7 +681,7 @@ class ApiKeyService:
             Dictionary with cleanup result
         """
         try:
-            current_time = datetime.utcnow()
+            current_time = utc_now()
             
             # Find expired API keys
             expired_keys = db.query(ApiKey)\

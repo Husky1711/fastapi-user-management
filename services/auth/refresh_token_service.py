@@ -4,6 +4,7 @@ from typing import Optional, List
 from config.settings import settings
 from models.user_model import RefreshToken, User
 from services.sessions import UserSessionService
+from utils.datetime_utc import utc_now
 from utils.jwt_config import hash_token
 import secrets
 
@@ -21,7 +22,7 @@ class RefreshTokenService:
         token = secrets.token_urlsafe(32)
 
         token_hash = hash_token(token)
-        expires_at = datetime.utcnow() + timedelta(days=settings.jwt.refresh_token_expire_days)
+        expires_at = utc_now() + timedelta(days=settings.jwt.refresh_token_expire_days)
 
         db_refresh_token = RefreshToken(
             user_id=user.id,
@@ -40,19 +41,52 @@ class RefreshTokenService:
 
     @staticmethod
     def verify_refresh_token(db: Session, token: str) -> Optional[User]:
-        """Verify a refresh token and return the user"""
+        """Verify a refresh token and return the user.
+
+        If a revoked token hash is presented again, treat as reuse:
+        revoke all of that user's sessions and return None.
+        """
         token_hash = hash_token(token)
 
         db_token = db.query(RefreshToken).filter(
             RefreshToken.token_hash == token_hash,
             RefreshToken.is_revoked == False,
-            RefreshToken.expires_at > datetime.utcnow(),
+            RefreshToken.expires_at > utc_now(),
         ).first()
 
-        if not db_token:
-            return None
+        if db_token:
+            return db.query(User).filter(User.id == db_token.user_id).first()
 
-        return db.query(User).filter(User.id == db_token.user_id).first()
+        reused = (
+            db.query(RefreshToken)
+            .filter(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.is_revoked == True,
+            )
+            .first()
+        )
+        if reused:
+            RefreshTokenService.revoke_all_user_tokens(
+                db, reused.user_id, reason="refresh_reuse_detected"
+            )
+            try:
+                from services.core.consent_incident_service import SecurityIncidentService
+                from utils.metrics import metrics
+
+                metrics.inc_refresh_reuse()
+                SecurityIncidentService.record(
+                    db,
+                    incident_type="refresh_token_reuse",
+                    user_id=reused.user_id,
+                    severity="high",
+                    details={
+                        "reason": "refresh_reuse_detected",
+                        "refresh_token_id": reused.id,
+                    },
+                )
+            except Exception:
+                pass
+        return None
 
     @staticmethod
     def revoke_token_by_id(db: Session, token_id: int, reason: str = "revoke") -> bool:
@@ -67,7 +101,7 @@ class RefreshTokenService:
             return False
 
         db_token.is_revoked = True
-        db_token.revoked_at = datetime.utcnow()
+        db_token.revoked_at = utc_now()
         db.commit()
 
         UserSessionService.deactivate_by_refresh_token_id(db, token_id, reason=reason)
@@ -105,7 +139,7 @@ class RefreshTokenService:
         db.query(RefreshToken).filter(RefreshToken.id.in_(token_ids)).update(
             {
                 "is_revoked": True,
-                "revoked_at": datetime.utcnow(),
+                "revoked_at": utc_now(),
             },
             synchronize_session=False,
         )
@@ -115,6 +149,23 @@ class RefreshTokenService:
         return len(token_ids)
 
     @staticmethod
+    def get_active_token_for_user(
+        db: Session, user_id: int, token: str
+    ) -> Optional[RefreshToken]:
+        """Look up an active refresh token row for a user by raw token value."""
+        token_hash = hash_token(token)
+        return (
+            db.query(RefreshToken)
+            .filter(
+                RefreshToken.user_id == user_id,
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.is_revoked == False,
+                RefreshToken.expires_at > utc_now(),
+            )
+            .first()
+        )
+
+    @staticmethod
     def get_user_tokens(db: Session, user_id: int) -> List[RefreshToken]:
         """Get all active refresh tokens for a user"""
         return (
@@ -122,7 +173,7 @@ class RefreshTokenService:
             .filter(
                 RefreshToken.user_id == user_id,
                 RefreshToken.is_revoked == False,
-                RefreshToken.expires_at > datetime.utcnow(),
+                RefreshToken.expires_at > utc_now(),
             )
             .all()
         )
@@ -130,7 +181,7 @@ class RefreshTokenService:
     @staticmethod
     def cleanup_expired_tokens(db: Session) -> int:
         """Clean up expired refresh tokens"""
-        count = db.query(RefreshToken).filter(RefreshToken.expires_at < datetime.utcnow()).delete()
+        count = db.query(RefreshToken).filter(RefreshToken.expires_at < utc_now()).delete()
 
         db.commit()
         return count

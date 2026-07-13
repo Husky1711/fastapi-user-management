@@ -3,6 +3,7 @@ Two-Factor Authentication Service
 Handles TOTP-based 2FA for enhanced security
 """
 
+from utils.datetime_utc import utc_now
 import pyotp
 import qrcode
 import io
@@ -161,7 +162,7 @@ class TwoFactorService:
         max_attempts = 5  # Lock after 5 failed attempts
         
         if failed_attempts >= max_attempts:
-            return datetime.utcnow() + timedelta(minutes=lockout_duration_minutes)
+            return utc_now() + timedelta(minutes=lockout_duration_minutes)
         
         return None
     
@@ -179,4 +180,4 @@ class TwoFactorService:
         if locked_until is None:
             return False
         
-        return datetime.utcnow() < locked_until
+        return utc_now() < locked_until

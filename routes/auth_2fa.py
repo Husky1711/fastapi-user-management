@@ -10,8 +10,10 @@ from datetime import datetime
 
 from dependencies.auth import CurrentUser
 from utils.database import get_db
+from utils.datetime_utc import utc_now
 from utils.rate_limit_dependency import RateLimitDependency
 from services.auth.two_factor_service import TwoFactorService
+from services.auth.two_factor_secret_service import TwoFactorSecretService
 from utils.loggers import auth_logger
 from schemas.auth_2fa import (
     Enable2FARequest, Enable2FAResponse,
@@ -58,9 +60,10 @@ async def enable_2fa(
         backup_codes = TwoFactorService.generate_backup_codes()
         hashed_backup_codes = TwoFactorService.hash_backup_codes(backup_codes)
         
-        # Update user with 2FA settings
-        current_user.two_factor_secret = secret
+        # Update user with 2FA settings (secret encrypted at rest)
+        current_user.two_factor_secret = TwoFactorSecretService.store_secret(secret)
         current_user.backup_codes = hashed_backup_codes
+        current_user.backup_codes_generated_at = utc_now()
         db.commit()
         
         return Enable2FAResponse(
@@ -101,16 +104,14 @@ async def verify_2fa_code(
     """
     try:
         # Verify TOTP code
-        if not current_user.two_factor_secret:
+        secret = TwoFactorSecretService.decrypt(current_user.two_factor_secret)
+        if not secret:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="2FA not configured for this user"
+                detail="2FA not configured for this user",
             )
-        
-        is_valid = TwoFactorService.verify_totp(
-            current_user.two_factor_secret,
-            request.totp_code
-        )
+
+        is_valid = TwoFactorService.verify_totp(secret, request.totp_code)
         
         if not is_valid:
             # Check backup codes
@@ -163,10 +164,8 @@ async def disable_2fa(
     try:
         # Verify with 2FA code before disabling
         if current_user.two_factor_secret:
-            is_valid = TwoFactorService.verify_totp(
-                current_user.two_factor_secret,
-                request.totp_code
-            )
+            secret = TwoFactorSecretService.decrypt(current_user.two_factor_secret)
+            is_valid = secret and TwoFactorService.verify_totp(secret, request.totp_code)
             
             if not is_valid:
                 raise HTTPException(
@@ -178,6 +177,7 @@ async def disable_2fa(
         current_user.is_2fa_enabled = False
         current_user.two_factor_secret = None
         current_user.backup_codes = None
+        current_user.backup_codes_generated_at = None
         db.commit()
         
         return Disable2FAResponse(

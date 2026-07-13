@@ -1,4 +1,10 @@
 """
+DEPRECATED — do not run against production or shared databases.
+
+Index definitions live in Alembic revisions under `alembic/versions/`.
+Prefer: `alembic upgrade head`. This script is historical reference only.
+
+---
 Database Index Migration Script (Updated)
 Uses SQLAlchemy to create indexes
 """

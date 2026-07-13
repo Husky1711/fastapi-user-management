@@ -17,14 +17,15 @@ import {
   refreshAccessToken,
 } from "@/lib/apiClient";
 import { broadcastLogout, subscribeLogout } from "@/lib/auth/authChannel";
-import { loginWithSessionControl, type SessionStrategy } from "@/lib/auth/api";
+import { isTwoFactorChallenge, type SessionStrategy, type TwoFactorChallengeResponse } from "@/lib/auth/api";
 import { getHomePathForRole } from "@/lib/auth/routing";
 import type { AuthStatus, TokenResponse, UserProfile } from "@/lib/auth/types";
 
 interface AuthContextValue {
   status: AuthStatus;
   user: UserProfile | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<TwoFactorChallengeResponse | void>;
+  loginWith2fa: (challengeToken: string, totpCode: string) => Promise<void>;
   loginWithSessionStrategy: (
     username: string,
     password: string,
@@ -107,9 +108,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (username: string, password: string) => {
-      const { data } = await apiClient.post<TokenResponse>("/api/v1/login", {
-        username,
-        password,
+      const { data } = await apiClient.post<TokenResponse | TwoFactorChallengeResponse>(
+        "/api/v1/login",
+        { username, password },
+      );
+      if (isTwoFactorChallenge(data)) {
+        return data;
+      }
+      applyLoginTokens(data);
+      const profile = await fetchProfile();
+      setStatus("authenticated");
+      navigate(getHomePathForRole(profile.role), { replace: true });
+    },
+    [fetchProfile, navigate],
+  );
+
+  const loginWith2fa = useCallback(
+    async (challengeToken: string, totpCode: string) => {
+      const { data } = await apiClient.post<TokenResponse>("/api/v1/login/2fa", {
+        challenge_token: challengeToken,
+        totp_code: totpCode,
       });
       applyLoginTokens(data);
       const profile = await fetchProfile();
@@ -121,7 +139,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithSessionStrategy = useCallback(
     async (username: string, password: string, sessionStrategy: SessionStrategy) => {
-      const data = await loginWithSessionControl(username, password, sessionStrategy);
+      const { data } = await apiClient.post<TokenResponse | TwoFactorChallengeResponse>(
+        "/api/v1/login-with-session-control",
+        { username, password },
+        { params: { session_strategy: sessionStrategy } },
+      );
+      if (isTwoFactorChallenge(data)) {
+        throw Object.assign(new Error(data.message), { challenge: data });
+      }
       applyLoginTokens(data);
       const profile = await fetchProfile();
       setStatus("authenticated");
@@ -146,11 +171,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       login,
+      loginWith2fa,
       loginWithSessionStrategy,
       logout,
       bootstrapError,
     }),
-    [status, user, login, loginWithSessionStrategy, logout, bootstrapError],
+    [status, user, login, loginWith2fa, loginWithSessionStrategy, logout, bootstrapError],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

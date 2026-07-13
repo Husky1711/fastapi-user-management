@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import UserGroup, UserGroupMembership, User, UserPermission
+from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -52,8 +53,8 @@ class UserGroupService:
                 name=name,
                 description=description,
                 created_by=created_by,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=utc_now(),
+                updated_at=utc_now(),
                 is_active=True
             )
             
@@ -155,7 +156,7 @@ class UserGroupService:
             if description is not None:
                 group.description = description
             
-            group.updated_at = datetime.utcnow()
+            group.updated_at = utc_now()
             
             db.commit()
             
@@ -215,9 +216,11 @@ class UserGroupService:
                     "error": "Group not found or already deleted"
                 }
             
-            # Soft delete the group
+            # Soft delete: free the (org, name) unique key for reuse
+            original_name = group.name
+            group.name = f"{original_name}__deleted__{group.id}"
             group.is_active = False
-            group.updated_at = datetime.utcnow()
+            group.updated_at = utc_now()
             
             # Also deactivate all memberships
             memberships = db.query(UserGroupMembership)\
@@ -232,7 +235,7 @@ class UserGroupService:
             
             # Log group deletion
             auth_logger.info(
-                f"User group deleted: {group.name}",
+                f"User group deleted: {original_name}",
                 group_id=group_id,
                 deleted_by=deleted_by,
                 memberships_deactivated=len(memberships),
@@ -291,6 +294,18 @@ class UserGroupService:
                     "success": False,
                     "error": "Group not found or inactive"
                 }
+
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {
+                    "success": False,
+                    "error": "User not found",
+                }
+            if user.organization_id != group.organization_id:
+                return {
+                    "success": False,
+                    "error": "User and group must belong to the same organization",
+                }
             
             # Check if user is already an active member
             existing = db.query(UserGroupMembership)\
@@ -315,7 +330,7 @@ class UserGroupService:
             if inactive:
                 inactive.is_active = True
                 inactive.added_by = added_by
-                inactive.added_at = datetime.utcnow()
+                inactive.added_at = utc_now()
                 inactive.expires_at = expires_at
                 db.commit()
                 db.refresh(inactive)
@@ -339,7 +354,7 @@ class UserGroupService:
                 user_id=user_id,
                 group_id=group_id,
                 added_by=added_by,
-                added_at=datetime.utcnow(),
+                added_at=utc_now(),
                 expires_at=expires_at,
                 is_active=True
             )
@@ -700,3 +715,158 @@ class UserGroupService:
                 "success": False,
                 "error": f"Failed to get group statistics: {str(e)}"
             }
+
+    @staticmethod
+    def grant_permission(
+        db: Session,
+        group_id: int,
+        permission_name: str,
+        granted_by: int = None,
+    ) -> Dict[str, Any]:
+        """Grant a catalog permission to all active members of a group."""
+        from models.rbac_model import GroupPermission, Permission
+
+        try:
+            group = (
+                db.query(UserGroup)
+                .filter(UserGroup.id == group_id, UserGroup.is_active == True)
+                .first()
+            )
+            if not group:
+                return {"success": False, "error": "Group not found"}
+
+            perm = (
+                db.query(Permission)
+                .filter(Permission.name == permission_name)
+                .first()
+            )
+            if not perm:
+                return {
+                    "success": False,
+                    "error": f"Unknown permission: {permission_name}",
+                }
+
+            existing = (
+                db.query(GroupPermission)
+                .filter(
+                    GroupPermission.group_id == group_id,
+                    GroupPermission.permission_id == perm.id,
+                )
+                .first()
+            )
+            if existing:
+                return {
+                    "success": True,
+                    "message": "Permission already granted to group",
+                    "group_id": group_id,
+                    "permission": permission_name,
+                }
+
+            row = GroupPermission(
+                group_id=group_id,
+                permission_id=perm.id,
+                granted_by=granted_by,
+                granted_at=utc_now(),
+            )
+            db.add(row)
+            db.commit()
+            auth_logger.info(
+                f"Group permission granted: {permission_name}",
+                group_id=group_id,
+                permission=permission_name,
+                granted_by=granted_by,
+                event_type="group_permission_granted",
+            )
+            return {
+                "success": True,
+                "group_id": group_id,
+                "permission": permission_name,
+            }
+        except Exception as e:
+            db.rollback()
+            auth_logger.error(
+                f"Error granting group permission: {str(e)}",
+                group_id=group_id,
+                error=str(e),
+                event_type="group_permission_grant_error",
+            )
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def revoke_permission(
+        db: Session,
+        group_id: int,
+        permission_name: str,
+        revoked_by: int = None,
+    ) -> Dict[str, Any]:
+        from models.rbac_model import GroupPermission, Permission
+
+        try:
+            perm = (
+                db.query(Permission)
+                .filter(Permission.name == permission_name)
+                .first()
+            )
+            if not perm:
+                return {
+                    "success": False,
+                    "error": f"Unknown permission: {permission_name}",
+                }
+            row = (
+                db.query(GroupPermission)
+                .filter(
+                    GroupPermission.group_id == group_id,
+                    GroupPermission.permission_id == perm.id,
+                )
+                .first()
+            )
+            if not row:
+                return {"success": False, "error": "Group permission not found"}
+            db.delete(row)
+            db.commit()
+            auth_logger.info(
+                f"Group permission revoked: {permission_name}",
+                group_id=group_id,
+                permission=permission_name,
+                revoked_by=revoked_by,
+                event_type="group_permission_revoked",
+            )
+            return {
+                "success": True,
+                "group_id": group_id,
+                "permission": permission_name,
+            }
+        except Exception as e:
+            db.rollback()
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def list_permissions(db: Session, group_id: int) -> Dict[str, Any]:
+        from models.rbac_model import GroupPermission, Permission
+
+        try:
+            rows = (
+                db.query(Permission.name, Permission.description, GroupPermission.granted_at)
+                .join(
+                    GroupPermission,
+                    GroupPermission.permission_id == Permission.id,
+                )
+                .filter(GroupPermission.group_id == group_id)
+                .order_by(Permission.name)
+                .all()
+            )
+            return {
+                "success": True,
+                "group_id": group_id,
+                "permissions": [
+                    {
+                        "name": name,
+                        "description": description,
+                        "granted_at": granted_at.isoformat() if granted_at else None,
+                    }
+                    for name, description, granted_at in rows
+                ],
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+

@@ -74,12 +74,23 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """Middleware to add request ID for tracing"""
     
     async def dispatch(self, request: Request, call_next: Callable) -> StarletteResponse:
-        # Generate or extract request ID
+        # Generate or extract request ID and bind into request + logging contextvars
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        
-        # Add request ID to request state
         request.state.request_id = request_id
-        
+        request.state.correlation_id = request_id
+
+        try:
+            from utils.production_logging import CorrelationIDGenerator, request_start_time_var, trace_id_var
+            from utils.otel import current_trace_id
+
+            CorrelationIDGenerator.set(request_id)
+            request_start_time_var.set(time.time())
+            tid = current_trace_id()
+            if tid:
+                trace_id_var.set(tid)
+        except Exception:
+            pass
+
         # Process request
         start_time = time.time()
         response = await call_next(request)
@@ -88,6 +99,28 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Add request ID to response headers
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Process-Time"] = str(round(process_time, 4))
+        try:
+            from utils.otel import current_trace_id
+            from utils.production_logging import trace_id_var
+
+            tid = current_trace_id() or trace_id_var.get()
+            if tid:
+                response.headers["X-Trace-ID"] = tid
+                trace_id_var.set(tid)
+        except Exception:
+            pass
+
+        try:
+            from utils.metrics import metrics
+
+            metrics.observe_request(
+                request.method,
+                request.url.path,
+                response.status_code,
+                process_time,
+            )
+        except Exception:
+            pass
         
         # Log request
         api_logger.info(
@@ -104,38 +137,80 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         
         return response
 
+# Legitimate API route prefixes — never flag as "suspicious" via substring matching.
+_KNOWN_SAFE_PATH_PREFIXES = (
+    "/api/v1/",
+    "/health",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+)
+
+# Explicit attack signatures (path or query), not substrings like "login"/"admin".
+_ATTACK_PATH_SIGNATURES = (
+    "../",
+    "..\\",
+    "%2e%2e",
+    "/wp-admin",
+    "/phpmyadmin",
+    "/.env",
+    "/.git",
+    "/xmlrpc.php",
+)
+_ATTACK_QUERY_SIGNATURES = (
+    "union select",
+    "information_schema",
+    "sleep(",
+    "benchmark(",
+    "<script",
+    "javascript:",
+    "onerror=",
+)
+
+
+def _looks_like_attack(path: str, query: str) -> bool:
+    """True only for traversal / probe / injection-like request shapes."""
+    if any(path.startswith(prefix) for prefix in _KNOWN_SAFE_PATH_PREFIXES):
+        # Still flag traversal/injection if somehow present on known routes.
+        haystack = f"{path}?{query}".lower()
+        return any(sig in haystack for sig in _ATTACK_PATH_SIGNATURES) or any(
+            sig in haystack for sig in _ATTACK_QUERY_SIGNATURES
+        )
+
+    lower_path = path.lower()
+    lower_query = query.lower()
+    if any(sig in lower_path for sig in _ATTACK_PATH_SIGNATURES):
+        return True
+    if any(sig in lower_query for sig in _ATTACK_QUERY_SIGNATURES):
+        return True
+    return False
+
+
 class SecurityLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware to log security-related events"""
     
     async def dispatch(self, request: Request, call_next: Callable) -> StarletteResponse:
-        # Log suspicious patterns
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")
         path = request.url.path
-        
-        # Check for suspicious patterns
-        suspicious_patterns = [
-            "admin", "login", "wp-admin", "phpmyadmin", 
-            "sql", "union", "select", "drop", "delete",
-            "script", "alert", "javascript", "eval"
-        ]
-        
-        is_suspicious = any(pattern in path.lower() for pattern in suspicious_patterns)
-        
-        if is_suspicious:
+        query = request.url.query or ""
+
+        if _looks_like_attack(path, query):
             security_logger.warning(
                 f"Suspicious request pattern detected: {path}",
                 client_ip=client_ip,
                 user_agent=user_agent,
                 path=path,
+                query=query,
                 method=request.method,
                 event_type="suspicious_request"
             )
         
         response = await call_next(request)
-        
-        # Log failed requests
-        if response.status_code >= 400:
+
+        # Do not treat expected API 4xx (auth failures, validation) as security events.
+        # Attacks are already logged above; 5xx and probe-like paths are worth elevating.
+        if response.status_code >= 500:
             security_logger.warning(
                 f"Failed request: {response.status_code}",
                 client_ip=client_ip,
@@ -143,9 +218,22 @@ class SecurityLoggingMiddleware(BaseHTTPMiddleware):
                 path=path,
                 method=request.method,
                 status_code=response.status_code,
-                event_type="failed_request"
+                event_type="failed_request",
             )
-        
+        elif (
+            response.status_code >= 400
+            and not any(path.startswith(prefix) for prefix in _KNOWN_SAFE_PATH_PREFIXES)
+        ):
+            security_logger.warning(
+                f"Failed request on unknown path: {response.status_code}",
+                client_ip=client_ip,
+                user_agent=user_agent,
+                path=path,
+                method=request.method,
+                status_code=response.status_code,
+                event_type="failed_request",
+            )
+
         return response
 
 def setup_security_middleware(app: FastAPI) -> None:
@@ -172,7 +260,13 @@ def setup_security_middleware(app: FastAPI) -> None:
             allow_origins=settings.security.cors_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-Request-ID",
+                "X-Requested-With",
+                "Accept",
+            ],
         )
     
     security_logger.info(

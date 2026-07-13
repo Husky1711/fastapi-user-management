@@ -84,7 +84,7 @@ def create_test_users():
             new_user = User(
                 username=user_data["username"],
                 email=f"{user_data['username']}@test.com",
-                password=hashed_password,
+                password_hash=hashed_password,
                 role=user_data["role"],
                 organization_id=user_data["org_id"],
                 phone_number="1234567890",
@@ -213,7 +213,7 @@ def test_organization_isolation():
         new_admin = User(
             username="org3_admin",
             email="org3_admin@test.com",
-            password=hashed_password,
+            password_hash=hashed_password,
             role="organization_admin",
             organization_id=3,
             phone_number="1234567890",

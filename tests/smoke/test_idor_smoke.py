@@ -1,7 +1,8 @@
 """
 IDOR smoke tests — cross-organization access denials by resource ID.
 
-Staff in org 1 must not read or mutate org 2 users, groups, or API keys.
+Staff in org 1 must not read or mutate org 2 users, groups, API keys,
+permissions, or audit rows scoped to another tenant.
 """
 
 from __future__ import annotations
@@ -69,11 +70,34 @@ def test_cannot_read_user_in_other_org(
 
 
 @pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("testorgadmin", "orgadmin123"),
+        ("testadmin", "admin123"),
+    ],
+)
+def test_cannot_soft_delete_user_in_other_org(
+    client,
+    cross_org_ids: dict[str, int],
+    username: str,
+    password: str,
+) -> None:
+    tokens = login(client, username, password)
+    response = client.delete(
+        f"/api/v1/users/{cross_org_ids['org2_user_id']}",
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code in (403, 404, 405), response.text
+
+
+@pytest.mark.parametrize(
     ("username", "password", "method", "path_key"),
     [
         ("testorgadmin", "orgadmin123", "GET", "org2_group_id"),
         ("testadmin", "admin123", "PATCH", "org2_group_id"),
+        ("testorgadmin", "orgadmin123", "DELETE", "org2_group_id"),
         ("testorgadmin", "orgadmin123", "GET", "org2_api_key_id"),
+        ("testadmin", "admin123", "PATCH", "org2_api_key_id"),
         ("testadmin", "admin123", "DELETE", "org2_api_key_id"),
     ],
 )
@@ -107,3 +131,85 @@ def test_cannot_access_other_org_compliance_resources(
         raise ValueError(f"Unsupported method: {method}")
 
     assert response.status_code in (403, 404, 405), response.text
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("testorgadmin", "orgadmin123"),
+        ("testadmin", "admin123"),
+    ],
+)
+def test_cannot_list_group_members_in_other_org(
+    client,
+    cross_org_ids: dict[str, int],
+    username: str,
+    password: str,
+) -> None:
+    tokens = login(client, username, password)
+    response = client.get(
+        f"/api/v1/groups/{cross_org_ids['org2_group_id']}/members",
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code in (403, 404, 405), response.text
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("testorgadmin", "orgadmin123"),
+        ("testadmin", "admin123"),
+    ],
+)
+def test_cannot_read_permissions_for_other_org_user(
+    client,
+    cross_org_ids: dict[str, int],
+    username: str,
+    password: str,
+) -> None:
+    tokens = login(client, username, password)
+    response = client.get(
+        f"/api/v1/permissions?user_id={cross_org_ids['org2_user_id']}",
+        headers=auth_headers(tokens["access_token"]),
+    )
+    assert response.status_code in (403, 404), response.text
+
+
+@pytest.mark.parametrize(
+    ("username", "password"),
+    [
+        ("testorgadmin", "orgadmin123"),
+        ("testadmin", "admin123"),
+    ],
+)
+def test_cannot_filter_audit_logs_to_other_org(
+    client,
+    cross_org_ids: dict[str, int],
+    username: str,
+    password: str,
+) -> None:
+    """Org staff must not pull another tenant's audit stream via organization_id."""
+    tokens = login(client, username, password)
+    headers = auth_headers(tokens["access_token"])
+
+    by_org = client.get("/api/v1/audit/logs?organization_id=2&limit=5", headers=headers)
+    # Forbidden, not found, or empty-success with zero rows / forced self-org — never 200 with org2 data
+    if by_org.status_code == 200:
+        payload = by_org.json()
+        logs = payload.get("logs") or payload.get("data") or []
+        for row in logs:
+            assert row.get("organization_id") in (None, 1), row
+    else:
+        assert by_org.status_code in (403, 404), by_org.text
+
+    by_user = client.get(
+        f"/api/v1/audit/logs?user_id={cross_org_ids['org2_user_id']}&limit=5",
+        headers=headers,
+    )
+    if by_user.status_code == 200:
+        payload = by_user.json()
+        logs = payload.get("logs") or payload.get("data") or []
+        for row in logs:
+            assert row.get("user_id") != cross_org_ids["org2_user_id"], row
+    else:
+        assert by_user.status_code in (403, 404), by_user.text

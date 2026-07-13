@@ -101,7 +101,8 @@ class CacheAPITester:
         signup_data = {
             "username": username,
             "password": "CachePass123",
-            "email": f"{username}@test.com"
+            "email": f"{username}@test.com",
+            "organization_id": 1,
         }
         
         # Signup

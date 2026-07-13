@@ -1,4 +1,8 @@
-"""Shared router configuration for /api/v1 identity routes."""
+"""Shared router configuration for /api/v1 identity routes.
+
+Versioning policy: docs/API_VERSIONING.md — path-versioned ``/api/v1``;
+breaking changes require ``/api/v2`` plus a documented deprecation window.
+"""
 
 from fastapi import APIRouter
 

@@ -124,6 +124,17 @@ export async function createGroup(payload: {
   return data;
 }
 
+export async function updateGroup(
+  groupId: number,
+  payload: { name?: string; description?: string },
+): Promise<MutationResponse> {
+  const { data } = await apiClient.patch<MutationResponse>(
+    `/api/v1/groups/${groupId}`,
+    payload,
+  );
+  return data;
+}
+
 export async function deleteGroup(groupId: number): Promise<MutationResponse> {
   const { data } = await apiClient.delete<MutationResponse>(`/api/v1/groups/${groupId}`);
   return data;
@@ -155,6 +166,23 @@ export async function createApiKey(payload: {
   permissions?: string[];
 }): Promise<CreateApiKeyResponse> {
   const { data } = await apiClient.post<CreateApiKeyResponse>("/api/v1/api-keys", payload);
+  return data;
+}
+
+export async function updateApiKey(
+  apiKeyId: number,
+  payload: {
+    key_name?: string;
+    permissions?: string[];
+    rate_limit_per_minute?: number;
+    rate_limit_per_hour?: number;
+    expires_at?: string | null;
+  },
+): Promise<MutationResponse> {
+  const { data } = await apiClient.patch<MutationResponse>(
+    `/api/v1/api-keys/${apiKeyId}`,
+    payload,
+  );
   return data;
 }
 

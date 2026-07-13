@@ -1,6 +1,9 @@
 """
 Bootstrap MySQL for CI and local smoke tests.
 
+**Canonical** script for CI and Codespaces/local when you need migrations **and**
+seed users. For migrate-only, use ``scripts/bootstrap_local_db.py``.
+
 Runs Alembic migrations and seeds known test users (bcrypt passwords).
 """
 
@@ -78,7 +81,7 @@ def _seed_data() -> None:
                     User(
                         username=username,
                         email=email,
-                        password=hashed,
+                        password_hash=hashed,
                         status="active",
                         phone_number="1234567890",
                         role=role,
@@ -89,7 +92,7 @@ def _seed_data() -> None:
                 user.email = email
                 user.role = role
                 user.organization_id = organization_id
-                user.password = hashed
+                user.password_hash = hashed
                 user.status = "active"
 
         db.flush()

@@ -1,0 +1,31 @@
+# Optional Locust smoke — weekly / manual; does not gate PRs.
+# Requires a reachable staging API (set LOAD_TEST_HOST).
+name: Nightly load smoke
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  locust-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ vars.LOAD_TEST_HOST != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install load deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-load.txt
+      - name: Run Locust headless (short)
+        env:
+          LOAD_TEST_HOST: ${{ vars.LOAD_TEST_HOST }}
+        run: |
+          locust -f tests/load/locustfile.py \
+            --host "$LOAD_TEST_HOST" \
+            --headless -u 5 -r 1 -t 30s \
+            --only-summary

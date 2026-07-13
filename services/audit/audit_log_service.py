@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import AuditLog, User
+from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
@@ -9,7 +10,22 @@ import uuid
 
 class AuditLogService:
     """Service for comprehensive audit logging and compliance tracking"""
-    
+
+    ALLOWED_STATUSES = frozenset({"success", "failure", "error"})
+
+    @staticmethod
+    def _normalize_status(status: Optional[str]) -> Optional[str]:
+        if status is None:
+            return None
+        normalized = status.strip().lower()
+        if normalized not in AuditLogService.ALLOWED_STATUSES:
+            auth_logger.warning(
+                f"Invalid audit status '{status}', coercing to 'error'",
+                event_type="audit_status_coerced",
+            )
+            return "error"
+        return normalized
+
     @staticmethod
     def create_audit_log(
         db: Session,
@@ -63,6 +79,8 @@ class AuditLogService:
             # Generate request ID if not provided
             if not request_id:
                 request_id = str(uuid.uuid4())
+
+            status = AuditLogService._normalize_status(status)
             
             # Create audit log entry
             audit_entry = AuditLog(
@@ -82,7 +100,7 @@ class AuditLogService:
                 status=status,
                 error_message=error_message,
                 log_metadata=metadata,
-                created_at=datetime.utcnow()
+                created_at=utc_now()
             )
             
             db.add(audit_entry)
@@ -111,6 +129,10 @@ class AuditLogService:
             }
             
         except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
             auth_logger.error(
                 f"Error creating audit log: {str(e)}",
                 event_type=event_type,

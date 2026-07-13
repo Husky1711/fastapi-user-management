@@ -47,6 +47,15 @@ class EmailService:
         Returns:
             bool: True if successful, False otherwise
         """
+        if not settings.email.enable_emails:
+            api_logger.info(
+                f"Email skipped (EMAIL__ENABLE_EMAILS=false): {subject}",
+                to_email=to_email,
+                subject=subject,
+                event_type="email_skipped_disabled",
+            )
+            return False
+
         try:
             # Create message
             message = MIMEMultipart("alternative")
@@ -139,6 +148,37 @@ class EmailService:
         html_content = self.render_template("password_reset.html", context)
         plain_text = f"Hello {username},\n\nReset your password by clicking this link: {context['reset_url']}"
         
+        return self.send_email(to_email, subject, html_content, plain_text)
+
+    def send_invitation_email(
+        self,
+        to_email: str,
+        invite_token: str,
+        organization_name: str,
+        role: str,
+        invited_by: str,
+    ) -> bool:
+        """Send organization invitation email."""
+        subject = f"You're invited to join {organization_name}"
+        invite_url = f"{settings.email.base_url}/accept-invite/{invite_token}"
+        context = {
+            "organization_name": organization_name,
+            "role": role,
+            "invited_by": invited_by,
+            "invite_url": invite_url,
+            "invite_token": invite_token,
+        }
+        html_content = self.render_template("invitation.html", context)
+        if not html_content:
+            html_content = (
+                f"<p>You have been invited by <strong>{invited_by}</strong> "
+                f"to join <strong>{organization_name}</strong> as <strong>{role}</strong>.</p>"
+                f'<p><a href="{invite_url}">Accept invitation</a></p>'
+            )
+        plain_text = (
+            f"You have been invited by {invited_by} to join {organization_name} "
+            f"as {role}. Accept: {invite_url}"
+        )
         return self.send_email(to_email, subject, html_content, plain_text)
     
     def send_welcome_email(self, to_email: str, username: str, temp_password: str = None) -> bool:

@@ -1,251 +1,300 @@
 from sqlalchemy.orm import Session
-from models.user_model import User
-from utils.database import get_db
+from models.user_model import User, PasswordResetToken
+from utils.datetime_utc import utc_now
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
-from utils.jwt_config import get_password_hash, verify_password
+from datetime import timedelta
+from utils.jwt_config import get_password_hash
 import secrets
-import string
+import hashlib
+import json
 from utils.loggers import auth_logger
 from utils.redis_config import RedisClient
-import json
 from .password_history_service import PasswordHistoryService
+from .user_service import UserService
 from config.settings import settings
 
+RESET_TOKEN_TTL_MINUTES = 15
+RESET_TOKEN_TTL_SECONDS = RESET_TOKEN_TTL_MINUTES * 60
+
+
 class PasswordResetService:
-    """Service for handling password reset functionality"""
-    
+    """Password reset using durable hashed tokens (Redis is optional cache)."""
+
     @staticmethod
     def generate_reset_token() -> str:
-        """Generate a secure reset token"""
         return secrets.token_urlsafe(32)
-    
+
     @staticmethod
-    def request_password_reset(db: Session, email: str) -> Dict[str, Any]:
-        """
-        Request password reset for a user
-        
-        Args:
-            db: Database session
-            email: User's email address
-            
-        Returns:
-            Dictionary with reset request result
-        """
+    def _hash_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _cache_set(token: str, user_id: int, email: str, expires_at_iso: str) -> None:
         try:
-            # Find user by email
+            redis_client = RedisClient.get_client()
+            redis_client.setex(
+                f"password_reset:{token}",
+                RESET_TOKEN_TTL_SECONDS,
+                json.dumps(
+                    {
+                        "user_id": user_id,
+                        "email": email,
+                        "expires_at": expires_at_iso,
+                    }
+                ),
+            )
+        except Exception as cache_error:
+            auth_logger.warning(
+                f"Password reset Redis cache write failed: {cache_error}",
+                event_type="password_reset_cache_write_error",
+            )
+
+    @staticmethod
+    def _cache_delete(token: str) -> None:
+        try:
+            RedisClient.get_client().delete(f"password_reset:{token}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _get_active_token_row(db: Session, token: str) -> Optional[PasswordResetToken]:
+        token_hash = PasswordResetService._hash_token(token)
+        # utc_now() is naive UTC; MySQL DATETIME columns are naive.
+        return (
+            db.query(PasswordResetToken)
+            .filter(PasswordResetToken.token_hash == token_hash)
+            .filter(PasswordResetToken.used_at.is_(None))
+            .filter(PasswordResetToken.expires_at > utc_now())
+            .first()
+        )
+
+    @staticmethod
+    def request_password_reset(
+        db: Session,
+        email: str,
+        requested_ip: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        try:
             user = UserService.get_user_by_email(db, email)
             if not user:
-                # Don't reveal if email exists or not for security
                 return {
                     "success": True,
                     "message": "If the email exists, a password reset link has been sent",
                     "reset_token": None,
-                    "expires_in_minutes": 15
+                    "expires_in_minutes": RESET_TOKEN_TTL_MINUTES,
                 }
-            
-            # Generate reset token
-            reset_token = PasswordResetService.generate_reset_token()
-            
-            # Store token in Redis with expiration (15 minutes)
-            redis_client = RedisClient.get_client()
-            token_key = f"password_reset:{reset_token}"
-            token_data = {
-                "user_id": user.id,
-                "email": user.email,
-                "created_at": datetime.utcnow().isoformat(),
-                "expires_at": (datetime.utcnow() + timedelta(minutes=15)).isoformat()
-            }
-            
-            # Store in Redis with 15 minute expiration
-            redis_client.setex(
-                token_key,
-                900,  # 15 minutes in seconds
-                json.dumps(token_data)
+
+            # Invalidate unused prior tokens for this user.
+            (
+                db.query(PasswordResetToken)
+                .filter(PasswordResetToken.user_id == user.id)
+                .filter(PasswordResetToken.used_at.is_(None))
+                .update(
+                    {PasswordResetToken.used_at: utc_now()},
+                    synchronize_session=False,
+                )
             )
-            
-            # Log the reset request
+
+            reset_token = PasswordResetService.generate_reset_token()
+            expires_at = utc_now() + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+            db.add(
+                PasswordResetToken(
+                    user_id=user.id,
+                    token_hash=PasswordResetService._hash_token(reset_token),
+                    expires_at=expires_at,
+                    requested_ip=requested_ip,
+                )
+            )
+            db.commit()
+
+            PasswordResetService._cache_set(
+                reset_token,
+                user.id,
+                user.email,
+                expires_at.isoformat(),
+            )
+
+            try:
+                from services.audit.audit_log_service import AuditLogService
+
+                AuditLogService.log_security_event(
+                    db=db,
+                    event_type="password_reset_requested",
+                    user_id=user.id,
+                    organization_id=user.organization_id,
+                    ip_address=requested_ip,
+                    status="success",
+                    metadata={"email": user.email},
+                )
+            except Exception as audit_error:
+                auth_logger.warning(
+                    f"Password reset request audit log failed: {audit_error}",
+                    user_id=user.id,
+                    event_type="password_reset_audit_error",
+                )
+
             auth_logger.info(
                 f"Password reset requested for user: {user.username}",
                 user_id=user.id,
                 username=user.username,
                 email=user.email,
-                reset_token=reset_token[:8] + "...",  # Log partial token for security
-                event_type="password_reset_requested"
+                reset_token=reset_token[:8] + "...",
+                event_type="password_reset_requested",
             )
-            
-            # TODO: Send email with reset link
-            # For now, we'll return the token for testing
-            
-            return {
+
+            if settings.email.enable_emails:
+                try:
+                    from utils.email_service import get_email_service
+
+                    get_email_service().send_password_reset_email(
+                        to_email=user.email,
+                        reset_token=reset_token,
+                        username=user.username,
+                    )
+                except Exception as email_error:
+                    auth_logger.error(
+                        f"Failed to send password reset email: {str(email_error)}",
+                        user_id=user.id,
+                        email=user.email,
+                        error=str(email_error),
+                        event_type="password_reset_email_error",
+                    )
+
+            response: Dict[str, Any] = {
                 "success": True,
                 "message": "Password reset link has been sent to your email",
-                "reset_token": reset_token,  # Remove this in production
-                "expires_in_minutes": 15
+                "expires_in_minutes": RESET_TOKEN_TTL_MINUTES,
             }
-            
+            if settings.is_development():
+                response["reset_token"] = reset_token
+            return response
+
         except Exception as e:
+            db.rollback()
             auth_logger.error(
                 f"Error requesting password reset: {str(e)}",
                 email=email,
                 error=str(e),
-                event_type="password_reset_request_error"
+                event_type="password_reset_request_error",
             )
-            
             return {
                 "success": False,
-                "error": f"Failed to process password reset request: {str(e)}"
+                "error": f"Failed to process password reset request: {str(e)}",
             }
-    
+
     @staticmethod
     def confirm_password_reset(db: Session, token: str, new_password: str) -> Dict[str, Any]:
-        """
-        Confirm password reset with token and new password
-        
-        Args:
-            db: Database session
-            token: Reset token
-            new_password: New password
-            
-        Returns:
-            Dictionary with reset confirmation result
-        """
         try:
-            # Get token from Redis
-            redis_client = RedisClient.get_client()
-            token_key = f"password_reset:{token}"
-            token_data_str = redis_client.get(token_key)
-            
-            if not token_data_str:
+            row = PasswordResetService._get_active_token_row(db, token)
+            if not row:
                 return {
                     "success": False,
-                    "error": "Invalid or expired reset token"
+                    "error": "Invalid or expired reset token",
                 }
-            
-            # Parse token data
-            token_data = json.loads(token_data_str)
-            user_id = token_data.get("user_id")
-            email = token_data.get("email")
-            
-            if not user_id:
-                return {
-                    "success": False,
-                    "error": "Invalid reset token"
-                }
-            
-            # Get user from database
-            user = UserService.get_user_by_id(db, user_id)
+
+            user = UserService.get_user_by_id(db, row.user_id)
             if not user:
                 return {
                     "success": False,
-                    "error": "User not found"
+                    "error": "User not found",
                 }
-            
-            # Verify email matches
-            if user.email != email:
-                return {
-                    "success": False,
-                    "error": "Token email mismatch"
-                }
-            
-            # Check password reuse if history is enabled
+
             if settings.password_policy.enable_password_history:
                 reuse_check = PasswordHistoryService.check_password_reuse(
-                    db, user_id, new_password, settings.password_policy.password_history_limit
+                    db,
+                    user.id,
+                    new_password,
+                    settings.password_policy.password_history_limit,
                 )
-                
                 if reuse_check.get("is_reused", False):
                     return {
                         "success": False,
-                        "error": reuse_check.get("message", "Cannot reuse recent passwords")
+                        "error": reuse_check.get(
+                            "message", "Cannot reuse recent passwords"
+                        ),
                     }
-            
-            # Save current password to history before updating
-            if settings.password_policy.enable_password_history:
                 PasswordHistoryService.save_password_history(
-                    db, user_id, user.password, user_id, "password_reset"
+                    db, user.id, user.password_hash, user.id, "password_reset"
                 )
-            
-            # Update password
-            hashed_password = get_password_hash(new_password)
-            user.password = hashed_password
-            user.updated_at = datetime.utcnow()
-            
+
+            user.password_hash = get_password_hash(new_password)
+            user.updated_at = utc_now()
+            user.password_changed_at = utc_now()
+            row.used_at = utc_now()
             db.commit()
             db.refresh(user)
-            
-            # Delete the reset token from Redis
-            redis_client.delete(token_key)
-            
-            # Log successful password reset
+
+            PasswordResetService._cache_delete(token)
+
+            try:
+                from services.audit.audit_log_service import AuditLogService
+
+                AuditLogService.log_security_event(
+                    db=db,
+                    event_type="password_reset_completed",
+                    user_id=user.id,
+                    organization_id=user.organization_id,
+                    status="success",
+                    metadata={"token_id": row.id},
+                )
+            except Exception as audit_error:
+                auth_logger.warning(
+                    f"Password reset completion audit log failed: {audit_error}",
+                    user_id=user.id,
+                    event_type="password_reset_audit_error",
+                )
+
             auth_logger.info(
                 f"Password reset completed for user: {user.username}",
                 user_id=user.id,
                 username=user.username,
                 email=user.email,
-                event_type="password_reset_completed"
+                event_type="password_reset_completed",
             )
-            
+
             return {
                 "success": True,
-                "message": "Password has been reset successfully"
+                "message": "Password has been reset successfully",
             }
-            
+
         except Exception as e:
+            db.rollback()
             auth_logger.error(
                 f"Error confirming password reset: {str(e)}",
                 token=token[:8] + "..." if token else None,
                 error=str(e),
-                event_type="password_reset_confirm_error"
+                event_type="password_reset_confirm_error",
             )
-            
             return {
                 "success": False,
-                "error": f"Failed to reset password: {str(e)}"
+                "error": f"Failed to reset password: {str(e)}",
             }
-    
+
     @staticmethod
-    def validate_reset_token(token: str) -> Dict[str, Any]:
-        """
-        Validate a reset token without consuming it
-        
-        Args:
-            token: Reset token to validate
-            
-        Returns:
-            Dictionary with validation result
-        """
+    def validate_reset_token(db: Session, token: str) -> Dict[str, Any]:
         try:
-            redis_client = RedisClient.get_client()
-            token_key = f"password_reset:{token}"
-            token_data_str = redis_client.get(token_key)
-            
-            if not token_data_str:
+            row = PasswordResetService._get_active_token_row(db, token)
+            if not row:
                 return {
                     "valid": False,
-                    "error": "Invalid or expired reset token"
+                    "error": "Invalid or expired reset token",
                 }
-            
-            token_data = json.loads(token_data_str)
-            
+
+            user = UserService.get_user_by_id(db, row.user_id)
             return {
                 "valid": True,
-                "email": token_data.get("email"),
-                "expires_at": token_data.get("expires_at")
+                "email": user.email if user else None,
+                "expires_at": row.expires_at.isoformat() if row.expires_at else None,
             }
-            
+
         except Exception as e:
             auth_logger.error(
                 f"Error validating reset token: {str(e)}",
                 token=token[:8] + "..." if token else None,
                 error=str(e),
-                event_type="password_reset_validation_error"
+                event_type="password_reset_validation_error",
             )
-            
             return {
                 "valid": False,
-                "error": f"Failed to validate token: {str(e)}"
+                "error": f"Failed to validate token: {str(e)}",
             }
-
-# Import UserService at the end to avoid circular imports
-from .user_service import UserService
