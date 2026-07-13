@@ -1,6 +1,12 @@
 """
 Apply Alembic migrations for local MySQL (Codespaces).
 
+Canonical entrypoints
+---------------------
+* **CI / seeded local:** ``python scripts/ci_bootstrap_db.py`` (migrate + seed)
+* **Migrate only (this script):** when you already have data and only need ``upgrade head``
+* **Neon / Postgres:** prefer Alembic against ``DATABASE_URL``; see ``bootstrap_neon.py`` (legacy)
+
 Usage:
     python scripts/bootstrap_local_db.py
 

@@ -11,6 +11,7 @@ from sqlalchemy import desc
 
 from models.user_model import User, LoginAttempt
 from services.auth.auth_service import AuthService
+from utils.datetime_utc import utc_now
 from utils.loggers import security_logger
 from config.settings import settings
 
@@ -90,7 +91,7 @@ class LoginAttemptService:
             # Calculate lockout time if needed
             lockout_time = None
             if user.failed_login_attempts >= settings.security.max_login_attempts:
-                lockout_time = datetime.utcnow() + timedelta(
+                lockout_time = utc_now() + timedelta(
                     minutes=settings.security.lockout_duration_minutes
                 )
                 user.locked_until = lockout_time
@@ -161,7 +162,7 @@ class LoginAttemptService:
         if user.locked_until is None:
             return False
         
-        return datetime.utcnow() < user.locked_until
+        return utc_now() < user.locked_until
     
     @staticmethod
     def get_lockout_info(user: User) -> Dict[str, Any]:
@@ -186,7 +187,7 @@ class LoginAttemptService:
         if is_locked:
             result["locked_until"] = user.locked_until.isoformat()
             # Calculate remaining lockout time
-            remaining_minutes = max(0, int((user.locked_until - datetime.utcnow()).total_seconds() / 60))
+            remaining_minutes = max(0, int((user.locked_until - utc_now()).total_seconds() / 60))
             result["remaining_lockout_minutes"] = remaining_minutes
         else:
             result["locked_until"] = None
@@ -295,7 +296,11 @@ class LoginAttemptService:
         Returns dict with success=True and user, or success=False with error_code
         (ACCOUNT_LOCKED | INVALID_CREDENTIALS).
         """
-        user_row = db.query(User).filter(User.username == username).first()
+        user_row = (
+            db.query(User)
+            .filter(User.username == username, User.deleted_at.is_(None))
+            .first()
+        )
 
         LoginAttemptService.record_login_attempt(
             db=db,
@@ -317,6 +322,13 @@ class LoginAttemptService:
                 failure_reason="Account locked",
                 user_id=user_row.id,
             )
+            try:
+                from utils.metrics import metrics
+
+                metrics.inc_auth_lockout()
+                metrics.inc_auth_failure()
+            except Exception:
+                pass
             return {
                 "success": False,
                 "error_code": "ACCOUNT_LOCKED",
@@ -324,9 +336,75 @@ class LoginAttemptService:
                 "lockout_info": LoginAttemptService.get_lockout_info(user_row),
             }
 
+        if user_row and (user_row.status or "").lower() != "active":
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Account disabled",
+                user_id=user_row.id,
+            )
+            return {
+                "success": False,
+                "error_code": "ACCOUNT_DISABLED",
+                "error": "Account is disabled",
+            }
+
+        if (
+            settings.security.require_email_verification
+            and user_row
+            and user_row.email_verified_at is None
+        ):
+            LoginAttemptService.record_login_attempt(
+                db=db,
+                username=username,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="Email not verified",
+                user_id=user_row.id,
+            )
+            return {
+                "success": False,
+                "error_code": "EMAIL_NOT_VERIFIED",
+                "error": "Email address has not been verified",
+            }
+
+        if (
+            settings.password_policy.enforce_max_password_age
+            and user_row
+        ):
+            changed_at = user_row.password_changed_at or user_row.created_at
+            if changed_at is not None:
+                age_days = (utc_now() - changed_at).days
+                max_age = settings.password_policy.max_password_age_days
+                if age_days >= max_age:
+                    LoginAttemptService.record_login_attempt(
+                        db=db,
+                        username=username,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        success=False,
+                        failure_reason="Password expired",
+                        user_id=user_row.id,
+                    )
+                    return {
+                        "success": False,
+                        "error_code": "PASSWORD_EXPIRED",
+                        "error": "Password has expired; reset your password to continue",
+                        "max_password_age_days": max_age,
+                        "password_age_days": age_days,
+                    }
+
         user = AuthService.authenticate_user(db, username, password)
         if not user:
-            user_row = db.query(User).filter(User.username == username).first()
+            user_row = (
+            db.query(User)
+            .filter(User.username == username, User.deleted_at.is_(None))
+            .first()
+        )
             if user_row:
                 LoginAttemptService.increment_failed_attempts(db, user_row)
 
@@ -339,6 +417,12 @@ class LoginAttemptService:
                 failure_reason="Invalid credentials",
                 user_id=user_row.id if user_row else None,
             )
+            try:
+                from utils.metrics import metrics
+
+                metrics.inc_auth_failure()
+            except Exception:
+                pass
             return {
                 "success": False,
                 "error_code": "INVALID_CREDENTIALS",

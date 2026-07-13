@@ -1,10 +1,12 @@
+from utils.datetime_utc import utc_now
 import hashlib
 import re
 from datetime import datetime, timedelta
 from typing import Optional
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 
 from config.settings import settings
 
@@ -23,8 +25,10 @@ def is_legacy_sha256_hash(hashed_password: str) -> bool:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against bcrypt or legacy SHA-256 hex hashes."""
+    """Verify a password against bcrypt or (optionally) legacy SHA-256 hex hashes."""
     if is_legacy_sha256_hash(hashed_password):
+        if not settings.password_policy.allow_legacy_sha256_hashes:
+            return False
         return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
     try:
         return bcrypt.checkpw(
@@ -49,12 +53,15 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token with role and organization info"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utc_now() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utc_now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    # PyJWT may return bytes on older versions; normalize to str.
+    if isinstance(encoded_jwt, bytes):
+        return encoded_jwt.decode("utf-8")
     return encoded_jwt
 
 
@@ -75,27 +82,7 @@ def verify_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
-        return None
-
-
-def create_refresh_token(data: dict) -> str:
-    """Create a refresh token"""
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def verify_refresh_token(token: str) -> Optional[dict]:
-    """Verify and decode a refresh token"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "refresh":
-            return None
-        return payload
-    except JWTError:
+    except PyJWTError:
         return None
 
 

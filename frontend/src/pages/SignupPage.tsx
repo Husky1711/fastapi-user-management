@@ -21,10 +21,18 @@ export function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [organizationId, setOrganizationId] = useState("1");
+
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => signupUser({ username, email, password }),
+    mutationFn: () =>
+      signupUser({
+        username,
+        email,
+        password,
+        organization_id: Number(organizationId),
+      }),
     onSuccess: () => {
       navigate("/login?reason=signup_success", { replace: true });
     },
@@ -83,6 +91,16 @@ export function SignupPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
+            required
+          />
+        </label>
+        <label>
+          Organization ID
+          <input
+            type="number"
+            min={1}
+            value={organizationId}
+            onChange={(e) => setOrganizationId(e.target.value)}
             required
           />
         </label>

@@ -6,6 +6,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { AcceptInvitePage } from "@/pages/AcceptInvitePage";
+import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
 import { HomeRedirect } from "@/pages/HomeRedirect";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AdminPage } from "@/pages/AdminPage";
@@ -41,6 +43,9 @@ export function AppRouter() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/accept-invite/:token" element={<AcceptInvitePage />} />
+            <Route path="/verify/:token" element={<VerifyEmailPage />} />
+            <Route path="/verify" element={<VerifyEmailPage />} />
             <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
             <Route path="/" element={<HomeRedirect />} />

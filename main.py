@@ -6,8 +6,9 @@ Enterprise-grade user management with comprehensive security and monitoring
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from contextlib import asynccontextmanager
+import asyncio
 import os
 import time
 from typing import Dict, Any
@@ -19,9 +20,13 @@ from routes.sessions import router as sessions_router
 from routes.users import router as users_router
 from routes.profile import router as profile_router
 from routes.production_endpoints import router as production_router
+from routes.audit import router as audit_router
+from routes.retention import router as retention_router
 from routes.integration import router as integration_router
 from routes.auth_2fa import router as auth_2fa_router
 from routes.organizations import router as organizations_router
+from routes.invitations import router as invitations_router
+from routes.compliance import router as compliance_router
 
 # Import utilities
 from utils.loggers import app_logger, security_logger
@@ -30,11 +35,28 @@ from utils.redis_config import RedisClient
 from utils.database import engine
 from config.settings import settings
 
+
+def _allow_db_startup_fail_open() -> bool:
+    """True only for automated test runners — never in production."""
+    if settings.is_production():
+        return False
+    env = (settings.app.environment or "").lower()
+    if env in {"test", "testing"}:
+        return True
+    return bool(
+        os.getenv("PYTEST_CURRENT_TEST")
+        or os.getenv("TESTING")
+        or os.getenv("GITHUB_ACTIONS")
+    )
+
+
 # Application lifespan management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
+    settings.validate_production_config()
+
     app_logger.info(
         "FastAPI User Management System starting up",
         version=settings.app.version,
@@ -54,9 +76,9 @@ async def lifespan(app: FastAPI):
             error=str(e),
             event_type="db_startup_error"
         )
-        # CI bootstrap already verified MySQL; avoid aborting TestClient startup on
-        # transient pool errors when smoke tests create many app lifespans.
-        if not os.getenv("GITHUB_ACTIONS"):
+        # Fail-open only for automated tests — never in production (or staging-like).
+        # CI/pytest may hit transient pool errors across many TestClient lifespans.
+        if not _allow_db_startup_fail_open():
             raise
     
     # Test Redis connection
@@ -74,8 +96,44 @@ async def lifespan(app: FastAPI):
         lockout_duration=settings.security.lockout_duration_minutes,
         event_type="security_config"
     )
+
+    retention_task = None
+    if settings.app.enable_retention_job:
+
+        async def _retention_loop() -> None:
+            from utils.database import SessionLocal
+            from services.core.retention_service import RetentionService
+
+            interval = settings.app.retention_interval_minutes * 60
+            while True:
+                await asyncio.sleep(interval)
+                db = SessionLocal()
+                try:
+                    RetentionService.run_all(db)
+                except Exception as exc:
+                    app_logger.error(
+                        f"Retention job failed: {exc}",
+                        error=str(exc),
+                        event_type="retention_job_error",
+                    )
+                finally:
+                    db.close()
+
+        retention_task = asyncio.create_task(_retention_loop())
+        app_logger.info(
+            "Retention background job enabled",
+            interval_minutes=settings.app.retention_interval_minutes,
+            event_type="retention_job_started",
+        )
     
     yield
+
+    if retention_task is not None:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
     
     # Shutdown
     app_logger.info("FastAPI User Management System shutting down", event_type="app_shutdown")
@@ -97,6 +155,11 @@ app = FastAPI(
 # Setup security middleware
 setup_security_middleware(app)
 
+# Optional OpenTelemetry (OTEL__ENABLED=true + requirements-otel.txt)
+from utils.otel import setup_otel
+
+setup_otel(app)
+
 # Setup error handlers
 setup_error_handlers(app)
 
@@ -105,14 +168,18 @@ app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(users_router)
 app.include_router(profile_router)
-if settings.security.allow_debug_auth:
+app.include_router(invitations_router)
+if settings.is_development() and settings.security.allow_debug_auth:
     from routes.debug import router as debug_router
 
     app.include_router(debug_router)
-app.include_router(production_router)
+app.include_router(production_router)  # sessions_admin, permissions, groups, api_keys, password
+app.include_router(audit_router)
+app.include_router(retention_router)
 app.include_router(integration_router)
 app.include_router(auth_2fa_router)
 app.include_router(organizations_router)
+app.include_router(compliance_router)
 
 # Include dashboard router
 from routes.dashboard import router as dashboard_router
@@ -157,50 +224,108 @@ async def detailed_health_check() -> Dict[str, Any]:
             conn.execute(text("SELECT 1"))
         health_status["services"]["database"] = {"status": "healthy", "type": "mysql"}
     except Exception as e:
-        health_status["services"]["database"] = {"status": "unhealthy", "error": str(e)}
+        app_logger.error(
+            f"Detailed health DB check failed: {e}",
+            error=str(e),
+            event_type="health_detailed_db_error",
+        )
+        db_payload: Dict[str, Any] = {"status": "unhealthy", "type": "mysql"}
+        if settings.app.environment != "production":
+            db_payload["error"] = str(e)
+        else:
+            db_payload["error"] = "database unhealthy"
+        health_status["services"]["database"] = db_payload
         health_status["status"] = "degraded"
     
     # Check Redis
     if RedisClient.test_connection():
         health_status["services"]["redis"] = {"status": "healthy", "type": "redis"}
     else:
-        health_status["services"]["redis"] = {"status": "unhealthy", "error": "Connection failed"}
+        health_status["services"]["redis"] = {
+            "status": "unhealthy",
+            "error": "Connection failed",
+        }
         health_status["status"] = "degraded"
     
     return health_status
 
 @app.get("/health/ready", tags=["Health"])
 async def readiness_check() -> Dict[str, Any]:
-    """Kubernetes readiness probe endpoint"""
+    """Kubernetes readiness probe — database only (Redis optional for traffic)."""
     try:
-        # Check if all critical services are ready
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        
-        if not RedisClient.test_connection():
-            return JSONResponse(
-                status_code=503,
-                content={"status": "not_ready", "reason": "Redis unavailable"}
-            )
-        
         return {"status": "ready", "timestamp": time.time()}
     except Exception as e:
+        app_logger.error(
+            f"Readiness DB check failed: {e}",
+            error=str(e),
+            event_type="health_ready_db_error",
+        )
+        reason = (
+            "database unavailable"
+            if settings.app.environment == "production"
+            else str(e)
+        )
         return JSONResponse(
             status_code=503,
-            content={"status": "not_ready", "reason": str(e)}
+            content={"status": "not_ready", "reason": reason},
         )
+
+
+@app.get("/health/ready-full", tags=["Health"])
+async def readiness_check_full() -> Dict[str, Any]:
+    """Stricter readiness: database + Redis (rate limiting / sessions)."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        app_logger.error(
+            f"Full readiness DB check failed: {e}",
+            error=str(e),
+            event_type="health_ready_full_db_error",
+        )
+        reason = (
+            "database unavailable"
+            if settings.app.environment == "production"
+            else str(e)
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "reason": reason},
+        )
+
+    if not RedisClient.test_connection():
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "reason": "Redis unavailable"},
+        )
+
+    return {"status": "ready", "timestamp": time.time()}
 
 @app.get("/health/live", tags=["Health"])
 async def liveness_check() -> Dict[str, Any]:
     """Kubernetes liveness probe endpoint"""
     return {"status": "alive", "timestamp": time.time()}
 
-# Legacy health check endpoint for backward compatibility
-@app.get("/hello", tags=["Health"])
-async def hello_world() -> Dict[str, Any]:
-    """Legacy hello world endpoint"""
-    app_logger.info("Hello world endpoint accessed", endpoint="/hello")
-    return {"message": "Hello World", "status": "healthy"}
+
+@app.get("/metrics", tags=["Observability"])
+async def prometheus_metrics():
+    """Prometheus text exposition of in-process app metrics."""
+    from utils.metrics import metrics
+
+    return PlainTextResponse(
+        metrics.render_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+# Dev-only smoke endpoint (not registered in production)
+if settings.app.environment == "development":
+
+    @app.get("/hello", tags=["Health"])
+    async def hello_world() -> Dict[str, Any]:
+        """Legacy hello world — development only."""
+        return {"message": "Hello World", "status": "healthy"}
 
 # Root endpoint
 @app.get("/", tags=["Root"])
@@ -220,51 +345,14 @@ async def root(request: Request):
         "api_base_url": "/api/v1",
         "docs_url": "/docs" if settings.app.environment != "production" else "disabled",
         "health_check": "/health",
-        "api_health_check": "/api/v1/health"
+        "api_health_check": "/api/v1/health",
+        "readiness": "/health/ready",
+        "readiness_full": "/health/ready-full",
     }
 
-# Request logging middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log all requests with timing"""
-    start_time = time.time()
-    
-    # Get request ID from state (set by RequestIDMiddleware)
-    request_id = getattr(request.state, 'request_id', 'unknown')
-    
-    # Process request
-    response = await call_next(request)
-    
-    # Calculate processing time
-    process_time = time.time() - start_time
-    
-    # Log request (this will be handled by RequestIDMiddleware, but keeping for reference)
-    app_logger.info(
-        f"Request processed: {request.method} {request.url.path}",
-        method=request.method,
-        path=request.url.path,
-        status_code=response.status_code,
-        process_time=round(process_time, 4),
-        request_id=request_id,
-        client_ip=request.client.host if request.client else "unknown",
-        event_type="request_processed"
-    )
-    
-    return response
-
-# Application startup event (deprecated in favor of lifespan)
-@app.on_event("startup")
-async def startup_event():
-    """Application startup event (deprecated - use lifespan instead)"""
-    app_logger.warning("Using deprecated startup event - consider using lifespan", event_type="deprecated_event")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event (deprecated - use lifespan instead)"""
-    app_logger.warning("Using deprecated shutdown event - consider using lifespan", event_type="deprecated_event")
-
 if __name__ == "__main__":
-    # Production-ready server configuration
+    # Prefer K8s/Compose replicas with --workers 1 (see docs/DEPLOYMENT_TOPOLOGY.md).
+    # Multi-worker here is a single-VM convenience only — watch DB pool × workers.
     uvicorn.run(
         "main:app",
         host=settings.app.host,

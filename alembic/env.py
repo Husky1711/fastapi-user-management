@@ -14,19 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import settings  # noqa: E402
-from models.user_model import (  # noqa: F401,E402 — register models with Base
-    ApiKey,
-    AuditLog,
-    LoginAttempt,
-    Organization,
-    PasswordHistory,
-    RefreshToken,
-    User,
-    UserGroup,
-    UserGroupMembership,
-    UserPermission,
-    UserSession,
-)
+import models  # noqa: F401,E402 — register identity/session/compliance
+import models.rbac_model  # noqa: F401,E402
 from utils.database import Base  # noqa: E402
 
 config = context.config

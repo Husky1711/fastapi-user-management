@@ -16,14 +16,13 @@ ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO users (
     username,
     email,
-    password,
+    password_hash,
     status,
     phone_number,
     role,
     organization_id,
     is_2fa_enabled,
-    failed_login_attempts,
-    login_attempts
+    failed_login_attempts
 ) VALUES
 (
     'testadmin',
@@ -33,7 +32,6 @@ INSERT INTO users (
     '1234567890',
     'admin',
     1,
-    0,
     0,
     0
 ),
@@ -46,7 +44,6 @@ INSERT INTO users (
     'user',
     1,
     0,
-    0,
     0
 ),
 (
@@ -58,7 +55,6 @@ INSERT INTO users (
     'organization_admin',
     1,
     0,
-    0,
     0
 ),
 (
@@ -69,7 +65,6 @@ INSERT INTO users (
     '1234567890',
     'super_admin',
     2,
-    0,
     0,
     0
 )

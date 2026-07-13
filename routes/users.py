@@ -1,12 +1,12 @@
 """User listing and admin user management."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from models.user_model import User
-from dependencies.auth import CurrentUser
+from dependencies.auth import CurrentUser, require_permission
 from routes.auth_common import create_api_router
 from schemas.login import (
     AdminCreateUserRequest,
@@ -14,6 +14,11 @@ from schemas.login import (
     AdminUpdateUserRequest,
     AdminUpdateUserResponse,
     UserResponse,
+)
+from schemas.users import (
+    OrganizationUsersListResponse,
+    SelfUserListResponse,
+    UserListItem,
 )
 from services.users import UserService
 from services.audit import AuditLogService
@@ -24,56 +29,63 @@ from utils.rate_limit_dependency import RateLimitDependency
 
 router = create_api_router(tags=["Users"])
 
-@router.get("/users")
+
+def _user_list_item(db: Session, user_obj: User) -> UserListItem:
+    row = UserService.serialize_user(db, user_obj)
+    return UserListItem(
+        id=row["id"],
+        username=row["username"],
+        email=row["email"],
+        role=row["role"],
+        status=row["status"],
+        phone_number=row["phone_number"],
+        manager_id=row["manager_id"],
+        manager_username=row["manager_username"],
+    )
+
+
+@router.get(
+    "/users",
+    response_model=Union[
+        OrganizationUsersListResponse,
+        SelfUserListResponse,
+        Dict[str, OrganizationUsersListResponse],
+    ],
+    response_model_exclude_unset=True,
+)
 async def get_all_users(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
-    _: None = Depends(RateLimitDependency.check_rate_limit("users_list"))
+    _: None = Depends(RateLimitDependency.check_rate_limit("users_list")),
 ):
     """Get users based on current user's role and organization"""
-    # Use database user as source of truth (JWT claims can be stale after role changes)
     current_user_role = current_user.role
     current_user_org_id = current_user.organization_id
-    current_user_id = current_user.id
-    
-    # Get users based on role
+
     users = UserService.get_users_by_role_and_organization(
         db, current_user_role, current_user_org_id
     )
-    
-    # Format response based on role
-    def user_row(user_obj: User) -> Dict[str, Any]:
-        row = UserService.serialize_user(db, user_obj)
-        return {
-            "id": row["id"],
-            "username": row["username"],
-            "email": row["email"],
-            "role": row["role"],
-            "status": row["status"],
-            "phone_number": row["phone_number"],
-            "manager_id": row["manager_id"],
-            "manager_username": row["manager_username"],
-        }
 
     if current_user_role == "super_admin":
-        # Super admin sees all users grouped by organization
-        response = {}
+        # Super admin sees all users grouped by organization id (string keys in JSON)
+        response: Dict[str, OrganizationUsersListResponse] = {}
         for user in users:
-            org_id = user.organization_id
-            if org_id not in response:
-                response[org_id] = {"organization_id": org_id, "users": []}
-            response[org_id]["users"].append(user_row(user))
+            org_key = str(user.organization_id)
+            if org_key not in response:
+                response[org_key] = OrganizationUsersListResponse(
+                    organization_id=user.organization_id,
+                    users=[],
+                )
+            response[org_key].users.append(_user_list_item(db, user))
         return response
-    elif current_user_role in ("admin", "organization_admin"):
-        # Admins and org admins see manageable users from their organization
-        return {
-            "organization_id": current_user_org_id,
-            "users": [user_row(user) for user in users]
-        }
-    else:
-        # Regular user sees only themselves
-        row = user_row(current_user)
-        return {"user": row}
+
+    if current_user_role in ("admin", "organization_admin"):
+        return OrganizationUsersListResponse(
+            organization_id=current_user_org_id,
+            users=[_user_list_item(db, user) for user in users],
+        )
+
+    return SelfUserListResponse(user=_user_list_item(db, current_user))
 
 @router.get("/users/{user_id}")
 async def get_user_by_id(
@@ -113,22 +125,13 @@ async def update_user_by_admin(
     user_id: int,
     updates: AdminUpdateUserRequest,
     request: Request,
-    current_user: CurrentUser,
+    current_user: User = Depends(require_permission("users:update")),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("profile_update")),
 ):
     """Update a manageable user (role, status, contact info, reporting manager)."""
-    from services.core import cache_service
-
     correlation_id = CorrelationIDGenerator.generate()
     CorrelationIDGenerator.set(correlation_id)
-
-
-    if current_user.role == "user":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Users cannot update other users. Admin privileges required.",
-        )
 
     update_data = updates.dict(exclude_unset=True)
     if not update_data:
@@ -145,7 +148,6 @@ async def update_user_by_admin(
         )
 
     updated_user = result["user"]
-    cache_service.invalidate_user_profile(updated_user.id)
 
     AuditLogService.log_user_action(
         db=db,
@@ -174,7 +176,7 @@ async def update_user_by_admin(
 async def create_user_by_admin(
     user_data: AdminCreateUserRequest,
     request: Request,
-    current_user: CurrentUser,
+    current_user: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user"))
 ):
@@ -205,13 +207,7 @@ async def create_user_by_admin(
     CorrelationIDGenerator.set(correlation_id)
     
     try:
-        # Check if user has permission to create users
-        if current_user.role == "user":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Users cannot create other users. Admin privileges required."
-            )
-        
+        # Create path is gated by require_permission("users:create") (staff or grant)
         # Convert Pydantic model to dictionary
         user_data_dict = user_data.dict()
         
@@ -224,33 +220,30 @@ async def create_user_by_admin(
                 detail=result["error"]
             )
         
-        # Send welcome email to new user
+        # Send welcome email when requested and EMAIL__ENABLE_EMAILS is on
         email_sent = False
-        try:
-            from utils.email_service import get_email_service
-            email_service = get_email_service()
-            
-            created_user = result["user"]
-            temp_password = result.get("generated_password")
-            
-            email_service.send_welcome_email(
-                to_email=created_user.email,
-                username=created_user.username,
-                temp_password=temp_password
-            )
-            email_sent = True
-        except Exception as e:
-            auth_logger.error(
-                f"Failed to send welcome email: {str(e)}",
-                user_id=created_user.id if 'created_user' in locals() else None,
-                email=created_user.email if 'created_user' in locals() else None,
-                error=str(e),
-                event_type="welcome_email_error"
-            )
-        
-        # Prepare response
         created_user = result["user"]
+        if user_data.send_welcome_email:
+            try:
+                from utils.email_service import get_email_service
 
+                email_service = get_email_service()
+                temp_password = result.get("generated_password")
+                email_sent = bool(
+                    email_service.send_welcome_email(
+                        to_email=created_user.email,
+                        username=created_user.username,
+                        temp_password=temp_password,
+                    )
+                )
+            except Exception as e:
+                auth_logger.error(
+                    f"Failed to send welcome email: {str(e)}",
+                    user_id=created_user.id,
+                    email=created_user.email,
+                    error=str(e),
+                    event_type="welcome_email_error",
+                )
         AuditLogService.log_user_action(
             db=db,
             user_id=current_user.id,
@@ -295,3 +288,42 @@ async def create_user_by_admin(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+
+
+@router.delete("/users/{user_id}")
+async def soft_delete_user(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(require_permission("users:delete")),
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user")),
+):
+    """Soft-delete a manageable user (revokes refresh sessions)."""
+    correlation_id = CorrelationIDGenerator.generate()
+    CorrelationIDGenerator.set(correlation_id)
+
+    result = UserService.soft_delete_user(db, current_user, user_id)
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"],
+        )
+
+    AuditLogService.log_user_action(
+        db=db,
+        user_id=current_user.id,
+        action="delete",
+        resource_type="user",
+        resource_id=user_id,
+        new_values={"deleted": True},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        correlation_id=correlation_id,
+    )
+
+    return {
+        "success": True,
+        "message": result["message"],
+        "user_id": user_id,
+        "correlation_id": correlation_id,
+    }

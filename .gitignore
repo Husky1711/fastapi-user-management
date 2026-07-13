@@ -31,6 +31,7 @@ venv.bak/
 .venv/
 
 # Environment Variables
+.env
 .env.local
 .env.*.local
 
@@ -53,6 +54,13 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Frontend build output (also listed in frontend/.gitignore)
+frontend/dist/
+frontend/dist-ssr/
+
+# Generated CI/operator artifacts
+artifacts/
 
 # Database
 *.db

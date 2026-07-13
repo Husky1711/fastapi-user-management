@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.user_model import UserPermission, User, UserGroup, UserGroupMembership
+from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -17,6 +18,11 @@ class UserPermissionService:
         "users:update": "Update user information",
         "users:delete": "Delete users",
         "users:list": "List all users",
+
+        # Permission Management
+        "permissions:read": "View permission grants and statistics",
+        "permissions:grant": "Grant permissions to users",
+        "permissions:revoke": "Revoke user permissions",
         
         # Organization Management
         "organizations:create": "Create new organizations",
@@ -29,6 +35,12 @@ class UserPermissionService:
         "sessions:read": "View user sessions",
         "sessions:revoke": "Revoke user sessions",
         "sessions:list": "List all sessions",
+
+        # Groups
+        "groups:read": "View user groups",
+        "groups:create": "Create user groups",
+        "groups:update": "Update user groups",
+        "groups:delete": "Delete user groups",
         
         # Audit & Logs
         "audit:read": "View audit logs",
@@ -87,6 +99,9 @@ class UserPermissionService:
             Dictionary with grant result
         """
         try:
+            resource_type = resource_type or ""
+            resource_id = 0 if resource_id is None else resource_id
+
             # Check if permission already exists
             existing = db.query(UserPermission)\
                 .filter(UserPermission.user_id == user_id)\
@@ -101,15 +116,20 @@ class UserPermissionService:
                     "success": False,
                     "error": "Permission already exists for this user and resource"
                 }
+
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {"success": False, "error": "User not found"}
             
-            # Create new permission
+            # Create new permission (organization_id denormalized for tenant audits)
             permission = UserPermission(
                 user_id=user_id,
+                organization_id=user.organization_id,
                 permission_name=permission_name,
                 resource_type=resource_type,
                 resource_id=resource_id,
                 granted_by=granted_by,
-                granted_at=datetime.utcnow(),
+                granted_at=utc_now(),
                 expires_at=expires_at,
                 is_active=True
             )
@@ -190,7 +210,7 @@ class UserPermissionService:
             
             # Revoke the permission
             permission.is_active = False
-            permission.expires_at = datetime.utcnow()
+            permission.expires_at = utc_now()
             
             db.commit()
             
@@ -246,6 +266,16 @@ class UserPermissionService:
             Dictionary with permission check result
         """
         try:
+            from sqlalchemy import or_
+
+            resource_type = resource_type or ""
+            resource_id = 0 if resource_id is None else resource_id
+
+            not_expired = or_(
+                UserPermission.expires_at.is_(None),
+                UserPermission.expires_at > utc_now(),
+            )
+
             # Check direct permissions
             permission = db.query(UserPermission)\
                 .filter(UserPermission.user_id == user_id)\
@@ -253,7 +283,7 @@ class UserPermissionService:
                 .filter(UserPermission.resource_type == resource_type)\
                 .filter(UserPermission.resource_id == resource_id)\
                 .filter(UserPermission.is_active == True)\
-                .filter(UserPermission.expires_at > datetime.utcnow())\
+                .filter(not_expired)\
                 .first()
             
             if permission:
@@ -264,28 +294,50 @@ class UserPermissionService:
                     "granted_at": permission.granted_at.isoformat(),
                     "expires_at": permission.expires_at.isoformat() if permission.expires_at else None
                 }
-            
-            # Check group permissions
-            group_permissions = db.query(UserPermission)\
-                .join(UserGroupMembership, UserPermission.user_id == UserGroupMembership.user_id)\
-                .filter(UserGroupMembership.user_id == user_id)\
-                .filter(UserGroupMembership.is_active == True)\
-                .filter(UserPermission.permission_name == permission_name)\
-                .filter(UserPermission.resource_type == resource_type)\
-                .filter(UserPermission.resource_id == resource_id)\
-                .filter(UserPermission.is_active == True)\
-                .filter(UserPermission.expires_at > datetime.utcnow())\
+
+            # Role → permission catalog (`role_permissions` via `user_roles`)
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            if RbacCatalogService.user_has_role_permission(
+                db, user_id, permission_name
+            ):
+                return {
+                    "success": True,
+                    "has_permission": True,
+                    "permission_type": "role",
+                    "granted_at": None,
+                    "expires_at": None,
+                }
+
+            # Group → permission catalog (`group_permissions`)
+            from models.rbac_model import GroupPermission, Permission as CatalogPermission
+
+            group_grant = (
+                db.query(GroupPermission)
+                .join(
+                    CatalogPermission,
+                    CatalogPermission.id == GroupPermission.permission_id,
+                )
+                .join(
+                    UserGroupMembership,
+                    UserGroupMembership.group_id == GroupPermission.group_id,
+                )
+                .filter(UserGroupMembership.user_id == user_id)
+                .filter(UserGroupMembership.is_active == True)
+                .filter(CatalogPermission.name == permission_name)
                 .first()
-            
-            if group_permissions:
+            )
+            if group_grant:
                 return {
                     "success": True,
                     "has_permission": True,
                     "permission_type": "group",
-                    "granted_at": group_permissions.granted_at.isoformat(),
-                    "expires_at": group_permissions.expires_at.isoformat() if group_permissions.expires_at else None
+                    "granted_at": group_grant.granted_at.isoformat()
+                    if group_grant.granted_at
+                    else None,
+                    "expires_at": None,
                 }
-            
+
             return {
                 "success": True,
                 "has_permission": False,
@@ -330,7 +382,7 @@ class UserPermissionService:
                 .filter(UserPermission.user_id == user_id)
             
             if not include_expired:
-                query = query.filter(UserPermission.expires_at > datetime.utcnow())
+                query = query.filter(UserPermission.expires_at > utc_now())
             
             if resource_type:
                 query = query.filter(UserPermission.resource_type == resource_type)
@@ -344,6 +396,7 @@ class UserPermissionService:
                 permissions_data.append({
                     "id": perm.id,
                     "permission_name": perm.permission_name,
+                    "organization_id": perm.organization_id,
                     "resource_type": perm.resource_type,
                     "resource_id": perm.resource_id,
                     "granted_by": perm.granted_by,
@@ -390,15 +443,13 @@ class UserPermissionService:
         try:
             query = db.query(UserPermission)
             
-            if organization_id or user_ids is not None:
-                query = query.join(User, UserPermission.user_id == User.id)
-                if organization_id:
-                    query = query.filter(User.organization_id == organization_id)
-                if user_ids is not None:
-                    if user_ids:
-                        query = query.filter(UserPermission.user_id.in_(user_ids))
-                    else:
-                        query = query.filter(False)
+            if organization_id is not None:
+                query = query.filter(UserPermission.organization_id == organization_id)
+            if user_ids is not None:
+                if user_ids:
+                    query = query.filter(UserPermission.user_id.in_(user_ids))
+                else:
+                    query = query.filter(False)
             
             # Get total permissions
             total_permissions = query.count()
@@ -452,7 +503,7 @@ class UserPermissionService:
             Dictionary with cleanup result
         """
         try:
-            current_time = datetime.utcnow()
+            current_time = utc_now()
             
             # Find expired permissions
             expired_permissions = db.query(UserPermission)\
@@ -493,17 +544,18 @@ class UserPermissionService:
             }
     
     @staticmethod
-    def get_standard_permissions() -> Dict[str, str]:
-        """
-        Get list of standard permissions
-        
-        Returns:
-            Dictionary of standard permissions
-        """
+    def get_standard_permissions(db: Optional[Session] = None) -> Dict[str, str]:
+        """Get catalog permissions (DB when available, else in-code defaults)."""
+        if db is not None:
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            return RbacCatalogService.list_permission_names(db)
         return UserPermissionService.STANDARD_PERMISSIONS.copy()
     
     @staticmethod
-    def validate_permission_name(permission_name: str) -> bool:
+    def validate_permission_name(
+        permission_name: str, db: Optional[Session] = None
+    ) -> bool:
         """
         Validate permission name format
         
@@ -522,6 +574,12 @@ class UserPermissionService:
         if not resource or not action:
             return False
         
+        if db is not None:
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            if RbacCatalogService.permission_exists(db, permission_name):
+                return True
+
         # Check if it's a standard permission
         if permission_name in UserPermissionService.STANDARD_PERMISSIONS:
             return True

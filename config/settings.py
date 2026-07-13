@@ -15,28 +15,66 @@ CODESPACES_DATABASE_URL = (
     "mysql+pymysql://fastapi:fastapi@localhost:3306/fastapi_users"
 )
 
-# Optional Neon Postgres — enable with DATABASE_URL env var (not the default on this branch)
-NEON_DATABASE_URL = (
-    "postgresql+psycopg://neondb_owner:npg_QvIBoUTWtM70"
-    "@ep-square-dawn-a1ozpk15-pooler.ap-southeast-1.aws.neon.tech/"
-    "neondb?sslmode=require&channel_binding=require"
+# Known insecure default — allowed only in development; rejected in production startup.
+INSECURE_DEV_JWT_SECRET = (
+    "your-super-secret-key-change-this-in-production-must-be-at-least-32-chars"
 )
 
 DEFAULT_DATABASE_URL = CODESPACES_DATABASE_URL
 
 
 class DatabaseSettings(BaseSettings):
-    """Database configuration settings"""
+    """Database configuration settings.
+
+    Env vars (prefer these — ``env_prefix=DB_``)::
+
+        DB_URL, DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_POOL_TIMEOUT,
+        DB_POOL_RECYCLE, DB_STATEMENT_TIMEOUT_SECONDS, DB_ECHO
+
+    Nested form also works when set on the root Settings object::
+
+        DATABASE__POOL_SIZE, DATABASE__MAX_OVERFLOW, ...
+
+    (``DB__POOL_SIZE`` with a double underscore does **not** bind — that is a
+    common misread of the nested delimiter.)
+    """
+
     url: str = Field(
-        default_factory=lambda: os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL),
+        default_factory=lambda: os.getenv("DATABASE_URL", CODESPACES_DATABASE_URL),
         description="Database connection URL",
     )
     echo: bool = Field(False, description="Enable SQLAlchemy echo for debugging")
-    pool_size: int = Field(20, description="Database connection pool size")
-    max_overflow: int = Field(40, description="Maximum overflow connections")
-    pool_timeout: int = Field(30, description="Seconds to wait for a connection")
-    pool_recycle: int = Field(3600, description="Seconds before connection is recycled")
-    
+    pool_size: int = Field(
+        20,
+        ge=1,
+        le=200,
+        description="SQLAlchemy pool size per process (tune: replicas × workers × pool)",
+    )
+    max_overflow: int = Field(
+        40,
+        ge=0,
+        le=400,
+        description="Extra connections above pool_size under burst",
+    )
+    pool_timeout: int = Field(
+        30,
+        ge=1,
+        le=300,
+        description="Seconds to wait for a connection from the pool",
+    )
+    pool_recycle: int = Field(
+        3600,
+        ge=60,
+        le=86400,
+        description="Seconds before a pooled connection is recycled",
+    )
+    statement_timeout_seconds: int = Field(
+        30,
+        ge=1,
+        le=600,
+        description="Per-statement query timeout in seconds (MySQL MAX_EXECUTION_TIME / Postgres statement_timeout)",
+    )
+
     class Config:
         env_prefix = "DB_"
 
@@ -49,13 +87,31 @@ class RedisSettings(BaseSettings):
     socket_connect_timeout: int = Field(5, description="Socket connect timeout")
     socket_timeout: int = Field(5, description="Socket timeout")
     retry_on_timeout: bool = Field(True, description="Retry on timeout")
-    
+    circuit_failure_threshold: int = Field(
+        3,
+        ge=1,
+        le=50,
+        description="Consecutive failures before opening the Redis circuit",
+    )
+    circuit_cooldown_seconds: int = Field(
+        30,
+        ge=1,
+        le=600,
+        description="Base cooldown when the Redis circuit opens (doubles with backoff)",
+    )
+    circuit_max_cooldown_seconds: int = Field(
+        300,
+        ge=1,
+        le=3600,
+        description="Maximum circuit-open cooldown under exponential backoff",
+    )
+
     class Config:
         env_prefix = "REDIS_"
 
 class JWTSettings(BaseSettings):
     """JWT configuration settings"""
-    secret_key: str = Field("your-super-secret-key-change-this-in-production-must-be-at-least-32-chars", description="JWT secret key")
+    secret_key: str = Field(INSECURE_DEV_JWT_SECRET, description="JWT secret key")
     algorithm: str = Field("HS256", description="JWT algorithm")
     access_token_expire_minutes: int = Field(5, description="Access token expiration in minutes")
     refresh_token_expire_days: int = Field(7, description="Refresh token expiration in days")
@@ -83,13 +139,11 @@ class SessionSettings(BaseSettings):
     )
     
     # Session limits
-    max_sessions_per_user: int = Field(5, description="Maximum sessions per user")
+    max_sessions_per_user: int = Field(5, description="Maximum concurrent auth sessions (refresh tokens) per user")
     max_sessions_per_device: int = Field(2, description="Maximum sessions per device")
     
-    # Session timeouts
-    access_token_expire_minutes: int = Field(5, description="Access token expiration in minutes")
-    refresh_token_expire_hours: int = Field(24, description="Refresh token expiration in hours")
-    session_timeout_hours: int = Field(24, description="Overall session timeout in hours")
+    # Analytics / idle session timeout (refresh TTL is jwt.refresh_token_expire_days only)
+    session_timeout_hours: int = Field(24, description="Analytics session timeout in hours")
     
     # Auto cleanup settings
     auto_cleanup_enabled: bool = Field(True, description="Enable automatic session cleanup")
@@ -150,10 +204,20 @@ class PasswordPolicySettings(BaseSettings):
     # Password age settings
     max_password_age_days: int = Field(90, description="Maximum password age in days")
     password_expiry_warning_days: int = Field(7, description="Days before expiry to show warning")
-    
-    # Account lockout settings
-    max_login_attempts: int = Field(5, description="Maximum failed login attempts")
-    lockout_duration_minutes: int = Field(30, description="Account lockout duration in minutes")
+    enforce_max_password_age: bool = Field(
+        False,
+        description="Reject login when password_changed_at exceeds max_password_age_days",
+    )
+    allow_legacy_sha256_hashes: bool = Field(
+        True,
+        description=(
+            "Accept legacy SHA-256 password hashes at login and auto-rehash to bcrypt. "
+            "Set false after running scripts/ensure_bcrypt_seed_passwords.py / cutover "
+            "(PASSWORD__ALLOW_LEGACY_SHA256_HASHES=false)."
+        ),
+    )
+
+    # Lockout lives under SecuritySettings (single source of truth).
     
     @field_validator('password_history_limit')
     @classmethod
@@ -199,12 +263,24 @@ class RateLimitSettings(BaseSettings):
             "signup": {"minute": 10, "hour": 100},
             "password_change": {"minute": 10, "hour": 100},
             "password_reset": {"minute": 5, "hour": 50},
+            "password_reset_request": {"minute": 5, "hour": 50},
+            "password_reset_confirm": {"minute": 10, "hour": 100},
+            "email_verify": {"minute": 20, "hour": 100},
+            "email_resend_verification": {"minute": 5, "hour": 20},
             "2fa_enable": {"minute": 5, "hour": 20},
             "2fa_verify": {"minute": 10, "hour": 50},
             "2fa_disable": {"minute": 5, "hour": 20},
             "2fa_status": {"minute": 30, "hour": 300},
         },
         description="Rate limits for specific endpoints"
+    )
+
+    # Per-email buckets (password-reset email bombing protection)
+    email_limits: Dict[str, Dict[str, int]] = Field(
+        default={
+            "password_reset_request": {"minute": 3, "hour": 10},
+        },
+        description="Rate limits keyed by normalized email for sensitive unauthenticated flows",
     )
     
     # Global IP limits (DDoS protection)
@@ -221,6 +297,7 @@ class RateLimitSettings(BaseSettings):
     fail_open: bool = Field(True, description="Allow requests if Redis is down")
     enable_user_limits: bool = Field(True, description="Enable user-specific rate limits")
     enable_ip_limits: bool = Field(True, description="Enable IP-based rate limits")
+    enable_email_limits: bool = Field(True, description="Enable per-email rate limits")
     
     class Config:
         env_prefix = "RATE_LIMIT_"
@@ -232,7 +309,14 @@ class LoggingSettings(BaseSettings):
     max_file_size: int = Field(10 * 1024 * 1024, description="Max log file size in bytes")  # 10MB
     backup_count: int = Field(5, description="Number of backup files to keep")
     enable_console: bool = Field(True, description="Enable console logging")
-    enable_file: bool = Field(True, description="Enable file logging")
+    enable_file: bool = Field(
+        True,
+        description="Enable file logging (auto-disabled in production unless LOG__FORCE_FILE=true)",
+    )
+    force_file: bool = Field(
+        False,
+        description="Force file handlers even in production (not recommended for containers)",
+    )
     enable_json: bool = Field(True, description="Enable JSON formatted logs")
     
     # Log rotation settings
@@ -269,6 +353,10 @@ class SecuritySettings(BaseSettings):
     allow_public_signup: bool = Field(
         False,
         description="Allow unauthenticated POST /api/v1/signup (disable in production)",
+    )
+    require_email_verification: bool = Field(
+        False,
+        description="Reject login until users.email_verified_at is set",
     )
     allow_debug_auth: bool = Field(
         False,
@@ -337,13 +425,16 @@ class AuthCookieSettings(BaseSettings):
 
 class EmailSettings(BaseSettings):
     """Email configuration settings"""
-    smtp_host: str = Field("smtp.gmail.com", description="SMTP server host")
+    smtp_host: str = Field("", description="SMTP server host")
     smtp_port: int = Field(587, description="SMTP server port")
-    smtp_username: str = Field("psaiprasad003@gmail.com", description="SMTP username (Gmail address)")
-    smtp_password: str = Field("sdmdoexbksxcghzg", description="SMTP password (Gmail app password)")
-    from_email: str = Field("psaiprasad003@gmail.com", description="From email address")
-    base_url: str = Field("http://localhost:8000", description="Base URL for email links")
-    enable_emails: bool = Field(True, description="Enable email sending")
+    smtp_username: str = Field("", description="SMTP username")
+    smtp_password: str = Field("", description="SMTP password")
+    from_email: str = Field("", description="From email address")
+    base_url: str = Field(
+        "http://localhost:5173",
+        description="Public frontend base URL for email links (password reset, verify)",
+    )
+    enable_emails: bool = Field(False, description="Enable email sending")
     
     class Config:
         env_prefix = "EMAIL_"
@@ -360,6 +451,28 @@ class AppSettings(BaseSettings):
     
     # Environment
     environment: str = Field("development", description="Environment (development/staging/production)")
+    enable_retention_job: bool = Field(
+        False,
+        description="Run background retention cleanup loop (sessions, tokens, history)",
+    )
+    retention_interval_minutes: int = Field(
+        60,
+        ge=5,
+        le=1440,
+        description="Minutes between retention cleanup runs when enabled",
+    )
+    login_attempts_retention_days: int = Field(
+        90,
+        ge=7,
+        le=365,
+        description="Days to retain login_attempts rows before purge",
+    )
+    audit_logs_retention_days: int = Field(
+        365,
+        ge=30,
+        le=2555,
+        description="Days to retain audit_logs rows before purge (partitioning is separate)",
+    )
     
     @field_validator('environment')
     @classmethod
@@ -371,6 +484,27 @@ class AppSettings(BaseSettings):
     
     class Config:
         env_prefix = "APP_"
+
+
+class OtellSettings(BaseSettings):
+    """Optional OpenTelemetry export (install requirements-otel.txt)."""
+
+    enabled: bool = Field(
+        False,
+        description="Instrument FastAPI with OpenTelemetry when OTEL packages are installed",
+    )
+    service_name: str = Field(
+        "fastapi-user-management",
+        description="OTEL resource service.name",
+    )
+    exporter_otlp_endpoint: Optional[str] = Field(
+        None,
+        description="OTLP HTTP/gRPC endpoint (also honor OTEL_EXPORTER_OTLP_ENDPOINT)",
+    )
+
+    class Config:
+        env_prefix = "OTEL_"
+
 
 class Settings(BaseSettings):
     """Main settings class that combines all configuration sections"""
@@ -387,6 +521,7 @@ class Settings(BaseSettings):
     auth_cookie: AuthCookieSettings = Field(default_factory=AuthCookieSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
     app: AppSettings = Field(default_factory=AppSettings)
+    otel: OtellSettings = Field(default_factory=OtellSettings)
     
     class Config:
         env_file = ".env"
@@ -419,11 +554,46 @@ class Settings(BaseSettings):
     
     def is_production(self) -> bool:
         """Check if running in production"""
-        return self.environment.lower() == "production"
+        return self.app.environment.lower() == "production"
     
     def is_development(self) -> bool:
         """Check if running in development"""
-        return self.environment.lower() == "development"
+        return self.app.environment.lower() == "development"
+
+    def validate_production_config(self) -> None:
+        """Fail fast when production is configured with unsafe defaults."""
+        if not self.is_production():
+            return
+
+        errors: List[str] = []
+        if self.jwt.secret_key == INSECURE_DEV_JWT_SECRET:
+            errors.append("JWT__SECRET_KEY must be set to a strong unique value in production")
+        if self.security.allow_debug_auth:
+            errors.append("SECURITY__ALLOW_DEBUG_AUTH must be false in production")
+        if not self.is_development() and self.security.allow_debug_auth:
+            errors.append("SECURITY__ALLOW_DEBUG_AUTH must be false outside development")
+        if self.security.allow_public_signup:
+            errors.append("SECURITY__ALLOW_PUBLIC_SIGNUP must be false in production")
+        if self.auth_cookie.legacy_json_refresh:
+            errors.append("AUTH_COOKIE__LEGACY_JSON_REFRESH should be false in production")
+        if not self.auth_cookie.secure:
+            errors.append("AUTH_COOKIE__SECURE must be true in production (HTTPS required)")
+        if self.rate_limit.fail_open:
+            errors.append(
+                "RATE_LIMIT__FAIL_OPEN must be false in production "
+                "(Redis is a hard dependency for rate limiting)"
+            )
+        if self.password_policy.allow_legacy_sha256_hashes:
+            errors.append(
+                "PASSWORD__ALLOW_LEGACY_SHA256_HASHES must be false in production "
+                "(run scripts/ensure_bcrypt_seed_passwords.py --report first)"
+            )
+
+        if errors:
+            raise ValueError(
+                "Production configuration validation failed:\n"
+                + "\n".join(f"  - {item}" for item in errors)
+            )
     
     def get_log_config(self) -> Dict[str, Any]:
         """Get logging configuration"""
@@ -434,10 +604,12 @@ class Settings(BaseSettings):
             "backup_count": self.logging.backup_count,
             "enable_console": self.logging.enable_console,
             "enable_file": self.logging.enable_file,
+            "force_file": self.logging.force_file,
             "enable_json": self.logging.enable_json,
             "rotation_enabled": self.logging.rotation_enabled,
             "rotation_schedule": self.logging.rotation_schedule,
             "retention_days": self.logging.retention_days,
+            "environment": self.app.environment,
         }
 
 # Global settings instance
@@ -457,13 +629,13 @@ ENDPOINT_LIMITS = settings.rate_limit.endpoint_limits
 GLOBAL_IP_LIMITS = settings.rate_limit.global_ip_limits
 
 if __name__ == "__main__":
-    # Test configuration loading
+    # Local config smoke check only — never log secrets or secret lengths.
     print("Configuration loaded successfully!")
     print(f"Environment: {settings.app.environment}")
-    print(f"Database URL: {settings.get_database_url()}")
-    print(f"Redis URL: {settings.get_redis_url()}")
-    print(f"JWT Secret Key Length: {len(settings.jwt.secret_key)}")
+    print(f"Redis host: {settings.redis.host}:{settings.redis.port}")
     print(f"Rate Limit Endpoints: {len(settings.rate_limit.endpoint_limits)}")
     print(f"Log Level: {settings.logging.level}")
     print(f"App Name: {settings.app.name}")
     print(f"Debug Mode: {settings.app.debug}")
+    print(f"JWT secret configured: {bool(settings.jwt.secret_key)}")
+    print(f"Database dialect: {settings.database.url.split(':', 1)[0]}")

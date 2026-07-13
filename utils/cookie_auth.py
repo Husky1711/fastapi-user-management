@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
 """httpOnly refresh-token cookie helpers for browser clients."""
 
+from utils.datetime_utc import utc_now
 from typing import Any, Dict, Optional
 
-from fastapi import Request, Response
+from fastapi import Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from config.settings import settings
+
+# Custom header required on cookie-auth mutating endpoints (refresh/logout).
+# Browsers do not attach this on simple cross-site form POSTs, blocking CSRF.
+CSRF_HEADER_NAME = "X-Requested-With"
+CSRF_HEADER_VALUE = "XMLHttpRequest"
+
+
+def require_csrf_header(
+    x_requested_with: Optional[str] = Header(None, alias=CSRF_HEADER_NAME),
+) -> None:
+    """Reject requests without the SPA CSRF custom header."""
+    if not x_requested_with or x_requested_with.strip() != CSRF_HEADER_VALUE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing or invalid {CSRF_HEADER_NAME} header",
+        )
 
 
 def get_refresh_token_from_request(request: Request) -> Optional[str]:
@@ -101,7 +118,7 @@ def build_logout_response(message: str = "Successfully logged out") -> JSONRespo
     response = JSONResponse(
         content={
             "message": message,
-            "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
     )
     clear_refresh_cookie(response)

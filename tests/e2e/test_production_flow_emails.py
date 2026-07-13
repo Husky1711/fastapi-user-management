@@ -55,7 +55,7 @@ class ProductionFlowEmailTester:
             "username": username,
             "password": "TestSignupPass123",
             "email": self.test_email,
-            "phone_number": f"123456{timestamp}"
+            "organization_id": 1,
         }
         
         try:

@@ -79,7 +79,12 @@ def admin_user_data():
 
 def create_test_user(db: Session, user_data: Dict[str, Any]) -> User:
     """Helper to create a test user"""
-    user = User(**user_data)
+    from utils.jwt_config import get_password_hash
+
+    payload = dict(user_data)
+    if "password" in payload and "password_hash" not in payload:
+        payload["password_hash"] = get_password_hash(payload.pop("password"))
+    user = User(**payload)
     db.add(user)
     db.commit()
     db.refresh(user)

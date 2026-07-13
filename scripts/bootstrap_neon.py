@@ -1,7 +1,16 @@
 """
-Utility script to bootstrap a Neon (or any PostgreSQL) database using the
+DEPRECATED for greenfield deploys — prefer Alembic (`alembic upgrade head`).
+
+Legacy utility to bootstrap a Neon (or any PostgreSQL) database using the
 existing SQLAlchemy models. It can optionally copy data from a MySQL source
-database so production environments can be hydrated quickly.
+database so staging environments can be hydrated quickly.
+
+Canonical scripts
+-----------------
+* MySQL CI / local seed: ``scripts/ci_bootstrap_db.py``
+* MySQL migrate-only: ``scripts/bootstrap_local_db.py``
+* Postgres: set ``DATABASE_URL`` + ``alembic upgrade head`` (this script remains for
+  one-off ``create_all`` + optional data copy only)
 
 Usage examples:
     # Create schema only

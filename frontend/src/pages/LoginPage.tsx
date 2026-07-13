@@ -6,10 +6,12 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import styles from "./LoginPage.module.css";
 
 export function LoginPage() {
-  const { status, login, loginWithSessionStrategy } = useAuth();
+  const { status, login, loginWith2fa, loginWithSessionStrategy } = useAuth();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showSessionOptions, setShowSessionOptions] = useState(false);
@@ -36,10 +38,18 @@ export function LoginPage() {
           setSessionMessage(`Signed in. Revoked ${info.sessions_revoked} other session(s).`);
         }
       } else {
-        await login(username, password);
+        const challenge = await login(username, password);
+        if (challenge) {
+          setChallengeToken(challenge.challenge_token);
+        }
       }
     } catch (err) {
       const apiError = getApiError(err);
+      const challenge = (err as { challenge?: { challenge_token: string } }).challenge;
+      if (challenge?.challenge_token) {
+        setChallengeToken(challenge.challenge_token);
+        return;
+      }
       setError(apiError.detail);
       if (apiError.error_code === "SESSION_EXISTS") {
         setShowSessionOptions(true);
@@ -49,9 +59,61 @@ export function LoginPage() {
     }
   }
 
+  async function onSubmit2fa(event: FormEvent) {
+    event.preventDefault();
+    if (!challengeToken) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await loginWith2fa(challengeToken, totpCode);
+    } catch (err) {
+      setError(getApiError(err).detail);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     await handleLogin();
+  }
+
+  if (challengeToken) {
+    return (
+      <div className={styles.page} data-testid="login-2fa-page">
+        <form className={styles.card} onSubmit={onSubmit2fa}>
+          <h1>Two-factor authentication</h1>
+          <p className={styles.subtitle}>Enter the 6-digit code from your authenticator app.</p>
+          {error && <p className={styles.error}>{error}</p>}
+          <label>
+            Authentication code
+            <input
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value)}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              minLength={6}
+              maxLength={8}
+              required
+            />
+          </label>
+          <button type="submit" disabled={submitting}>
+            {submitting ? "Verifying…" : "Verify and sign in"}
+          </button>
+          <button
+            type="button"
+            className={styles.linkBtn}
+            onClick={() => {
+              setChallengeToken(null);
+              setTotpCode("");
+              setError(null);
+            }}
+          >
+            ← Back to password
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -130,6 +192,7 @@ export function LoginPage() {
         )}
 
         <Link to="/forgot-password">Forgot password?</Link>
+        <Link to="/verify">Verify email</Link>
         <Link to="/signup">Create an account</Link>
       </form>
     </div>

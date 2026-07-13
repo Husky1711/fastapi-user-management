@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from models.user_model import User
+from utils.datetime_utc import utc_now
 from utils.database import get_db
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -7,48 +8,129 @@ from utils.jwt_config import get_password_hash, needs_password_rehash, verify_pa
 import secrets
 import string
 import re
-from schemas.login import RoleHierarchyValidator
+from services.users.role_policy import RoleHierarchyValidator, assert_not_self_admin_edit
 from services.users.role_scope import can_view_user, can_edit_user, filter_users_for_viewer, is_manager_role
 from models.user_model import Organization
+from services.permissions.rbac_catalog_service import RbacCatalogService
 from utils.loggers import auth_logger
 
 class UserService:
     _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
     _EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
     @staticmethod
-    def create_user(db: Session, username: str, password: str, email: str, phone_number: str = None) -> User:
+    def _active_users_query(db: Session):
+        return db.query(User).filter(User.deleted_at.is_(None))
+
+    @staticmethod
+    def _with_serialization_eager_loads(query):
+        """Eager-load org + manager so list serialization avoids N+1 queries."""
+        return query.options(
+            joinedload(User.organization),
+            joinedload(User.manager),
+        )
+
+    @staticmethod
+    def _invalidate_user_cache(user_id: int, *, full: bool = True) -> None:
+        """Best-effort Redis cache invalidation after user mutations."""
+        try:
+            from services.core import cache_service
+
+            if full:
+                cache_service.invalidate_all_user_cache(user_id)
+            else:
+                cache_service.invalidate_user_profile(user_id)
+        except Exception as exc:
+            auth_logger.warning(
+                f"User cache invalidation failed: {exc}",
+                user_id=user_id,
+                error=str(exc),
+                event_type="user_cache_invalidation_error",
+            )
+        try:
+            from services.dashboard.cache import invalidate_dashboard_caches
+
+            invalidate_dashboard_caches()
+        except Exception as exc:
+            auth_logger.warning(
+                f"Dashboard cache invalidation failed: {exc}",
+                user_id=user_id,
+                error=str(exc),
+                event_type="dashboard_cache_invalidation_error",
+            )
+
+    @staticmethod
+    def create_user(
+        db: Session,
+        username: str,
+        password: str,
+        email: str,
+        organization_id: int,
+        phone_number: str = None,
+    ) -> User:
         """Create a new user in the database"""
+        org = (
+            db.query(Organization)
+            .filter(Organization.id == organization_id)
+            .filter(Organization.deleted_at.is_(None))
+            .first()
+        )
+        if not org:
+            raise ValueError("Invalid organization_id")
+
         hashed_password = get_password_hash(password)
+        now = utc_now()
         db_user = User(
             username=username,
-            password=hashed_password,
+            password_hash=hashed_password,
             email=email,
-            phone_number=phone_number or "0000000000"
+            organization_id=organization_id,
+            phone_number=phone_number or "0000000000",
+            password_changed_at=now,
+            email_verified_at=None,
         )
         db.add(db_user)
+        db.flush()
+        RbacCatalogService.sync_user_system_role(
+            db, db_user.id, db_user.role or "user"
+        )
         db.commit()
         db.refresh(db_user)
+        UserService._invalidate_user_cache(db_user.id, full=True)
         return db_user
     
     @staticmethod
     def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
-        """Get user by ID"""
-        return db.query(User).filter(User.id == user_id).first()
+        """Get user by ID (excludes soft-deleted)."""
+        return (
+            UserService._with_serialization_eager_loads(UserService._active_users_query(db))
+            .filter(User.id == user_id)
+            .first()
+        )
     
     @staticmethod
     def get_user_by_username(db: Session, username: str) -> Optional[User]:
-        """Get user by username"""
-        return db.query(User).filter(User.username == username).first()
+        """Get user by username (excludes soft-deleted)."""
+        return (
+            UserService._active_users_query(db)
+            .filter(User.username == username)
+            .first()
+        )
     
     @staticmethod
     def get_user_by_email(db: Session, email: str) -> Optional[User]:
-        """Get user by email"""
-        return db.query(User).filter(User.email == email).first()
+        """Get user by email (excludes soft-deleted)."""
+        return UserService._active_users_query(db).filter(User.email == email).first()
     
     @staticmethod
     def get_all_users(db: Session, skip: int = 0, limit: int = 100) -> List[User]:
         """Get all users with pagination"""
-        return db.query(User).offset(skip).limit(limit).all()
+        return (
+            UserService._with_serialization_eager_loads(UserService._active_users_query(db))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
     
     @staticmethod
     def get_users_by_role_and_organization(db: Session, current_user_role: str, current_user_org_id: int, skip: int = 0, limit: int = 100) -> List[User]:
@@ -56,30 +138,96 @@ class UserService:
         if current_user_role == "user":
             return []
 
-        query = filter_users_for_viewer(db.query(User), current_user_role, current_user_org_id)
-        return query.offset(skip).limit(limit).all()
+        query = filter_users_for_viewer(
+            UserService._active_users_query(db), current_user_role, current_user_org_id
+        )
+        return (
+            UserService._with_serialization_eager_loads(query)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
     
     @staticmethod
     def get_user_by_role_and_organization(db: Session, user_id: int, current_user_role: str, current_user_org_id: int, current_user_id: int) -> Optional[User]:
         """Get a specific user filtered by role and organization"""
         if current_user_role == "super_admin":
-            return db.query(User).filter(User.id == user_id).first()
+            return UserService.get_user_by_id(db, user_id)
 
         if current_user_role == "user":
             if user_id == current_user_id:
-                return db.query(User).filter(User.id == user_id).first()
+                return UserService.get_user_by_id(db, user_id)
             return None
 
-        target = db.query(User).filter(
-            User.id == user_id,
-            User.organization_id == current_user_org_id,
-        ).first()
+        target = (
+            UserService._with_serialization_eager_loads(UserService._active_users_query(db))
+            .filter(
+                User.id == user_id,
+                User.organization_id == current_user_org_id,
+            )
+            .first()
+        )
         if target is None:
             return None
         if not can_view_user(current_user_role, target.role):
             return None
         return target
     
+    @staticmethod
+    def soft_delete_user(
+        db: Session,
+        editor: User,
+        target_user_id: int,
+    ) -> Dict[str, Any]:
+        """Soft-delete a user and free unique username/email for reuse."""
+        try:
+            assert_not_self_admin_edit(editor.id, target_user_id)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+
+        target = UserService.get_user_by_id(db, target_user_id)
+        if target is None:
+            return {"success": False, "error": "User not found"}
+        if not can_edit_user(editor.role, target.role):
+            return {"success": False, "error": "Cannot delete this user"}
+        if editor.role != "super_admin" and target.organization_id != editor.organization_id:
+            return {"success": False, "error": "Cannot delete users in another organization"}
+
+        now = utc_now()
+        original_username = target.username
+        target.username = f"{original_username}__deleted__{target.id}"[:50]
+        target.email = f"deleted_{target.id}_{original_username}@deleted.local"[:100]
+        target.status = "inactive"
+        target.deleted_at = now
+        target.deleted_by = editor.id
+        target.updated_at = now
+        target.manager_id = None
+        db.commit()
+
+        UserService._invalidate_user_cache(target.id, full=True)
+
+        # Revoke sessions after soft delete
+        try:
+            from services.auth.refresh_token_service import RefreshTokenService
+
+            RefreshTokenService.revoke_all_user_tokens(
+                db, target.id, reason="user_soft_deleted"
+            )
+        except Exception:
+            pass
+
+        auth_logger.info(
+            f"User soft-deleted: {original_username}",
+            editor_id=editor.id,
+            target_user_id=target.id,
+            event_type="user_soft_deleted",
+        )
+        return {
+            "success": True,
+            "message": f"User '{original_username}' deleted",
+            "user_id": target.id,
+        }
+
     @staticmethod
     def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
         """Authenticate user with username and password"""
@@ -89,11 +237,11 @@ class UserService:
             return None
         
         # Verify password (bcrypt; legacy SHA-256 supported for migration)
-        if not verify_password(password, user.password):
+        if not verify_password(password, user.password_hash):
             return None
 
-        if needs_password_rehash(user.password):
-            user.password = get_password_hash(password)
+        if needs_password_rehash(user.password_hash):
+            user.password_hash = get_password_hash(password)
             db.commit()
         
         return user
@@ -113,7 +261,7 @@ class UserService:
         """Update user's last login timestamp"""
         user = db.query(User).filter(User.id == user_id).first()
         if user:
-            user.last_login = datetime.utcnow()
+            user.last_login = utc_now()
             db.commit()
             return True
         return False
@@ -146,12 +294,13 @@ class UserService:
 
     @staticmethod
     def serialize_user(db: Session, user: User, include_timestamps: bool = False) -> Dict[str, Any]:
-        """Build API-friendly user payload with org and manager details."""
-        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-        manager_username = None
-        if user.manager_id:
-            manager = db.query(User).filter(User.id == user.manager_id).first()
-            manager_username = manager.username if manager else None
+        """Build API-friendly user payload with org and manager details.
+
+        Prefer eager-loaded ``organization`` / ``manager`` relationships (see
+        ``_with_serialization_eager_loads``) to avoid N+1 queries on list endpoints.
+        """
+        organization_name = user.organization.name if user.organization else None
+        manager_username = user.manager.username if user.manager else None
 
         payload: Dict[str, Any] = {
             "id": user.id,
@@ -159,7 +308,7 @@ class UserService:
             "email": user.email,
             "role": user.role,
             "organization_id": user.organization_id,
-            "organization_name": org.name if org else None,
+            "organization_name": organization_name,
             "status": user.status,
             "phone_number": user.phone_number,
             "manager_id": user.manager_id,
@@ -191,6 +340,19 @@ class UserService:
             return "Manager must be in the same organization"
         if target_user.role != "user":
             return "Only regular users can have a reporting manager"
+
+        # Cycle detection: walk the manager chain upward.
+        walked = set()
+        cursor = manager
+        while cursor is not None:
+            if cursor.id == target_user.id:
+                return "Manager assignment would create a reporting cycle"
+            if cursor.id in walked:
+                break
+            walked.add(cursor.id)
+            if cursor.manager_id is None:
+                break
+            cursor = db.query(User).filter(User.id == cursor.manager_id).first()
 
         if editor.role == "admin":
             if manager_id != editor.id:
@@ -291,16 +453,19 @@ class UserService:
                     "error": f"Cannot create user in organization {organization_id}. Access denied."
                 }
             
-            # Create the user
+            # Create the user (admin-provisioned emails are treated as verified)
             hashed_password = get_password_hash(password)
+            now = utc_now()
             new_user = User(
                 username=username,
-                password=hashed_password,
+                password_hash=hashed_password,
                 email=email,
                 role=role,
                 organization_id=organization_id,
                 phone_number=phone_number or "0000000000",
                 status="active",
+                email_verified_at=now,
+                password_changed_at=now,
             )
 
             db.add(new_user)
@@ -315,8 +480,15 @@ class UserService:
                     return {"success": False, "error": manager_error}
                 new_user.manager_id = manager_id
 
+            RbacCatalogService.sync_user_system_role(
+                db,
+                new_user.id,
+                new_user.role or "user",
+                granted_by=creator_user.id,
+            )
             db.commit()
             db.refresh(new_user)
+            UserService._invalidate_user_cache(new_user.id, full=True)
             
             # Log successful creation
             auth_logger.info(
@@ -381,10 +553,10 @@ class UserService:
                 }
 
             if target.id == editor.id:
-                return {
-                    "success": False,
-                    "error": "Use profile settings to update your own account",
-                }
+                try:
+                    assert_not_self_admin_edit(editor.id, target.id)
+                except ValueError as e:
+                    return {"success": False, "error": str(e)}
 
             new_role = updates.get("role", target.role)
             if "role" in updates and new_role != target.role:
@@ -423,7 +595,18 @@ class UserService:
                     target.manager_id = None
 
             if "organization_id" in updates:
+                org_changed = new_org_id != target.organization_id
                 target.organization_id = new_org_id
+                if (
+                    org_changed
+                    and "manager_id" not in updates
+                    and target.manager_id is not None
+                ):
+                    manager = (
+                        db.query(User).filter(User.id == target.manager_id).first()
+                    )
+                    if manager is None or manager.organization_id != new_org_id:
+                        target.manager_id = None
 
             effective_role = target.role
             if "manager_id" in updates:
@@ -440,9 +623,23 @@ class UserService:
                     return {"success": False, "error": manager_error}
                 target.manager_id = manager_id
 
-            target.updated_at = datetime.utcnow()
+            if "role" in updates:
+                RbacCatalogService.sync_user_system_role(
+                    db,
+                    target.id,
+                    target.role or "user",
+                    granted_by=editor.id,
+                )
+
+            target.updated_at = utc_now()
             db.commit()
             db.refresh(target)
+
+            # Role/status/org/manager affect permissions & dashboards — wipe all keys.
+            full_invalidate = any(
+                k in updates for k in ("role", "status", "organization_id", "manager_id")
+            )
+            UserService._invalidate_user_cache(target.id, full=full_invalidate)
 
             auth_logger.info(
                 f"User updated by admin: {editor.username} updated user: {target.username}",

@@ -24,6 +24,8 @@ import {
   fetchStandardPermissions,
   removeGroupMember,
   revokeApiKey,
+  updateApiKey,
+  updateGroup,
 } from "@/lib/compliance/api";
 import { canManageUsers } from "@/lib/auth/routing";
 import {
@@ -78,6 +80,12 @@ export function CompliancePage() {
   const [apiKeyName, setApiKeyName] = useState("");
   const [apiKeyActionMessage, setApiKeyActionMessage] = useState<string | null>(null);
   const [issuedKeyValue, setIssuedKeyValue] = useState<string | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editGroupDescription, setEditGroupDescription] = useState("");
+  const [editingApiKeyId, setEditingApiKeyId] = useState<number | null>(null);
+  const [editApiKeyName, setEditApiKeyName] = useState("");
+  const [editApiKeyPermissions, setEditApiKeyPermissions] = useState("");
 
   const canCleanup =
     user?.role === "super_admin" || user?.role === "organization_admin";
@@ -177,8 +185,37 @@ export function CompliancePage() {
     onSuccess: (data) => {
       setGroupActionMessage(data.message ?? "Group deleted.");
       setSelectedGroupId(null);
+      setEditingGroupId(null);
       void groupsQuery.refetch();
       void groupStatsQuery.refetch();
+    },
+    onError: (err) => setGroupActionMessage(getApiError(err).detail),
+  });
+
+  const updateGroupMutation = useMutation({
+    mutationFn: ({
+      groupId,
+      name,
+      description,
+    }: {
+      groupId: number;
+      name: string;
+      description?: string;
+    }) =>
+      updateGroup(groupId, {
+        name,
+        description: description || undefined,
+      }),
+    onSuccess: (data) => {
+      setGroupActionMessage(data.message ?? "Group updated.");
+      setEditingGroupId(null);
+      setEditGroupName("");
+      setEditGroupDescription("");
+      void groupsQuery.refetch();
+      void groupStatsQuery.refetch();
+      if (selectedGroupId !== null) {
+        void groupMembersQuery.refetch();
+      }
     },
     onError: (err) => setGroupActionMessage(getApiError(err).detail),
   });
@@ -222,6 +259,32 @@ export function CompliancePage() {
     mutationFn: revokeApiKey,
     onSuccess: (data) => {
       setApiKeyActionMessage(data.message ?? "API key revoked.");
+      setEditingApiKeyId(null);
+      void apiKeysQuery.refetch();
+      void apiKeyStatsQuery.refetch();
+    },
+    onError: (err) => setApiKeyActionMessage(getApiError(err).detail),
+  });
+
+  const updateApiKeyMutation = useMutation({
+    mutationFn: ({
+      apiKeyId,
+      keyName,
+      permissions,
+    }: {
+      apiKeyId: number;
+      keyName: string;
+      permissions?: string[];
+    }) =>
+      updateApiKey(apiKeyId, {
+        key_name: keyName,
+        permissions,
+      }),
+    onSuccess: (data) => {
+      setApiKeyActionMessage(data.message ?? "API key updated.");
+      setEditingApiKeyId(null);
+      setEditApiKeyName("");
+      setEditApiKeyPermissions("");
       void apiKeysQuery.refetch();
       void apiKeyStatsQuery.refetch();
     },
@@ -435,6 +498,54 @@ export function CompliancePage() {
               </button>
             </form>
           )}
+          {canManageGroups && editingGroupId !== null && (
+            <form
+              className={formStyles.form}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!editGroupName.trim()) return;
+                updateGroupMutation.mutate({
+                  groupId: editingGroupId,
+                  name: editGroupName.trim(),
+                  description: editGroupDescription.trim(),
+                });
+              }}
+            >
+              <h3>Edit group #{editingGroupId}</h3>
+              <input
+                className={formStyles.input}
+                placeholder="Group name"
+                value={editGroupName}
+                onChange={(event) => setEditGroupName(event.target.value)}
+              />
+              <input
+                className={formStyles.input}
+                placeholder="Description (optional)"
+                value={editGroupDescription}
+                onChange={(event) => setEditGroupDescription(event.target.value)}
+              />
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="submit"
+                  className={formStyles.primaryBtn}
+                  disabled={updateGroupMutation.isPending}
+                >
+                  {updateGroupMutation.isPending ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.tab}
+                  onClick={() => {
+                    setEditingGroupId(null);
+                    setEditGroupName("");
+                    setEditGroupDescription("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
           <StatsPanel raw={groupStatsQuery.data} />
           <div className={styles.tableWrap} style={{ marginTop: "1rem" }}>
             <table className={styles.table}>
@@ -466,15 +577,29 @@ export function CompliancePage() {
                           Members
                         </button>
                         {canManageGroups && group.is_active !== false && (
-                          <button
-                            type="button"
-                            className={styles.tab}
-                            style={{ marginLeft: "0.5rem" }}
-                            onClick={() => deleteGroupMutation.mutate(group.id)}
-                            disabled={deleteGroupMutation.isPending}
-                          >
-                            Delete
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              className={styles.tab}
+                              style={{ marginLeft: "0.5rem" }}
+                              onClick={() => {
+                                setEditingGroupId(group.id);
+                                setEditGroupName(group.name);
+                                setEditGroupDescription(group.description ?? "");
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.tab}
+                              style={{ marginLeft: "0.5rem" }}
+                              onClick={() => deleteGroupMutation.mutate(group.id)}
+                              disabled={deleteGroupMutation.isPending}
+                            >
+                              Delete
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -589,6 +714,58 @@ export function CompliancePage() {
               Issue API key
             </button>
           </form>
+          {editingApiKeyId !== null && (
+            <form
+              className={formStyles.form}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!editApiKeyName.trim()) return;
+                const permissions = editApiKeyPermissions
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter(Boolean);
+                updateApiKeyMutation.mutate({
+                  apiKeyId: editingApiKeyId,
+                  keyName: editApiKeyName.trim(),
+                  permissions: permissions.length > 0 ? permissions : undefined,
+                });
+              }}
+            >
+              <h3>Edit API key #{editingApiKeyId}</h3>
+              <input
+                className={formStyles.input}
+                placeholder="Key name"
+                value={editApiKeyName}
+                onChange={(event) => setEditApiKeyName(event.target.value)}
+              />
+              <input
+                className={formStyles.input}
+                placeholder="Permissions (comma-separated, optional)"
+                value={editApiKeyPermissions}
+                onChange={(event) => setEditApiKeyPermissions(event.target.value)}
+              />
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="submit"
+                  className={formStyles.primaryBtn}
+                  disabled={updateApiKeyMutation.isPending}
+                >
+                  {updateApiKeyMutation.isPending ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.tab}
+                  onClick={() => {
+                    setEditingApiKeyId(null);
+                    setEditApiKeyName("");
+                    setEditApiKeyPermissions("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
           <p className={styles.subtitle}>
             Test M2M auth: <code>GET /api/v1/integration/whoami</code> with header{" "}
             <code>X-API-Key</code>.
@@ -619,14 +796,29 @@ export function CompliancePage() {
                       <td>{formatTimestamp(key.last_used_at)}</td>
                       <td>
                         {key.is_active && (
-                          <button
-                            type="button"
-                            className={styles.tab}
-                            onClick={() => revokeApiKeyMutation.mutate(key.id)}
-                            disabled={revokeApiKeyMutation.isPending}
-                          >
-                            Revoke
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              className={styles.tab}
+                              onClick={() => {
+                                setEditingApiKeyId(key.id);
+                                setEditApiKeyName(key.key_name);
+                                setEditApiKeyPermissions("");
+                                setIssuedKeyValue(null);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.tab}
+                              style={{ marginLeft: "0.5rem" }}
+                              onClick={() => revokeApiKeyMutation.mutate(key.id)}
+                              disabled={revokeApiKeyMutation.isPending}
+                            >
+                              Revoke
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>

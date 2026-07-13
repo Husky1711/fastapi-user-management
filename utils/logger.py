@@ -4,6 +4,7 @@ Clean and Simple Logging System
 Production-ready structured logging without complex dependencies
 """
 
+from utils.datetime_utc import utc_now
 import logging
 import logging.handlers
 import json
@@ -11,19 +12,17 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
-from contextvars import ContextVar
 from config.settings import settings
 
-# Context variables for request tracking (simplified for this version)
-correlation_id_var: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
-user_id_var: ContextVar[Optional[int]] = ContextVar('user_id', default=None)
+# Contextvars live in production_logging (single source of truth for correlation_id).
+
 
 class JSONFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging"""
     
     def format(self, record: logging.LogRecord) -> str:
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": utc_now().isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -79,10 +78,20 @@ class LoggerConfig:
         log_dir = log_dir or log_config["log_dir"]
         max_file_size = max_file_size or log_config["max_file_size"]
         backup_count = backup_count or log_config["backup_count"]
-        enable_console = enable_console if enable_console is not None else log_config["enable_console"]
-        
-        # Create log directory if it doesn't exist
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        enable_console = (
+            enable_console if enable_console is not None else log_config["enable_console"]
+        )
+        enable_json = log_config.get("enable_json", True)
+        environment = (log_config.get("environment") or "development").lower()
+        # Containers: prefer stdout; skip file writers unless forced
+        enable_file = log_config.get("enable_file", True)
+        if environment == "production" and not log_config.get("force_file", False):
+            enable_file = False
+        if not enable_file and not enable_console:
+            enable_console = True
+
+        if enable_file:
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
         
         # Configure root logger
         root_logger = logging.getLogger()
@@ -96,57 +105,63 @@ class LoggerConfig:
         console_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        
-        # File handler with rotation
-        file_handler = logging.handlers.RotatingFileHandler(
-            filename=os.path.join(log_dir, 'app.log'),
-            maxBytes=max_file_size,
-            backupCount=backup_count,
-            encoding='utf-8'
+        stream_formatter = (
+            json_formatter
+            if enable_json and (environment == "production" or not enable_file)
+            else console_formatter
         )
-        file_handler.setFormatter(json_formatter)
-        file_handler.setLevel(logging.DEBUG)  # Log everything to file
-        root_logger.addHandler(file_handler)
         
-        # Error file handler
-        error_handler = logging.handlers.RotatingFileHandler(
-            filename=os.path.join(log_dir, 'error.log'),
-            maxBytes=max_file_size,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
-        error_handler.setFormatter(json_formatter)
-        error_handler.setLevel(logging.ERROR)  # Only errors and above
-        root_logger.addHandler(error_handler)
+        if enable_file:
+            # File handler with rotation
+            file_handler = logging.handlers.RotatingFileHandler(
+                filename=os.path.join(log_dir, 'app.log'),
+                maxBytes=max_file_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(json_formatter)
+            file_handler.setLevel(logging.DEBUG)  # Log everything to file
+            root_logger.addHandler(file_handler)
+
+            # Error file handler
+            error_handler = logging.handlers.RotatingFileHandler(
+                filename=os.path.join(log_dir, 'error.log'),
+                maxBytes=max_file_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            error_handler.setFormatter(json_formatter)
+            error_handler.setLevel(logging.ERROR)  # Only errors and above
+            root_logger.addHandler(error_handler)
+
+            # Security log handler
+            security_handler = logging.handlers.RotatingFileHandler(
+                filename=os.path.join(log_dir, 'security.log'),
+                maxBytes=max_file_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            security_handler.setFormatter(json_formatter)
+            security_handler.setLevel(logging.INFO)
+            root_logger.addHandler(security_handler)
+
+            # Performance log handler
+            performance_handler = logging.handlers.RotatingFileHandler(
+                filename=os.path.join(log_dir, 'performance.log'),
+                maxBytes=max_file_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            performance_handler.setFormatter(json_formatter)
+            performance_handler.setLevel(logging.INFO)
+            root_logger.addHandler(performance_handler)
         
-        # Console handler
+        # Console / stdout handler (primary in production)
         if enable_console:
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(console_formatter)
+            console_handler.setFormatter(stream_formatter)
             console_handler.setLevel(cls.LOG_LEVELS.get(log_level.upper(), logging.INFO))
             root_logger.addHandler(console_handler)
-        
-        # Security log handler
-        security_handler = logging.handlers.RotatingFileHandler(
-            filename=os.path.join(log_dir, 'security.log'),
-            maxBytes=max_file_size,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
-        security_handler.setFormatter(json_formatter)
-        security_handler.setLevel(logging.INFO)
-        root_logger.addHandler(security_handler)
-        
-        # Performance log handler
-        performance_handler = logging.handlers.RotatingFileHandler(
-            filename=os.path.join(log_dir, 'performance.log'),
-            maxBytes=max_file_size,
-            backupCount=backup_count,
-            encoding='utf-8'
-        )
-        performance_handler.setFormatter(json_formatter)
-        performance_handler.setLevel(logging.INFO)
-        root_logger.addHandler(performance_handler)
     
     @classmethod
     def get_handlers(cls):
@@ -166,15 +181,64 @@ class BaseLogger:
                 self._logger.addHandler(handler)
             self._logger.propagate = False  # Prevent logs from going to root logger
 
+    def _merge_request_context(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Fill correlation_id / user_id from ContextVars when omitted."""
+        merged = dict(kwargs)
+        if merged.get("correlation_id") is None:
+            try:
+                from utils.production_logging import CorrelationIDGenerator
+
+                cid = CorrelationIDGenerator.get_current()
+                if cid:
+                    merged["correlation_id"] = cid
+            except Exception:
+                pass
+        if merged.get("user_id") is None:
+            try:
+                from utils.production_logging import user_id_var
+
+                uid = user_id_var.get()
+                if uid is not None:
+                    merged["user_id"] = uid
+            except Exception:
+                pass
+        if merged.get("trace_id") is None:
+            try:
+                from utils.production_logging import trace_id_var
+                from utils.otel import current_trace_id
+
+                tid = current_trace_id() or trace_id_var.get()
+                if tid:
+                    merged["trace_id"] = tid
+            except Exception:
+                pass
+        return merged
+
     def _log_with_context(self, level: int, message: str, **kwargs: Any):
-        """Logs a message with additional context"""
-        # Attach extra context to the LogRecord
-        extra_context = kwargs
+        """Logs a message with additional context.
+
+        Auto-injects ``correlation_id`` / ``user_id`` from request ContextVars when
+        callers omit them so auth/db/api/security logs stay linked.
+        """
+        extra_context = self._merge_request_context(kwargs)
+        # findCaller returns (pathname, lineno, funcname, stack_info)
+        try:
+            fn, lno, func, sinfo = self._logger.findCaller(stack_info=False)
+        except Exception:
+            fn, lno, func, sinfo = "(unknown)", 0, "(unknown)", None
         record = self._logger.makeRecord(
-            self._logger.name, level, self._logger.findCaller(stack_info=False),
-            message, [], None, None, extra=extra_context
+            self._logger.name,
+            level,
+            fn,
+            lno,
+            message,
+            (),
+            None,
+            func=func,
+            extra=None,
+            sinfo=sinfo,
         )
-        record.extra_context = extra_context  # Store for JsonFormatter
+        record.extra_context = extra_context
         self._logger.handle(record)
 
     def debug(self, message: str, **kwargs: Any):

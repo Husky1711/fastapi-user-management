@@ -16,6 +16,7 @@ from utils.loggers import api_logger, auth_logger, db_logger, security_logger
 correlation_id_var: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
 user_id_var: ContextVar[Optional[int]] = ContextVar('user_id', default=None)
 request_start_time_var: ContextVar[Optional[float]] = ContextVar('request_start_time', default=None)
+trace_id_var: ContextVar[Optional[str]] = ContextVar('trace_id', default=None)
 
 class CorrelationIDGenerator:
     """Generate and manage correlation IDs"""
@@ -173,14 +174,12 @@ def log_performance(operation_name: str):
     return decorator
 
 def get_request_context() -> Optional[RequestContext]:
-    """Get current request context"""
+    """Get current request context from ContextVars."""
     correlation_id = CorrelationIDGenerator.get_current()
-    if correlation_id:
-        # This would need to be implemented with proper context storage
-        # For now, return a basic context
-        context = RequestContext()
-        context.correlation_id = correlation_id
-        context.user_id = user_id_var.get()
-        context.start_time = request_start_time_var.get()
-        return context
-    return None
+    if not correlation_id:
+        return None
+    context = RequestContext()
+    context.correlation_id = correlation_id
+    context.user_id = user_id_var.get()
+    context.start_time = request_start_time_var.get()
+    return context

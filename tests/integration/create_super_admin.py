@@ -28,7 +28,7 @@ else:
     new_admin = User(
         username="test_super_admin",
         email="test_super_admin@test.com",
-        password=hashed_password,
+        password_hash=hashed_password,
         role="super_admin",
         organization_id=1,
         phone_number="1234567890",

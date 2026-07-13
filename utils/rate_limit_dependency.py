@@ -56,6 +56,12 @@ class RateLimitDependency:
             
             if not ip_allowed:
                 retry_after = RateLimitService.get_retry_after(ip_remaining)
+                try:
+                    from utils.metrics import metrics
+
+                    metrics.inc_rate_limit()
+                except Exception:
+                    pass
                 raise APIHTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded for IP. Try again in {retry_after} seconds.",
@@ -81,6 +87,12 @@ class RateLimitDependency:
                             
                             if not user_allowed:
                                 retry_after = RateLimitService.get_retry_after(user_remaining)
+                                try:
+                                    from utils.metrics import metrics
+
+                                    metrics.inc_rate_limit()
+                                except Exception:
+                                    pass
                                 raise APIHTTPException(
                                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                                     detail=f"Rate limit exceeded for user. Try again in {retry_after} seconds.",
