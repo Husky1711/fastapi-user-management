@@ -7,6 +7,7 @@ Living sources of truth (edit these; archive or delete status-report drift elsew
 | [BACKEND.md](./BACKEND.md) | Backend reference: architecture, APIs, config, scripts |
 | [BACKEND_CODE_FLOW.md](./BACKEND_CODE_FLOW.md) | **Code flow, role hierarchy, Mermaid diagrams, full API list** |
 | [BACKEND_PRODUCTION_READINESS.md](./BACKEND_PRODUCTION_READINESS.md) | Go-live checklist (status of each remediation) |
+| [CLIENT_RELEASE_GAP_ANALYSIS.md](./CLIENT_RELEASE_GAP_ANALYSIS.md) | **What still blocks production / client release** (ops, residual schema, Bar 2 roadmap) |
 | [DATABASE_SCHEMA_REVIEW.md](./DATABASE_SCHEMA_REVIEW.md) | Schema gaps, migrations, data integrity |
 | [schema/fastapi_users_schema_latest.sql](./schema/fastapi_users_schema_latest.sql) | Latest live MySQL DDL dump (regenerate: `python scripts/export_schema_sql.py`) |
 | [FRONTEND.md](./FRONTEND.md) | Frontend / UI auth and pages |
