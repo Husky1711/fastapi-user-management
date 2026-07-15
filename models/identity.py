@@ -47,7 +47,7 @@ class RefreshToken(Base):
     device_info = Column(Text, nullable=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
-    is_revoked = Column(Boolean, default=False)
+    is_revoked = Column(Boolean, nullable=False, default=False, server_default="0")
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User", back_populates="refresh_tokens")
@@ -67,11 +67,11 @@ class User(Base):
     last_login = Column(DateTime(timezone=True), nullable=True)
     locked_until = Column(DateTime(timezone=True), nullable=True)
 
-    is_2fa_enabled = Column(Boolean, default=False, index=True)
+    is_2fa_enabled = Column(Boolean, nullable=False, default=False, server_default="0", index=True)
     two_factor_secret = Column(String(255), nullable=True)
     backup_codes = Column(JSON, nullable=True)
     backup_codes_generated_at = Column(DateTime(timezone=True), nullable=True)
-    failed_login_attempts = Column(Integer, default=0)
+    failed_login_attempts = Column(Integer, nullable=False, default=0, server_default="0")
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)

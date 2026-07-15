@@ -102,10 +102,43 @@ class UserPermissionService:
             resource_type = resource_type or ""
             resource_id = 0 if resource_id is None else resource_id
 
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return {"success": False, "error": "User not found"}
+
+            from models.rbac_model import Permission
+            from services.permissions.rbac_catalog_service import RbacCatalogService
+
+            if not RbacCatalogService.permission_exists(db, permission_name):
+                return {
+                    "success": False,
+                    "error": f"Unknown permission '{permission_name}' (not in catalog)",
+                }
+
+            catalog_perm = (
+                db.query(Permission)
+                .filter(Permission.name == permission_name)
+                .first()
+            )
+            if catalog_perm is None:
+                # Ensure catalog row exists for STANDARD_PERMISSIONS names
+                RbacCatalogService.ensure_seed_data(db)
+                catalog_perm = (
+                    db.query(Permission)
+                    .filter(Permission.name == permission_name)
+                    .first()
+                )
+            if catalog_perm is None:
+                return {
+                    "success": False,
+                    "error": f"Permission '{permission_name}' missing from catalog",
+                }
+
             # Check if permission already exists
             existing = db.query(UserPermission)\
                 .filter(UserPermission.user_id == user_id)\
-                .filter(UserPermission.permission_name == permission_name)\
+                .filter(UserPermission.organization_id == user.organization_id)\
+                .filter(UserPermission.permission_id == catalog_perm.id)\
                 .filter(UserPermission.resource_type == resource_type)\
                 .filter(UserPermission.resource_id == resource_id)\
                 .filter(UserPermission.is_active == True)\
@@ -116,16 +149,13 @@ class UserPermissionService:
                     "success": False,
                     "error": "Permission already exists for this user and resource"
                 }
-
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                return {"success": False, "error": "User not found"}
             
             # Create new permission (organization_id denormalized for tenant audits)
             permission = UserPermission(
                 user_id=user_id,
                 organization_id=user.organization_id,
-                permission_name=permission_name,
+                permission_id=catalog_perm.id,
+                permission_name=catalog_perm.name,
                 resource_type=resource_type,
                 resource_id=resource_id,
                 granted_by=granted_by,

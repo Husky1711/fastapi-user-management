@@ -21,6 +21,7 @@ Operational & design notes:
 | [BACKUP_RESTORE.md](./BACKUP_RESTORE.md) | RPO/RTO, mysqldump, Helm backup |
 | [TRANSACTION_BOUNDARIES.md](./TRANSACTION_BOUNDARIES.md) | Who commits/rolls back |
 | [ACCESS_TOKEN_REVOCATION.md](./ACCESS_TOKEN_REVOCATION.md) | JWT `jti` blocklist (deferred) |
+| [ROLE_AUTHORITY_CUTOVER.md](./ROLE_AUTHORITY_CUTOVER.md) | Option B dual-write decision + 2026-08-14 end date |
 | [API_VERSIONING.md](./API_VERSIONING.md) | `/api/v1` stability rules |
 | [UTC_DATETIME_CONVENTION.md](./UTC_DATETIME_CONVENTION.md) | Timestamps |
 

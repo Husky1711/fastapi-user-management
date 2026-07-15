@@ -203,6 +203,64 @@ class RbacCatalogService:
         return True
 
     @staticmethod
+    def find_role_drifts(db: Session) -> List[Dict[str, object]]:
+        """
+        Users where `users.role` disagrees with highest system role in `user_roles`,
+        or where no system `user_roles` row exists.
+
+        Used by CI / ops repair — dual-write invariant until Option A collapse.
+        """
+        from models.user_model import User
+
+        drifts: List[Dict[str, object]] = []
+        users = db.query(User).filter(User.deleted_at.is_(None)).all()
+        for user in users:
+            column_role = (user.role or "user").strip()
+            catalog_role = RbacCatalogService.get_effective_system_role(
+                db, user.id, fallback=""
+            )
+            has_membership = bool(
+                db.query(UserRole.id)
+                .join(Role, Role.id == UserRole.role_id)
+                .filter(
+                    UserRole.user_id == user.id,
+                    Role.is_system.is_(True),
+                    Role.org_scope_key == 0,
+                )
+                .first()
+            )
+            if not has_membership or catalog_role != column_role:
+                drifts.append(
+                    {
+                        "user_id": user.id,
+                        "username": user.username,
+                        "users_role": column_role,
+                        "catalog_role": catalog_role or None,
+                        "has_system_user_role": has_membership,
+                    }
+                )
+        return drifts
+
+    @staticmethod
+    def repair_role_drifts(db: Session, *, commit: bool = True) -> int:
+        """Resync `user_roles` from `users.role` for every drifted user. Returns count."""
+        from models.user_model import User
+
+        drifts = RbacCatalogService.find_role_drifts(db)
+        repaired = 0
+        for row in drifts:
+            user = db.query(User).filter(User.id == row["user_id"]).first()
+            if user is None:
+                continue
+            if RbacCatalogService.sync_user_system_role(
+                db, user.id, user.role or "user", commit=False
+            ):
+                repaired += 1
+        if commit and repaired:
+            db.commit()
+        return repaired
+
+    @staticmethod
     def permission_names_for_system_role(db: Session, role_name: str) -> List[str]:
         role = RbacCatalogService.get_system_role(db, role_name)
         if role is None:
