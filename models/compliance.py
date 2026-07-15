@@ -50,7 +50,8 @@ class UserPermission(Base):
     __table_args__ = (
         UniqueConstraint(
             "user_id",
-            "permission_name",
+            "organization_id",
+            "permission_id",
             "resource_type",
             "resource_id",
             name="uq_user_permission_grant",
@@ -62,13 +63,17 @@ class UserPermission(Base):
     organization_id = Column(
         Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    permission_id = Column(
+        Integer, ForeignKey("permissions.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Denormalized for API responses; kept in sync with catalog on write.
     permission_name = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(50), nullable=False, default="", index=True)
     resource_id = Column(Integer, nullable=False, default=0, index=True)
     granted_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     granted_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    is_active = Column(Boolean, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1", index=True)
 
 
 class UserGroup(Base):
@@ -88,7 +93,7 @@ class UserGroup(Base):
     created_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    is_active = Column(Boolean, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1", index=True)
 
 
 class UserGroupMembership(Base):
@@ -105,7 +110,7 @@ class UserGroupMembership(Base):
     added_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    is_active = Column(Boolean, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1", index=True)
 
 
 class ApiKey(Base):
@@ -126,7 +131,7 @@ class ApiKey(Base):
     rate_limit_per_hour = Column(Integer, default=1000)
     last_used_at = Column(DateTime(timezone=True), nullable=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    is_active = Column(Boolean, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
 
@@ -158,7 +163,8 @@ class ConsentRecord(Base):
     __tablename__ = "consent_records"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # SET NULL on user hard-delete so consent evidence is retained.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     organization_id = Column(
         Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -167,6 +173,7 @@ class ConsentRecord(Base):
     granted_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     source = Column(String(100), nullable=True)
+    policy_version = Column(String(50), nullable=True)
     details = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

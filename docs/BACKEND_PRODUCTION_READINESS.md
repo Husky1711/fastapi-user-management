@@ -438,4 +438,4 @@ Aligned with [DATABASE_SCHEMA_REVIEW.md §9](./DATABASE_SCHEMA_REVIEW.md#9-recom
 
 ---
 
-*Last updated: 2026-07-14 · Cross-referenced with [DATABASE_SCHEMA_REVIEW.md](./DATABASE_SCHEMA_REVIEW.md). Checklist has **no open ⬜ items**; deferred items are marked ⏸.*
+*Last updated: 2026-07-14 · Cross-referenced with [DATABASE_SCHEMA_REVIEW.md](./DATABASE_SCHEMA_REVIEW.md). Checklist has **no open ⬜ items**; deferred items are marked ⏸. Bar-(1) cutover: [ROLE_AUTHORITY_CUTOVER.md](./ROLE_AUTHORITY_CUTOVER.md) (Option B through **2026-08-14**) + Alembic `20260714_v1_harden`.*

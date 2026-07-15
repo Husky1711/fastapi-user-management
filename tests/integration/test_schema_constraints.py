@@ -115,13 +115,17 @@ def test_user_permissions_organization_id_populated_on_grant():
     from models.user_model import User, UserPermission
 
     db = SessionLocal()
-    perm_name = f"constraint:test:{_suffix()}"
+    # Must be a catalog permission (FK on permission_id).
+    perm_name = "analytics:view"
+    resource_type = f"constraint-{_suffix()}"
     try:
         user = db.query(User).filter_by(username="testuser").one()
         result = UserPermissionService.grant_permission(
             db,
             user_id=user.id,
             permission_name=perm_name,
+            resource_type=resource_type,
+            resource_id=0,
             granted_by=user.id,
         )
         assert result["success"] is True, result
@@ -130,13 +134,79 @@ def test_user_permissions_organization_id_populated_on_grant():
             .filter(
                 UserPermission.user_id == user.id,
                 UserPermission.permission_name == perm_name,
+                UserPermission.resource_type == resource_type,
             )
             .one()
         )
         assert row.organization_id == user.organization_id
+        assert row.permission_id is not None
     finally:
-        db.query(UserPermission).filter(UserPermission.permission_name == perm_name).delete(
+        db.query(UserPermission).filter(
+            UserPermission.permission_name == perm_name,
+            UserPermission.resource_type == resource_type,
+        ).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@pytest.mark.integration
+def test_pending_invite_unique_per_org_email():
+    from models.user_model import User, UserInvitation
+    from utils.datetime_utc import utc_now
+    from datetime import timedelta
+
+    db = SessionLocal()
+    email = f"pending-unique-{_suffix()}@example.com"
+    try:
+        inviter = db.query(User).filter_by(username="testadmin").one()
+        expires = utc_now() + timedelta(days=3)
+        a = UserInvitation(
+            organization_id=1,
+            email=email,
+            role="user",
+            token_hash=f"tok-a-{_suffix()}",
+            invited_by=inviter.id,
+            expires_at=expires,
+        )
+        db.add(a)
+        db.commit()
+
+        b = UserInvitation(
+            organization_id=1,
+            email=email,
+            role="admin",
+            token_hash=f"tok-b-{_suffix()}",
+            invited_by=inviter.id,
+            expires_at=expires,
+        )
+        db.add(b)
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    finally:
+        db.query(UserInvitation).filter(UserInvitation.email == email).delete(
             synchronize_session=False
         )
         db.commit()
+        db.close()
+
+
+@pytest.mark.integration
+def test_seeded_users_have_no_role_drift():
+    from services.permissions.rbac_catalog_service import RbacCatalogService
+
+    db = SessionLocal()
+    try:
+        drifts = RbacCatalogService.find_role_drifts(db)
+        # After bootstrap sync, seed users must be consistent.
+        seed_names = {
+            "testadmin",
+            "testuser",
+            "testorgadmin",
+            "testuser_org2",
+            "test_super_admin",
+        }
+        seed_drifts = [d for d in drifts if d.get("username") in seed_names]
+        assert seed_drifts == [], seed_drifts
+    finally:
         db.close()

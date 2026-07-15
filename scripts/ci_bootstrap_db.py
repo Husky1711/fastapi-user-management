@@ -97,6 +97,16 @@ def _seed_data() -> None:
 
         db.flush()
 
+        from services.permissions.rbac_catalog_service import RbacCatalogService
+
+        RbacCatalogService.ensure_seed_data(db)
+        for username, _email, _password, role, _organization_id in SEED_USERS:
+            seeded = db.query(User).filter(User.username == username).first()
+            if seeded is not None:
+                RbacCatalogService.sync_user_system_role(
+                    db, seeded.id, role or "user", commit=False
+                )
+
         admin = db.query(User).filter(User.username == "testadmin").first()
         test_user = db.query(User).filter(User.username == "testuser").first()
         if admin and test_user:

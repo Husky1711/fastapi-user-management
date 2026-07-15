@@ -146,10 +146,13 @@ class AuthService:
         if not user:
             raise ValueError("Invalid or expired refresh token")
 
+        from services.permissions.rbac_catalog_service import RbacCatalogService
+
+        role = RbacCatalogService.apply_effective_role(db, user)
         user_data = {
             "username": user.username,
             "id": user.id,
-            "role": user.role,
+            "role": role,
             "organization_id": user.organization_id,
             "email": user.email,
         }

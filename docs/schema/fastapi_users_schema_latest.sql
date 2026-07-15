@@ -1,8 +1,8 @@
 -- =============================================================================
 -- FastAPI User Management — latest database schema (DDL only)
--- Generated: 2026-07-13 21:43:24 UTC
+-- Generated: 2026-07-15 17:29:16 UTC
 -- Database: fastapi_users
--- Alembic revision: 20260714_perm_org_id
+-- Alembic revision: 20260714_v1_harden
 -- Source: live MySQL via SHOW CREATE TABLE (no data)
 -- =============================================================================
 
@@ -37,7 +37,7 @@ CREATE TABLE `api_keys` (
   `rate_limit_per_hour` int DEFAULT NULL,
   `last_used_at` datetime DEFAULT NULL,
   `expires_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` datetime DEFAULT (now()),
   `created_by` int NOT NULL,
   PRIMARY KEY (`id`),
@@ -104,7 +104,7 @@ CREATE TABLE `audit_logs` (
 DROP TABLE IF EXISTS `consent_records`;
 CREATE TABLE `consent_records` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
+  `user_id` int DEFAULT NULL,
   `organization_id` int DEFAULT NULL,
   `consent_type` varchar(100) NOT NULL,
   `granted` tinyint(1) NOT NULL DEFAULT '1',
@@ -113,12 +113,13 @@ CREATE TABLE `consent_records` (
   `source` varchar(100) DEFAULT NULL,
   `details` text,
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `policy_version` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `ix_consent_records_user_id` (`user_id`),
   KEY `ix_consent_records_organization_id` (`organization_id`),
   KEY `ix_consent_records_consent_type` (`consent_type`),
-  CONSTRAINT `consent_records_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `consent_records_ibfk_2` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE
+  CONSTRAINT `consent_records_ibfk_2` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_consent_records_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ CREATE TABLE `login_attempts` (
   `username` varchar(255) NOT NULL,
   `ip_address` varchar(45) NOT NULL,
   `user_agent` text,
-  `success` tinyint(1) DEFAULT NULL,
+  `success` tinyint(1) NOT NULL DEFAULT '0',
   `failure_reason` varchar(255) DEFAULT NULL,
   `created_at` datetime DEFAULT (now()),
   PRIMARY KEY (`id`),
@@ -243,7 +244,7 @@ CREATE TABLE `organizations` (
   KEY `fk_organizations_deleted_by` (`deleted_by`),
   KEY `idx_organizations_deleted_at` (`deleted_at`),
   CONSTRAINT `fk_organizations_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `password_history`
@@ -314,7 +315,7 @@ CREATE TABLE `refresh_tokens` (
   `device_info` text,
   `ip_address` varchar(45) DEFAULT NULL,
   `user_agent` text,
-  `is_revoked` tinyint(1) DEFAULT NULL,
+  `is_revoked` tinyint(1) NOT NULL DEFAULT '0',
   `revoked_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `token_hash` (`token_hash`),
@@ -395,7 +396,7 @@ CREATE TABLE `user_group_memberships` (
   `added_by` int NOT NULL,
   `added_at` datetime DEFAULT (now()),
   `expires_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_user_group_membership` (`user_id`,`group_id`),
   KEY `ix_user_group_memberships_is_active` (`is_active`),
@@ -422,7 +423,7 @@ CREATE TABLE `user_groups` (
   `created_by` int NOT NULL,
   `created_at` datetime DEFAULT (now()),
   `updated_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_user_groups_org_name` (`organization_id`,`name`),
   KEY `ix_user_groups_created_by` (`created_by`),
@@ -433,7 +434,7 @@ CREATE TABLE `user_groups` (
   KEY `ix_user_groups_organization_id` (`organization_id`),
   CONSTRAINT `fk_user_groups_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_user_groups_organization_id` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_invitations`
@@ -443,7 +444,7 @@ CREATE TABLE `user_invitations` (
   `id` int NOT NULL AUTO_INCREMENT,
   `organization_id` int NOT NULL,
   `email` varchar(255) NOT NULL,
-  `role` varchar(20) NOT NULL DEFAULT 'user',
+  `role` enum('user','admin','organization_admin','super_admin') NOT NULL DEFAULT 'user',
   `token_hash` varchar(255) NOT NULL,
   `invited_by` int NOT NULL,
   `expires_at` datetime NOT NULL,
@@ -452,12 +453,13 @@ CREATE TABLE `user_invitations` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_inv_token_hash` (`token_hash`),
+  UNIQUE KEY `uq_inv_one_pending_org_email` (((case when ((`accepted_at` is null) and (`revoked_at` is null)) then `organization_id` end)),((case when ((`accepted_at` is null) and (`revoked_at` is null)) then `email` end))),
   KEY `fk_inv_invited_by` (`invited_by`),
   KEY `idx_inv_org_email` (`organization_id`,`email`),
   KEY `idx_inv_expires` (`expires_at`),
   CONSTRAINT `fk_inv_invited_by` FOREIGN KEY (`invited_by`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_inv_org` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_permissions`
@@ -472,10 +474,11 @@ CREATE TABLE `user_permissions` (
   `granted_by` int DEFAULT NULL,
   `granted_at` datetime DEFAULT (now()),
   `expires_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `organization_id` int NOT NULL,
+  `permission_id` int NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_user_permission_grant` (`user_id`,`permission_name`,`resource_type`,`resource_id`),
+  UNIQUE KEY `uq_user_permission_grant` (`user_id`,`organization_id`,`permission_id`,`resource_type`,`resource_id`),
   KEY `ix_user_permissions_expires_at` (`expires_at`),
   KEY `ix_user_permissions_id` (`id`),
   KEY `ix_user_permissions_permission_name` (`permission_name`),
@@ -486,10 +489,12 @@ CREATE TABLE `user_permissions` (
   KEY `ix_user_permissions_is_active` (`is_active`),
   KEY `ix_user_permissions_resource_id` (`resource_id`),
   KEY `ix_user_permissions_organization_id` (`organization_id`),
+  KEY `ix_user_permissions_permission_id` (`permission_id`),
   CONSTRAINT `fk_user_permissions_granted_by` FOREIGN KEY (`granted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_user_permissions_organization_id` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_user_permissions_permission_id` FOREIGN KEY (`permission_id`) REFERENCES `permissions` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_user_permissions_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_roles`
@@ -531,7 +536,7 @@ CREATE TABLE `user_sessions` (
   `ip_address` varchar(45) DEFAULT NULL,
   `country` varchar(50) DEFAULT NULL,
   `city` varchar(100) DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `last_activity` datetime DEFAULT (now()),
   `created_at` datetime DEFAULT (now()),
   `expires_at` datetime NOT NULL,
@@ -566,10 +571,10 @@ CREATE TABLE `users` (
   `updated_at` datetime DEFAULT NULL,
   `last_login` datetime DEFAULT NULL,
   `locked_until` datetime DEFAULT NULL,
-  `is_2fa_enabled` tinyint(1) DEFAULT NULL,
+  `is_2fa_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `two_factor_secret` varchar(255) DEFAULT NULL,
   `backup_codes` json DEFAULT NULL,
-  `failed_login_attempts` int DEFAULT NULL,
+  `failed_login_attempts` int NOT NULL DEFAULT '0',
   `role` enum('user','admin','organization_admin','super_admin') NOT NULL DEFAULT 'user',
   `organization_id` int NOT NULL,
   `manager_id` int DEFAULT NULL,
