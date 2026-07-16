@@ -195,8 +195,8 @@ class UserService:
 
         now = utc_now()
         original_username = target.username
-        target.username = f"{original_username}__deleted__{target.id}"[:50]
-        target.email = f"deleted_{target.id}_{original_username}@deleted.local"[:100]
+        # Keep original username/email: active-only unique indexes
+        # (uq_users_*_active) free them for re-invite once deleted_at is set.
         target.status = "inactive"
         target.deleted_at = now
         target.deleted_by = editor.id

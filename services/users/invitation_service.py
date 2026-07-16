@@ -78,7 +78,11 @@ class InvitationService:
         if (org.status or "").lower() != "active":
             return {"success": False, "error": "Organization is not active"}
 
-        if db.query(User).filter(User.email == email).first():
+        if (
+            db.query(User)
+            .filter(User.email == email, User.deleted_at.is_(None))
+            .first()
+        ):
             return {"success": False, "error": "A user with this email already exists"}
 
         # Revoke prior open invites for same email+org

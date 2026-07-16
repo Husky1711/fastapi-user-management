@@ -24,7 +24,10 @@ class OrganizationService:
         candidate = base
         suffix = 2
         while True:
-            q = db.query(Organization).filter(Organization.slug == candidate)
+            q = (
+                db.query(Organization)
+                .filter(Organization.slug == candidate, Organization.deleted_at.is_(None))
+            )
             if exclude_id is not None:
                 q = q.filter(Organization.id != exclude_id)
             if q.first() is None:
@@ -155,8 +158,7 @@ class OrganizationService:
 
         now = utc_now()
         original_name = org.name
-        org.name = f"{original_name}__deleted__{org.id}"[:100]
-        org.slug = f"{org.slug}-deleted-{org.id}"[:100]
+        # Keep original name/slug: active-only unique indexes free them for reuse.
         org.status = "inactive"
         org.deleted_at = now
         org.deleted_by = deleted_by

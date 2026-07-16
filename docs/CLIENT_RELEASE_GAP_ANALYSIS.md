@@ -1,7 +1,7 @@
 # Client release / production readiness — gap analysis
 
 **Date:** 2026-07-16  
-**Branch baseline:** `feature/production-hardening-schema` (includes Alembic `20260714_v1_harden`)  
+**Branch baseline:** `feature/production-hardening-schema` (Alembic head `20260716_soft_unique`)  
 **Purpose:** Single inventory of everything still **stopping**, **needing fix**, or **needing development** before a safe **production cutover** or **client release**.
 
 This document mixes two bars deliberately. Do not confuse them:
@@ -50,13 +50,13 @@ Cheap or already partially done; leaving them open causes **real outages / compl
 
 | # | Item | Status | Residual risk if skipped |
 |---|------|--------|---------------------------|
-| B1 | Soft-delete–safe unique email/username | **Partial** — rewrite-on-delete hack | Re-invite after delete fails if rewrite skipped; tests required |
+| B1 | Soft-delete–safe unique email/username | ✅ `20260716_soft_unique` — active-only functional unique; soft-delete keeps identifiers | — |
 | B2 | `api_keys.permissions` still JSON (not catalog junction) | **Accepted transitional** | Typos / drift vs `permissions` catalog |
 | B3 | Retention / purge **scheduled** in prod (not only manual `/maintenance/cleanup`) | **Ops** | Unbounded `audit_logs` / `login_attempts` growth |
 | B4 | Frontend production build + cookie domain / HTTPS / CSRF header verified | **Ops + FE** | Login/refresh broken behind real TLS |
 | B5 | Staging E2E / IDOR / auth smoke against production-like stack | **QA** | “Works locally” regressions |
 | B6 | Log shipping + on-call runbook linked | **Ops** | Blind incidents after launch |
-| B7 | Email length alignment (`users.email` 100 vs invite/verify 255) | **Open cleanup** | Edge-case invite/signup mismatches |
+| B7 | Email length alignment (`users.email` 100 vs invite/verify 255) | ✅ `users.email` → `VARCHAR(255)` | — |
 
 ### Explicitly deferred — do **not** call “unsafe to ship v1,” but **disclose** (Gate C / Bar 2)
 
@@ -120,7 +120,7 @@ Copy into the release ticket. Every row must be checked on the **client target e
 
 | # | Check | Done? |
 |---|-------|-------|
-| 15.2.1 | `alembic upgrade head` on deploy (`20260714_v1_harden` or newer) | ⬜ |
+| 15.2.1 | `alembic upgrade head` on deploy (`20260716_soft_unique` or newer) | ⬜ |
 | 15.2.2–15.2.16 | Schema integrity items live (ENUMs, FKs, soft-delete, reset/verify/invite tables, RBAC) — **confirm on prod DB**, not only docs | ⬜ |
 | 15.2.17 | Token/session/password-history **purge scheduled** | ⬜ |
 | 15.2.18 | Downgrade smoke known (CI) | ✅ in repo; ⬜ confirm in CD |
@@ -165,8 +165,8 @@ See [ROLE_AUTHORITY_CUTOVER.md](./ROLE_AUTHORITY_CUTOVER.md).
 
 | Priority | Issue | Why it matters | Recommended action |
 |----------|-------|----------------|--------------------|
-| **P0 residual** | Soft-delete vs global UNIQUE email/username | Re-registration after soft-delete depends on rewrite hack | Keep rewrite + tests for cutover **or** MySQL functional unique on active rows |
-| **P1** | `users.email` VARCHAR(100) vs invite/verify 255 | Long emails fail inconsistently | Align all email columns to 255 |
+| **P0 residual** | Soft-delete vs global UNIQUE email/username | — | ✅ Fixed: active-only functional unique (`uq_users_*_active`) |
+| **P1** | `users.email` VARCHAR(100) vs invite/verify 255 | — | ✅ Aligned to 255 |
 | **P1** | `api_keys.permissions` JSON | Second ACL model | Junction `api_key_permissions` or keep strict catalog validation only |
 | **P1** | `roles.org_scope_key` mirror of org | Desync risk | Prefer generated uniqueness pattern |
 | **P2** | INT PKs on `audit_logs` / `login_attempts` / `security_incidents` | Exhaustion at scale | Migrate to BIGINT before high volume |
