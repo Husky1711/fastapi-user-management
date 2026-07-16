@@ -280,6 +280,14 @@ class ApiKeyService:
                     "error": "API key has expired",
                     "has_permission": False
                 }
+
+            owner = db.query(User).filter(User.id == api_key.user_id).first()
+            if owner is None or getattr(owner, "deleted_at", None) is not None:
+                return {
+                    "success": False,
+                    "error": "Invalid API key",
+                    "has_permission": False,
+                }
             
             # Update last used timestamp
             api_key.last_used_at = utc_now()
@@ -393,6 +401,34 @@ class ApiKeyService:
                 "success": False,
                 "error": f"Failed to revoke API key: {str(e)}"
             }
+
+    @staticmethod
+    def deactivate_all_for_user(
+        db: Session,
+        user_id: int,
+        *,
+        commit: bool = True,
+        reason: str = "user_soft_deleted",
+    ) -> int:
+        """Deactivate every active API key owned by the user."""
+        keys = (
+            db.query(ApiKey)
+            .filter(ApiKey.user_id == user_id, ApiKey.is_active == True)
+            .all()
+        )
+        for key in keys:
+            key.is_active = False
+        if commit and keys:
+            db.commit()
+        if keys:
+            auth_logger.info(
+                f"API keys deactivated for user {user_id}: {len(keys)} keys",
+                user_id=user_id,
+                deactivated_count=len(keys),
+                reason=reason,
+                event_type="api_keys_deactivated_for_user",
+            )
+        return len(keys)
     
     @staticmethod
     def get_user_api_keys(

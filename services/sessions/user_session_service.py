@@ -80,6 +80,8 @@ class UserSessionService:
         db: Session,
         refresh_token_ids: List[int],
         reason: str = "revoke",
+        *,
+        commit: bool = True,
     ) -> int:
         """Deactivate user_sessions rows linked to multiple refresh tokens."""
         if not refresh_token_ids:
@@ -97,7 +99,7 @@ class UserSessionService:
             session.is_active = False
             session.last_activity = utc_now()
 
-        if sessions:
+        if sessions and commit:
             db.commit()
 
         return len(sessions)
@@ -346,7 +348,9 @@ class UserSessionService:
         db: Session,
         user_id: int,
         exclude_session_id: str = None,
-        reason: str = "logout_all"
+        reason: str = "logout_all",
+        *,
+        commit: bool = True,
     ) -> Dict[str, Any]:
         """
         Deactivate all sessions for a user
@@ -356,6 +360,7 @@ class UserSessionService:
             user_id: User ID
             exclude_session_id: Session ID to exclude from deactivation
             reason: Reason for deactivation
+            commit: When False, caller owns the transaction
             
         Returns:
             Dictionary with deactivation result
@@ -376,7 +381,8 @@ class UserSessionService:
                 session.last_activity = utc_now()
                 deactivated_count += 1
             
-            db.commit()
+            if commit:
+                db.commit()
             
             # Log bulk session deactivation
             auth_logger.info(
@@ -394,6 +400,8 @@ class UserSessionService:
             }
             
         except Exception as e:
+            if commit:
+                db.rollback()
             auth_logger.error(
                 f"Error deactivating user sessions: {str(e)}",
                 user_id=user_id,

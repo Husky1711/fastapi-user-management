@@ -91,10 +91,14 @@ class AuthService:
             return None
 
         user = UserService.get_user_by_id(db, user_id)
-        if user is not None:
-            from services.permissions.rbac_catalog_service import RbacCatalogService
+        if user is None:
+            return None
+        # Defense in depth: get_user_by_id already excludes soft-deleted.
+        if getattr(user, "deleted_at", None) is not None:
+            return None
+        from services.permissions.rbac_catalog_service import RbacCatalogService
 
-            RbacCatalogService.apply_effective_role(db, user)
+        RbacCatalogService.apply_effective_role(db, user)
         return user
 
     @staticmethod

@@ -55,7 +55,11 @@ class RefreshTokenService:
         ).first()
 
         if db_token:
-            return db.query(User).filter(User.id == db_token.user_id).first()
+            user = db.query(User).filter(User.id == db_token.user_id).first()
+            # Soft-deleted users must not refresh even if a token row survived.
+            if user is None or getattr(user, "deleted_at", None) is not None:
+                return None
+            return user
 
         reused = (
             db.query(RefreshToken)
@@ -124,7 +128,13 @@ class RefreshTokenService:
         return RefreshTokenService.revoke_token_by_id(db, db_token.id, reason=reason)
 
     @staticmethod
-    def revoke_all_user_tokens(db: Session, user_id: int, reason: str = "revoke_all") -> int:
+    def revoke_all_user_tokens(
+        db: Session,
+        user_id: int,
+        reason: str = "revoke_all",
+        *,
+        commit: bool = True,
+    ) -> int:
         """Revoke all refresh tokens for a user and linked analytics sessions."""
         active_tokens = (
             db.query(RefreshToken)
@@ -143,9 +153,15 @@ class RefreshTokenService:
             },
             synchronize_session=False,
         )
-        db.commit()
-
-        UserSessionService.deactivate_by_refresh_token_ids(db, token_ids, reason=reason)
+        if commit:
+            db.commit()
+            UserSessionService.deactivate_by_refresh_token_ids(
+                db, token_ids, reason=reason, commit=True
+            )
+        else:
+            UserSessionService.deactivate_by_refresh_token_ids(
+                db, token_ids, reason=reason, commit=False
+            )
         return len(token_ids)
 
     @staticmethod

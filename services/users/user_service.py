@@ -179,7 +179,12 @@ class UserService:
         editor: User,
         target_user_id: int,
     ) -> Dict[str, Any]:
-        """Soft-delete a user and free unique username/email for reuse."""
+        """
+        Soft-delete a user and revoke all usable credentials in one transaction.
+
+        Marks deleted_at, revokes refresh tokens, deactivates sessions and API keys
+        (and group memberships) before a single commit. Failures roll back the delete.
+        """
         try:
             assert_not_self_admin_edit(editor.id, target_user_id)
         except ValueError as exc:
@@ -195,37 +200,73 @@ class UserService:
 
         now = utc_now()
         original_username = target.username
-        # Keep original username/email: active-only unique indexes
-        # (uq_users_*_active) free them for re-invite once deleted_at is set.
-        target.status = "inactive"
-        target.deleted_at = now
-        target.deleted_by = editor.id
-        target.updated_at = now
-        target.manager_id = None
-        db.commit()
+        target_id = target.id
 
-        UserService._invalidate_user_cache(target.id, full=True)
-
-        # Revoke sessions after soft delete
         try:
+            # Keep original username/email: active-only unique indexes free them for reuse.
+            target.status = "inactive"
+            target.deleted_at = now
+            target.deleted_by = editor.id
+            target.updated_at = now
+            target.manager_id = None
+
             from services.auth.refresh_token_service import RefreshTokenService
+            from services.sessions import UserSessionService
+            from services.permissions.api_key_service import ApiKeyService
+            from models.user_model import UserGroupMembership
 
             RefreshTokenService.revoke_all_user_tokens(
-                db, target.id, reason="user_soft_deleted"
+                db, target_id, reason="user_soft_deleted", commit=False
             )
-        except Exception:
-            pass
+            session_result = UserSessionService.deactivate_user_sessions(
+                db, target_id, reason="user_soft_deleted", commit=False
+            )
+            if not session_result.get("success"):
+                raise RuntimeError(
+                    session_result.get("error") or "Failed to deactivate sessions"
+                )
+            ApiKeyService.deactivate_all_for_user(
+                db, target_id, commit=False, reason="user_soft_deleted"
+            )
+            (
+                db.query(UserGroupMembership)
+                .filter(
+                    UserGroupMembership.user_id == target_id,
+                    UserGroupMembership.is_active == True,
+                )
+                .update(
+                    {UserGroupMembership.is_active: False},
+                    synchronize_session=False,
+                )
+            )
+
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            auth_logger.error(
+                f"Soft-delete credential cleanup failed for {original_username}: {exc}",
+                editor_id=editor.id,
+                target_user_id=target_id,
+                error=str(exc),
+                event_type="user_soft_delete_failed",
+            )
+            return {
+                "success": False,
+                "error": f"Failed to soft-delete user (credentials not cleaned): {exc}",
+            }
+
+        UserService._invalidate_user_cache(target_id, full=True)
 
         auth_logger.info(
             f"User soft-deleted: {original_username}",
             editor_id=editor.id,
-            target_user_id=target.id,
+            target_user_id=target_id,
             event_type="user_soft_deleted",
         )
         return {
             "success": True,
             "message": f"User '{original_username}' deleted",
-            "user_id": target.id,
+            "user_id": target_id,
         }
 
     @staticmethod
