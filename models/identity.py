@@ -20,8 +20,9 @@ class Organization(Base):
     __tablename__ = "organizations"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), unique=True, nullable=False)
-    slug = Column(String(100), unique=True, nullable=False, index=True)
+    # Active-only uniqueness: uq_organizations_name_active / uq_organizations_slug_active.
+    name = Column(String(100), nullable=False, index=True)
+    slug = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     status = Column(String(20), default="active")  # active | inactive | suspended (DB ENUM)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -57,9 +58,11 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, index=True, nullable=False)
+    # Uniqueness for active rows is enforced by functional indexes
+    # uq_users_username_active / uq_users_email_active (deleted_at IS NULL).
+    username = Column(String(50), index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
+    email = Column(String(255), index=True, nullable=False)
     status = Column(String(20), default="active")
     phone_number = Column(String(20), default="0000000000")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

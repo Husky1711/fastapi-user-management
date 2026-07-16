@@ -1,8 +1,8 @@
 -- =============================================================================
 -- FastAPI User Management — latest database schema (DDL only)
--- Generated: 2026-07-15 17:29:16 UTC
+-- Generated: 2026-07-16 04:21:17 UTC
 -- Database: fastapi_users
--- Alembic revision: 20260714_v1_harden
+-- Alembic revision: 20260716_soft_unique
 -- Source: live MySQL via SHOW CREATE TABLE (no data)
 -- =============================================================================
 
@@ -239,12 +239,14 @@ CREATE TABLE `organizations` (
   `deleted_at` datetime DEFAULT NULL,
   `deleted_by` int DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `name` (`name`),
-  UNIQUE KEY `uq_organizations_slug` (`slug`),
+  UNIQUE KEY `uq_organizations_name_active` (((case when (`deleted_at` is null) then `name` end))),
+  UNIQUE KEY `uq_organizations_slug_active` (((case when (`deleted_at` is null) then `slug` end))),
   KEY `fk_organizations_deleted_by` (`deleted_by`),
   KEY `idx_organizations_deleted_at` (`deleted_at`),
+  KEY `ix_organizations_name` (`name`),
+  KEY `ix_organizations_slug` (`slug`),
   CONSTRAINT `fk_organizations_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `password_history`
@@ -434,7 +436,7 @@ CREATE TABLE `user_groups` (
   KEY `ix_user_groups_organization_id` (`organization_id`),
   CONSTRAINT `fk_user_groups_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_user_groups_organization_id` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_invitations`
@@ -459,7 +461,7 @@ CREATE TABLE `user_invitations` (
   KEY `idx_inv_expires` (`expires_at`),
   CONSTRAINT `fk_inv_invited_by` FOREIGN KEY (`invited_by`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_inv_org` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_permissions`
@@ -494,7 +496,7 @@ CREATE TABLE `user_permissions` (
   CONSTRAINT `fk_user_permissions_organization_id` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_user_permissions_permission_id` FOREIGN KEY (`permission_id`) REFERENCES `permissions` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_user_permissions_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ---------------------------------------------------------------------------
 -- Table: `user_roles`
@@ -564,7 +566,7 @@ CREATE TABLE `users` (
   `id` int NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
-  `email` varchar(100) NOT NULL,
+  `email` varchar(255) NOT NULL,
   `status` enum('active','inactive','suspended','pending') NOT NULL DEFAULT 'active',
   `phone_number` varchar(20) DEFAULT NULL,
   `created_at` datetime DEFAULT (now()),
@@ -584,18 +586,20 @@ CREATE TABLE `users` (
   `deleted_by` int DEFAULT NULL,
   `backup_codes_generated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `ix_users_email` (`email`),
-  UNIQUE KEY `ix_users_username` (`username`),
+  UNIQUE KEY `uq_users_email_active` (((case when (`deleted_at` is null) then `email` end))),
+  UNIQUE KEY `uq_users_username_active` (((case when (`deleted_at` is null) then `username` end))),
   KEY `ix_users_is_2fa_enabled` (`is_2fa_enabled`),
   KEY `ix_users_manager_id` (`manager_id`),
   KEY `fk_users_deleted_by` (`deleted_by`),
   KEY `idx_users_org_status` (`organization_id`,`status`),
   KEY `idx_users_org_role` (`organization_id`,`role`),
   KEY `idx_users_deleted_at` (`deleted_at`),
+  KEY `ix_users_email` (`email`),
+  KEY `ix_users_username` (`username`),
   CONSTRAINT `fk_users_deleted_by` FOREIGN KEY (`deleted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_users_manager_id` FOREIGN KEY (`manager_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_users_organization_id` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`) ON DELETE RESTRICT
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
 

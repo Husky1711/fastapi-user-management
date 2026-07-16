@@ -192,13 +192,104 @@ def test_pending_invite_unique_per_org_email():
 
 
 @pytest.mark.integration
+def test_soft_deleted_user_email_username_reusable():
+    """Active-only unique indexes free email/username after soft-delete."""
+    from models.user_model import User
+    from services.users.user_service import UserService
+    from utils.jwt_config import get_password_hash
+    from utils.datetime_utc import utc_now
+
+    db = SessionLocal()
+    suffix = _suffix()
+    username = f"reuse-u-{suffix}"
+    email = f"reuse-{suffix}@example.com"
+    created_ids: list[int] = []
+    try:
+        editor = db.query(User).filter_by(username="test_super_admin").one()
+        first = User(
+            username=username,
+            email=email,
+            password_hash=get_password_hash("TempPass123!"),
+            status="active",
+            role="user",
+            organization_id=1,
+            phone_number="1234567890",
+        )
+        db.add(first)
+        db.commit()
+        db.refresh(first)
+        created_ids.append(first.id)
+
+        result = UserService.soft_delete_user(db, editor, first.id)
+        assert result["success"] is True, result
+
+        # Same email/username must be insertable for a new active user
+        second = User(
+            username=username,
+            email=email,
+            password_hash=get_password_hash("TempPass123!"),
+            status="active",
+            role="user",
+            organization_id=1,
+            phone_number="1234567890",
+        )
+        db.add(second)
+        db.commit()
+        db.refresh(second)
+        created_ids.append(second.id)
+        assert second.id != first.id
+        assert second.deleted_at is None
+
+        # Two active users with same email must still fail
+        third = User(
+            username=f"{username}-x",
+            email=email,
+            password_hash=get_password_hash("TempPass123!"),
+            status="active",
+            role="user",
+            organization_id=1,
+            phone_number="1234567890",
+        )
+        db.add(third)
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    finally:
+        for uid in created_ids:
+            db.query(User).filter(User.id == uid).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@pytest.mark.integration
+def test_users_email_column_is_255():
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT CHARACTER_MAXIMUM_LENGTH
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'users'
+                  AND COLUMN_NAME = 'email'
+                """
+            )
+        ).one()
+        assert int(row[0]) >= 255
+    finally:
+        db.close()
+
+
+@pytest.mark.integration
 def test_seeded_users_have_no_role_drift():
     from services.permissions.rbac_catalog_service import RbacCatalogService
 
     db = SessionLocal()
     try:
         drifts = RbacCatalogService.find_role_drifts(db)
-        # After bootstrap sync, seed users must be consistent.
         seed_names = {
             "testadmin",
             "testuser",
