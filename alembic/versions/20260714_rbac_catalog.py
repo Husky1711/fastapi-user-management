@@ -98,6 +98,25 @@ def _role_perm_names(role_name: str):
 
 
 def upgrade() -> None:
+    # Greenfield databases get these tables from the baseline revision's
+    # ``Base.metadata.create_all`` (models.rbac_model), so every step here must be
+    # idempotent — same contract as the other post-baseline revisions.
+    bind = op.get_bind()
+    existing_tables = set(sa.inspect(bind).get_table_names())
+
+    if "permissions" not in existing_tables:
+        _create_permissions_table()
+    if "roles" not in existing_tables:
+        _create_roles_table()
+    if "role_permissions" not in existing_tables:
+        _create_role_permissions_table()
+    if "user_roles" not in existing_tables:
+        _create_user_roles_table()
+
+    _seed_catalog(bind)
+
+
+def _create_permissions_table() -> None:
     op.create_table(
         "permissions",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -115,6 +134,8 @@ def upgrade() -> None:
     op.create_index("ix_permissions_name", "permissions", ["name"])
     op.create_index("ix_permissions_category", "permissions", ["category"])
 
+
+def _create_roles_table() -> None:
     op.create_table(
         "roles",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -152,6 +173,8 @@ def upgrade() -> None:
     op.create_index("ix_roles_organization_id", "roles", ["organization_id"])
     op.create_index("ix_roles_is_system", "roles", ["is_system"])
 
+
+def _create_role_permissions_table() -> None:
     op.create_table(
         "role_permissions",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -176,6 +199,8 @@ def upgrade() -> None:
         "ix_role_permissions_permission_id", "role_permissions", ["permission_id"]
     )
 
+
+def _create_user_roles_table() -> None:
     op.create_table(
         "user_roles",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -198,7 +223,9 @@ def upgrade() -> None:
     op.create_index("ix_user_roles_user_id", "user_roles", ["user_id"])
     op.create_index("ix_user_roles_role_id", "user_roles", ["role_id"])
 
-    bind = op.get_bind()
+
+def _seed_catalog(bind) -> None:
+    """Insert system permissions, roles, and mappings that are not present yet."""
     permissions = sa.table(
         "permissions",
         sa.column("id", sa.Integer),
@@ -231,12 +258,24 @@ def upgrade() -> None:
         sa.column("role", sa.String),
     )
 
+    existing_perms = {
+        row.name for row in bind.execute(sa.select(permissions.c.name))
+    }
     perm_rows = [
         {"name": n, "description": d, "category": c}
         for n, (d, c) in {**SYSTEM_PERMISSIONS, **API_KEY_PERMISSIONS}.items()
+        if n not in existing_perms
     ]
-    op.bulk_insert(permissions, perm_rows)
+    if perm_rows:
+        op.bulk_insert(permissions, perm_rows)
 
+    # System roles are global (organization_id NULL, org_scope_key 0).
+    existing_system_roles = {
+        row.name
+        for row in bind.execute(
+            sa.select(roles.c.name).where(roles.c.org_scope_key == 0)
+        )
+    }
     role_rows = [
         {
             "name": name,
@@ -246,8 +285,10 @@ def upgrade() -> None:
             "description": desc,
         }
         for name, desc in ROLE_DESCS.items()
+        if name not in existing_system_roles
     ]
-    op.bulk_insert(roles, role_rows)
+    if role_rows:
+        op.bulk_insert(roles, role_rows)
 
     # Map role_permissions after inserting — query IDs
     perm_id_by_name = {
@@ -256,24 +297,36 @@ def upgrade() -> None:
     }
     role_id_by_name = {
         row.name: row.id
-        for row in bind.execute(sa.select(roles.c.id, roles.c.name))
+        for row in bind.execute(
+            sa.select(roles.c.id, roles.c.name).where(roles.c.org_scope_key == 0)
+        )
     }
 
+    existing_rp = {
+        (row.role_id, row.permission_id)
+        for row in bind.execute(
+            sa.select(role_permissions.c.role_id, role_permissions.c.permission_id)
+        )
+    }
     rp_rows = []
     for role_name in ROLE_DESCS:
         rid = role_id_by_name[role_name]
         for pname in _role_perm_names(role_name):
             pid = perm_id_by_name.get(pname)
-            if pid is not None:
+            if pid is not None and (rid, pid) not in existing_rp:
                 rp_rows.append({"role_id": rid, "permission_id": pid})
     if rp_rows:
         op.bulk_insert(role_permissions, rp_rows)
 
     # Backfill user_roles from users.role
+    existing_ur = {
+        (row.user_id, row.role_id)
+        for row in bind.execute(sa.select(user_roles.c.user_id, user_roles.c.role_id))
+    }
     ur_rows = []
     for row in bind.execute(sa.select(users.c.id, users.c.role)):
         rid = role_id_by_name.get(row.role)
-        if rid is not None:
+        if rid is not None and (row.id, rid) not in existing_ur:
             ur_rows.append({"user_id": row.id, "role_id": rid})
     if ur_rows:
         op.bulk_insert(user_roles, ur_rows)

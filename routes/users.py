@@ -304,6 +304,17 @@ async def soft_delete_user(
 
     result = UserService.soft_delete_user(db, current_user, user_id)
     if not result["success"]:
+        reason = result.get("reason")
+        if reason == "not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found or access denied",
+            )
+        if reason == "forbidden":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=result["error"],
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result["error"],

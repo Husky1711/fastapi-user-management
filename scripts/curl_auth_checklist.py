@@ -19,6 +19,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 ORIGIN = os.getenv("CHECKLIST_ORIGIN", "http://localhost:5173")
+# Cookie-authenticated POSTs (refresh/logout) require the CSRF header — see utils/cookie_auth.py.
+COOKIE_POST_HEADERS = {"Origin": ORIGIN, "X-Requested-With": "XMLHttpRequest"}
 CHECKLIST_USER = os.getenv("CHECKLIST_USER", "testadmin")
 CHECKLIST_PASSWORD = os.getenv("CHECKLIST_PASSWORD", "admin123")
 CHECKLIST_BASE_URL = os.getenv("CHECKLIST_BASE_URL", "").strip().rstrip("/")
@@ -92,7 +94,7 @@ def _run_http_checklist(base_url: str) -> int:
 
         refresh = client.post(
             f"{base_url}/api/v1/refresh",
-            headers={"Origin": ORIGIN},
+            headers=COOKIE_POST_HEADERS,
         )
         _assert(refresh.status_code == 200, f"refresh failed: {refresh.status_code} {refresh.text}")
         _assert(refresh.json().get("access_token"), f"refresh missing access_token: {refresh.json()}")
@@ -102,7 +104,7 @@ def _run_http_checklist(base_url: str) -> int:
 
         logout = client.post(
             f"{base_url}/api/v1/logout",
-            headers={"Origin": ORIGIN},
+            headers=COOKIE_POST_HEADERS,
         )
         _assert(logout.status_code == 200, f"logout failed: {logout.status_code} {logout.text}")
         cleared = (_header(logout.headers, "set-cookie") or "").lower()
@@ -176,7 +178,7 @@ def _run_testclient_checklist() -> int:
 
         refresh = client.post(
             "/api/v1/refresh",
-            headers={"Origin": ORIGIN},
+            headers=COOKIE_POST_HEADERS,
         )
         _assert(refresh.status_code == 200, f"refresh failed: {refresh.status_code} {refresh.text}")
         _assert(refresh.json().get("access_token"), f"refresh missing access_token: {refresh.json()}")
@@ -186,7 +188,7 @@ def _run_testclient_checklist() -> int:
 
         logout = client.post(
             "/api/v1/logout",
-            headers={"Origin": ORIGIN},
+            headers=COOKIE_POST_HEADERS,
         )
         _assert(logout.status_code == 200, f"logout failed: {logout.status_code} {logout.text}")
         cleared = logout.headers.get("set-cookie", "")

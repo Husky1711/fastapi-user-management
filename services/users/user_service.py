@@ -185,18 +185,25 @@ class UserService:
         Marks deleted_at, revokes refresh tokens, deactivates sessions and API keys
         (and group memberships) before a single commit. Failures roll back the delete.
         """
+        # ``reason`` lets callers map failures to HTTP status: "invalid" (400),
+        # "forbidden" (403), "not_found" (404; also used for other orgs so the
+        # endpoint does not reveal whether a user exists outside the caller's org).
         try:
             assert_not_self_admin_edit(editor.id, target_user_id)
         except ValueError as exc:
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": str(exc), "reason": "invalid"}
 
         target = UserService.get_user_by_id(db, target_user_id)
         if target is None:
-            return {"success": False, "error": "User not found"}
-        if not can_edit_user(editor.role, target.role):
-            return {"success": False, "error": "Cannot delete this user"}
+            return {"success": False, "error": "User not found", "reason": "not_found"}
         if editor.role != "super_admin" and target.organization_id != editor.organization_id:
-            return {"success": False, "error": "Cannot delete users in another organization"}
+            return {
+                "success": False,
+                "error": "Cannot delete users in another organization",
+                "reason": "not_found",
+            }
+        if not can_edit_user(editor.role, target.role):
+            return {"success": False, "error": "Cannot delete this user", "reason": "forbidden"}
 
         now = utc_now()
         original_username = target.username

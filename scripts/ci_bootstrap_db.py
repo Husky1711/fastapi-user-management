@@ -31,9 +31,11 @@ SEED_USERS: tuple[tuple[str, str, str, str, int], ...] = (
     ("test_super_admin", "test_super_admin@test.com", "TestSuperAdminPass123!", "super_admin", 2),
 )
 
-SEED_ORGS: tuple[tuple[int, str, str], ...] = (
-    (1, "Default Organization", "CI / Codespaces development organization"),
-    (2, "System", "Platform-level scope for super admins"),
+# (id, name, slug, description) — slug is NOT NULL since 20260714_uniques_slug;
+# values match OrganizationService.slugify(name).
+SEED_ORGS: tuple[tuple[int, str, str, str], ...] = (
+    (1, "Default Organization", "default-organization", "CI / Codespaces development organization"),
+    (2, "System", "system", "Platform-level scope for super admins"),
 )
 
 
@@ -59,13 +61,14 @@ def _run_migrations() -> None:
 def _seed_data() -> None:
     db = SessionLocal()
     try:
-        for org_id, name, description in SEED_ORGS:
+        for org_id, name, slug, description in SEED_ORGS:
             org = db.query(Organization).filter(Organization.id == org_id).first()
             if org is None:
                 db.add(
                     Organization(
                         id=org_id,
                         name=name,
+                        slug=slug,
                         description=description,
                         status="active",
                     )
