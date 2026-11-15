@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["Permissions"])
 # ============================================================================
 
 @router.get("/permissions", response_model=Dict[str, Any])
-async def get_user_permissions(
+def get_user_permissions(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
@@ -93,7 +93,7 @@ async def get_user_permissions(
         )
 
 @router.get("/permissions/standard", response_model=Dict[str, str])
-async def get_standard_permissions(
+def get_standard_permissions(
     _current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("permissions_standard"))
@@ -122,7 +122,7 @@ async def get_standard_permissions(
         )
 
 @router.get("/permissions/statistics", response_model=Dict[str, Any])
-async def get_permission_statistics(
+def get_permission_statistics(
     current_user: User = Depends(require_permission("permissions:read")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),

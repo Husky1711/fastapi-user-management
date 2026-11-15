@@ -60,7 +60,7 @@ def resolve_authenticated_user(
     )
 
 
-async def get_authenticated_user(
+def get_authenticated_user(
     db: Session = Depends(get_db),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     api_key: Optional[str] = Header(None, alias=API_KEY_HEADER),

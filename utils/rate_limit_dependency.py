@@ -30,7 +30,9 @@ class RateLimitDependency:
     @staticmethod
     def check_rate_limit(endpoint: str, require_auth: bool = True):
         """Create rate limiting dependency"""
-        async def rate_limit_check(
+        # Sync on purpose: Redis/DB calls here block, so FastAPI must run this in
+        # its threadpool rather than on the event loop.
+        def rate_limit_check(
             request: Request,
             db: Session = Depends(get_db)
         ):

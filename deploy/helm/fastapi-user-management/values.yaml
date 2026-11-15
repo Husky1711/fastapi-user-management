@@ -4,7 +4,15 @@ repository:
   url: https://github.com/Husky1711/fastapi-user-management.git
   branch: feature/codespaces-local-db
 
-replicaCount: 1
+# Load-tested (1 worker, 1 CPU, 2 threads): ~60 req/s per pod; 3 pods ~150 req/s,
+# which covers the 1,000-2,000-user target with headroom. Scale replicas, not threads.
+replicaCount: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 6          # keep maxReplicas x 20 DB connections < MySQL max_connections
+  targetCPUUtilizationPercentage: 70
 
 image:
   repository: ghcr.io/husky1711/fastapi-user-management
@@ -24,19 +32,26 @@ env:
   APP__PORT: "9000"
   APP__ENVIRONMENT: "staging"
   REDIS__HOST: "redis"
-  # DB__URL or DATABASE_URL from Kubernetes Secret in real deployments
+  # Per-process capacity: 1 worker x 2 threads; DB pool 10+10 = 20 connections/pod.
+  # In-flight requests are capped at pool-2 per process (no pool deadlock).
+  WEB_CONCURRENCY: "1"
+  APP__THREADPOOL_SIZE: "2"
+  DATABASE__POOL_SIZE: "10"
+  DATABASE__MAX_OVERFLOW: "10"
+  # DATABASE_URL (or DB__URL) from a Kubernetes Secret in real deployments
 
 probes:
   liveness: /health/live
   readiness: /health/ready
 
+# 1 full CPU per pod: bcrypt login ~250 ms CPU; 500m throttled pods to ~2 logins/s.
 resources:
   limits:
-    cpu: 500m
+    cpu: "1"
     memory: 512Mi
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: "1"
+    memory: 384Mi
 
 # See docs/CONTAINER_HARDENING.md — image USER is 10001.
 securityContext:

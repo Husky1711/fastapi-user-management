@@ -28,7 +28,7 @@ from utils.rate_limit_dependency import RateLimitDependency
 router = create_api_router(tags=["Profile"])
 
 @router.post("/password/reset-request", response_model=PasswordResetResponse)
-async def request_password_reset(
+def request_password_reset(
     request_data: PasswordResetRequest,
     request: Request,
     db: Session = Depends(get_db),
@@ -118,7 +118,7 @@ async def request_password_reset(
         )
 
 @router.post("/password/reset", response_model=PasswordResetConfirmResponse)
-async def confirm_password_reset(
+def confirm_password_reset(
     reset_data: PasswordResetConfirm,
     db: Session = Depends(get_db),
     _: None = Depends(
@@ -179,7 +179,7 @@ async def confirm_password_reset(
         )
 
 @router.get("/password/reset/validate/{token}")
-async def validate_reset_token(
+def validate_reset_token(
     token: str,
     db: Session = Depends(get_db),
 ):
@@ -224,7 +224,7 @@ async def validate_reset_token(
         )
 
 @router.post("/email/verify")
-async def verify_email(
+def verify_email(
     body: dict,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("email_verify", require_auth=False)),
@@ -248,7 +248,7 @@ async def verify_email(
 
 
 @router.post("/email/resend-verification")
-async def resend_email_verification(
+def resend_email_verification(
     body: dict,
     db: Session = Depends(get_db),
     _: None = Depends(
@@ -269,7 +269,7 @@ async def resend_email_verification(
 
 # User Profile Management Endpoints
 @router.get("/profile", response_model=UserResponse)
-async def get_user_profile(
+def get_user_profile(
     current_user: CurrentUser,
     db: Session = Depends(get_db)
     # Rate limiting removed - profile endpoint is read-only, no risk of abuse
@@ -318,7 +318,7 @@ async def get_user_profile(
         )
 
 @router.put("/profile", response_model=UserProfileUpdateResponse)
-async def update_user_profile(
+def update_user_profile(
     profile_data: UserProfileUpdate,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -391,7 +391,7 @@ async def update_user_profile(
         )
 
 @router.post("/password/change", response_model=PasswordChangeResponse)
-async def change_password(
+def change_password(
     password_data: PasswordChangeRequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),

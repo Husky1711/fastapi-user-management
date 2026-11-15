@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["Groups"])
 # ============================================================================
 
 @router.get("/groups", response_model=Dict[str, Any])
-async def get_organization_groups(
+def get_organization_groups(
     current_user: User = Depends(require_permission("groups:read")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
@@ -88,7 +88,7 @@ async def get_organization_groups(
         )
 
 @router.get("/groups/{group_id}/members", response_model=Dict[str, Any])
-async def get_group_members(
+def get_group_members(
     group_id: int,
     current_user: User = Depends(require_permission("groups:read")),
     db: Session = Depends(get_db),
@@ -142,7 +142,7 @@ async def get_group_members(
         )
 
 @router.get("/groups/statistics", response_model=Dict[str, Any])
-async def get_group_statistics(
+def get_group_statistics(
     current_user: User = Depends(require_permission("groups:read")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
@@ -189,7 +189,7 @@ async def get_group_statistics(
         )
 
 @router.post("/groups", response_model=Dict[str, Any])
-async def create_organization_group(
+def create_organization_group(
     body: CreateGroupRequest,
     request: Request,
     current_user: User = Depends(require_permission("groups:create")),
@@ -244,7 +244,7 @@ async def create_organization_group(
 
 
 @router.patch("/groups/{group_id}", response_model=Dict[str, Any])
-async def update_organization_group(
+def update_organization_group(
     group_id: int,
     body: UpdateGroupRequest,
     request: Request,
@@ -291,7 +291,7 @@ async def update_organization_group(
 
 
 @router.delete("/groups/{group_id}", response_model=Dict[str, Any])
-async def delete_organization_group(
+def delete_organization_group(
     group_id: int,
     request: Request,
     current_user: User = Depends(require_permission("groups:delete")),
@@ -334,7 +334,7 @@ async def delete_organization_group(
 
 
 @router.post("/groups/{group_id}/members", response_model=Dict[str, Any])
-async def add_group_member(
+def add_group_member(
     group_id: int,
     body: AddGroupMemberRequest,
     current_user: User = Depends(require_permission("groups:update")),
@@ -370,7 +370,7 @@ async def add_group_member(
 
 
 @router.delete("/groups/{group_id}/members/{user_id}", response_model=Dict[str, Any])
-async def remove_group_member(
+def remove_group_member(
     group_id: int,
     user_id: int,
     current_user: User = Depends(require_permission("groups:update")),
@@ -406,7 +406,7 @@ async def remove_group_member(
 
 
 @router.get("/groups/{group_id}/permissions", response_model=Dict[str, Any])
-async def list_group_permissions(
+def list_group_permissions(
     group_id: int,
     current_user: User = Depends(require_permission("groups:read")),
     db: Session = Depends(get_db),
@@ -438,7 +438,7 @@ async def list_group_permissions(
 
 
 @router.post("/groups/{group_id}/permissions", response_model=Dict[str, Any])
-async def grant_group_permission(
+def grant_group_permission(
     group_id: int,
     body: GrantGroupPermissionRequest,
     current_user: User = Depends(require_permission("permissions:grant")),
@@ -479,7 +479,7 @@ async def grant_group_permission(
     "/groups/{group_id}/permissions",
     response_model=Dict[str, Any],
 )
-async def revoke_group_permission(
+def revoke_group_permission(
     group_id: int,
     current_user: User = Depends(require_permission("permissions:revoke")),
     db: Session = Depends(get_db),

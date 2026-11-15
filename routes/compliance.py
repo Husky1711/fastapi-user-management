@@ -26,7 +26,7 @@ class ConsentRequest(BaseModel):
 
 
 @router.get("/consents", response_model=Dict[str, Any])
-async def list_my_consents(
+def list_my_consents(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: Optional[int] = Query(None),
@@ -38,7 +38,7 @@ async def list_my_consents(
 
 
 @router.post("/consents", response_model=Dict[str, Any])
-async def upsert_consent(
+def upsert_consent(
     body: ConsentRequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -62,7 +62,7 @@ async def upsert_consent(
 
 
 @router.get("/security/incidents", response_model=Dict[str, Any])
-async def list_security_incidents(
+def list_security_incidents(
     current_user: User = Depends(require_permission("security:incidents")),
     db: Session = Depends(get_db),
     organization_id: Optional[int] = Query(None),

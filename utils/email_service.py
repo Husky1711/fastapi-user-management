@@ -73,7 +73,13 @@ class EmailService:
             message.attach(html_part)
             
             # Send email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as smtp:
+            # Sends run inline in the request thread: bound them so an unresponsive
+            # SMTP server cannot hold a worker thread indefinitely.
+            with smtplib.SMTP(
+                self.smtp_host,
+                self.smtp_port,
+                timeout=settings.email.smtp_timeout_seconds,
+            ) as smtp:
                 smtp.starttls()
                 smtp.login(self.smtp_username, self.smtp_password)
                 smtp.send_message(message)

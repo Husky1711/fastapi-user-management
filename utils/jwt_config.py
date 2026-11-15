@@ -1,6 +1,9 @@
 from utils.datetime_utc import utc_now
 import hashlib
+import math
+import os
 import re
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -20,6 +23,35 @@ REFRESH_TOKEN_EXPIRE_DAYS = settings.jwt.refresh_token_expire_days
 _LEGACY_SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
 
 
+def _available_cpus() -> int:
+    """CPU cores this process may use: cgroup v2/v1 quota if set, else os.cpu_count()."""
+    try:
+        with open("/sys/fs/cgroup/cpu.max", encoding="ascii") as fh:  # cgroup v2
+            quota, period = fh.read().split()[:2]
+        if quota != "max":
+            return max(1, math.ceil(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    try:  # cgroup v1
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us", encoding="ascii") as fh:
+            quota_us = int(fh.read())
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us", encoding="ascii") as fh:
+            period_us = int(fh.read())
+        if quota_us > 0:
+            return max(1, math.ceil(quota_us / period_us))
+    except (OSError, ValueError):
+        pass
+    return os.cpu_count() or 1
+
+
+# bcrypt releases the GIL, so endpoints running in FastAPI's threadpool can hash in
+# parallel. Unbounded, a login burst would occupy every core and starve all other
+# requests; cap concurrent hashes at the cores we actually have (or the setting).
+_HASH_SLOTS = threading.BoundedSemaphore(
+    settings.password_policy.hash_concurrency or _available_cpus()
+)
+
+
 def is_legacy_sha256_hash(hashed_password: str) -> bool:
     return bool(_LEGACY_SHA256_HEX.match(hashed_password))
 
@@ -31,17 +63,19 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             return False
         return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
     try:
-        return bcrypt.checkpw(
-            plain_password.encode("utf-8"),
-            hashed_password.encode("utf-8"),
-        )
+        with _HASH_SLOTS:
+            return bcrypt.checkpw(
+                plain_password.encode("utf-8"),
+                hashed_password.encode("utf-8"),
+            )
     except ValueError:
         return False
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password with bcrypt."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    with _HASH_SLOTS:
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def needs_password_rehash(hashed_password: str) -> bool:

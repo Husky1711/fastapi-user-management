@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1", tags=["Audit"])
 
 
 @router.get("/audit/logs", response_model=Dict[str, Any])
-async def get_audit_logs(
+def get_audit_logs(
     current_user: User = Depends(require_permission("audit:read")),
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
@@ -83,7 +83,7 @@ async def get_audit_logs(
 
 
 @router.get("/audit/statistics", response_model=Dict[str, Any])
-async def get_audit_statistics(
+def get_audit_statistics(
     current_user: User = Depends(require_permission("audit:statistics")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),

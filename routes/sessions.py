@@ -19,7 +19,7 @@ router = create_api_router(tags=["Sessions"])
 
 
 @router.get("/sessions/info", response_model=Dict[str, Any])
-async def get_session_info(
+def get_session_info(
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -50,7 +50,7 @@ async def get_session_info(
 
 
 @router.post("/sessions/revoke-others", response_model=SuccessResponse)
-async def revoke_other_sessions(
+def revoke_other_sessions(
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -104,7 +104,7 @@ async def revoke_other_sessions(
 
 
 @router.get("/sessions", response_model=list[SessionInfo])
-async def get_user_sessions(
+def get_user_sessions(
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -136,7 +136,7 @@ async def get_user_sessions(
 
 
 @router.delete("/sessions/{session_id}")
-async def revoke_session(
+def revoke_session(
     session_id: int,
     current_user: CurrentUser,
     db: Session = Depends(get_db),

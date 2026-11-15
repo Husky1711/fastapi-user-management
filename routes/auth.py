@@ -35,7 +35,7 @@ from utils.request_ip import get_client_ip
 router = create_api_router(tags=["Authentication"])
 
 @router.post("/login")
-async def login(
+def login(
     credentials: UserSigninRequest, 
     request: Request, 
     db: Session = Depends(get_db),
@@ -207,7 +207,7 @@ async def login(
         )
 
 @router.post("/login/2fa")
-async def login_with_2fa(
+def login_with_2fa(
     payload: Login2FARequest,
     request: Request,
     db: Session = Depends(get_db),
@@ -252,7 +252,7 @@ async def login_with_2fa(
         )
 
 @router.post("/signup", response_model=UserResponse)
-async def signup(
+def signup(
     user: UserSignupRequest, 
     request: Request,
     db: Session = Depends(get_db),
@@ -382,7 +382,7 @@ async def signup(
         )
 
 @router.post("/refresh")
-async def refresh_token(
+def refresh_token(
     request: Request,
     refresh_data: Optional[RefreshTokenRequest] = Body(None),
     db: Session = Depends(get_db),
@@ -426,7 +426,7 @@ async def refresh_token(
         )
 
 @router.post("/login-with-session-control")
-async def login_with_session_control(
+def login_with_session_control(
     credentials: UserSigninRequest,
     request: Request,
     db: Session = Depends(get_db),
@@ -520,7 +520,7 @@ async def login_with_session_control(
             detail="Internal server error"
         )
 @router.post("/logout")
-async def logout(
+def logout(
     request: Request,
     refresh_data: Optional[RefreshTokenRequest] = Body(None),
     db: Session = Depends(get_db),
@@ -586,7 +586,7 @@ async def logout(
         )
 
 @router.post("/logout-all")
-async def logout_all_sessions(
+def logout_all_sessions(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),

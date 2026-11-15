@@ -74,12 +74,20 @@ def setup_otel(app: "FastAPI") -> bool:
     return True
 
 
+try:  # optional dependency (requirements-otel.txt); resolve once, not per request
+    from opentelemetry import trace as _otel_trace
+except ImportError:
+    _otel_trace = None
+
+
 def current_trace_id() -> str | None:
     """Return the active W3C trace id hex, if any."""
+    if _otel_trace is None:
+        # A failed import is not cached by Python: retrying it on every request
+        # re-scans sys.path on disk (from the event loop, in RequestIDMiddleware).
+        return None
     try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
+        span = _otel_trace.get_current_span()
         ctx = span.get_span_context() if span else None
         if ctx and ctx.is_valid:
             return format(ctx.trace_id, "032x")

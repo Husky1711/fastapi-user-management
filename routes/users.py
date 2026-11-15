@@ -53,7 +53,7 @@ def _user_list_item(db: Session, user_obj: User) -> UserListItem:
     ],
     response_model_exclude_unset=True,
 )
-async def get_all_users(
+def get_all_users(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("users_list")),
@@ -88,7 +88,7 @@ async def get_all_users(
     return SelfUserListResponse(user=_user_list_item(db, current_user))
 
 @router.get("/users/{user_id}")
-async def get_user_by_id(
+def get_user_by_id(
     user_id: int,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -121,7 +121,7 @@ async def get_user_by_id(
     return user_data
 
 @router.patch("/users/{user_id}", response_model=AdminUpdateUserResponse)
-async def update_user_by_admin(
+def update_user_by_admin(
     user_id: int,
     updates: AdminUpdateUserRequest,
     request: Request,
@@ -173,7 +173,7 @@ async def update_user_by_admin(
         correlation_id=correlation_id,
     )
 @router.post("/admin/users/create", response_model=AdminCreateUserResponse)
-async def create_user_by_admin(
+def create_user_by_admin(
     user_data: AdminCreateUserRequest,
     request: Request,
     current_user: User = Depends(require_permission("users:create")),
@@ -291,7 +291,7 @@ async def create_user_by_admin(
 
 
 @router.delete("/users/{user_id}")
-async def soft_delete_user(
+def soft_delete_user(
     user_id: int,
     request: Request,
     current_user: User = Depends(require_permission("users:delete")),

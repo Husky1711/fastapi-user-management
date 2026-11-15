@@ -35,7 +35,7 @@ def _assert_org_settings_access(user: User, organization_id: int) -> None:
 
 
 @router.get("/organizations", response_model=OrganizationListResponse)
-async def list_organizations(
+def list_organizations(
     _current_user: SuperAdminUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("super_admin")),
@@ -46,7 +46,7 @@ async def list_organizations(
 
 
 @router.get("/organizations/me/settings", response_model=OrganizationSettingsResponse)
-async def list_my_organization_settings(
+def list_my_organization_settings(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("org_settings_me")),
@@ -56,7 +56,7 @@ async def list_my_organization_settings(
 
 
 @router.get("/organizations/{organization_id}", response_model=OrganizationResponse)
-async def get_organization(
+def get_organization(
     organization_id: int,
     _current_user: SuperAdminUser,
     db: Session = Depends(get_db),
@@ -70,7 +70,7 @@ async def get_organization(
 
 
 @router.post("/organizations", response_model=OrganizationMutationResponse)
-async def create_organization(
+def create_organization(
     payload: OrganizationCreateRequest,
     _current_user: SuperAdminUser,
     db: Session = Depends(get_db),
@@ -93,7 +93,7 @@ async def create_organization(
 
 
 @router.patch("/organizations/{organization_id}", response_model=OrganizationMutationResponse)
-async def update_organization(
+def update_organization(
     organization_id: int,
     payload: OrganizationUpdateRequest,
     _current_user: SuperAdminUser,
@@ -122,7 +122,7 @@ async def update_organization(
 
 
 @router.delete("/organizations/{organization_id}", response_model=OrganizationMutationResponse)
-async def delete_organization(
+def delete_organization(
     organization_id: int,
     current_user: SuperAdminUser,
     db: Session = Depends(get_db),
@@ -145,7 +145,7 @@ async def delete_organization(
     "/organizations/{organization_id}/settings",
     response_model=OrganizationSettingsResponse,
 )
-async def list_organization_settings(
+def list_organization_settings(
     organization_id: int,
     current_user: User = Depends(require_permission("organizations:read")),
     db: Session = Depends(get_db),
@@ -160,7 +160,7 @@ async def list_organization_settings(
     "/organizations/{organization_id}/settings/{setting_key}",
     response_model=OrganizationSettingMutationResponse,
 )
-async def upsert_organization_setting(
+def upsert_organization_setting(
     organization_id: int,
     setting_key: str,
     payload: OrganizationSettingUpsertRequest,
@@ -191,7 +191,7 @@ async def upsert_organization_setting(
     "/organizations/{organization_id}/settings/{setting_key}",
     response_model=OrganizationSettingMutationResponse,
 )
-async def delete_organization_setting(
+def delete_organization_setting(
     organization_id: int,
     setting_key: str,
     current_user: User = Depends(require_permission("organizations:update")),

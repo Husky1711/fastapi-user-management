@@ -24,7 +24,7 @@ class RetentionPolicyUpsertRequest(BaseModel):
 
 
 @router.get("/retention/policies", response_model=Dict[str, Any])
-async def list_retention_policies(
+def list_retention_policies(
     current_user: User = Depends(
         require_permission(
             "system:maintenance",
@@ -39,7 +39,7 @@ async def list_retention_policies(
 
 
 @router.put("/retention/policies/{table_name}", response_model=Dict[str, Any])
-async def upsert_retention_policy(
+def upsert_retention_policy(
     table_name: str,
     body: RetentionPolicyUpsertRequest,
     current_user: User = Depends(

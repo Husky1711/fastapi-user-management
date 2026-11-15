@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["API Keys"])
 # ============================================================================
 
 @router.get("/api-keys", response_model=Dict[str, Any])
-async def get_user_api_keys(
+def get_user_api_keys(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
@@ -90,7 +90,7 @@ async def get_user_api_keys(
         )
 
 @router.get("/api-keys/standard-permissions", response_model=Dict[str, str])
-async def get_standard_api_permissions(
+def get_standard_api_permissions(
     _current_user: CurrentUser,
     _: None = Depends(RateLimitDependency.check_rate_limit("api_permissions"))
 ):
@@ -118,7 +118,7 @@ async def get_standard_api_permissions(
         )
 
 @router.get("/api-keys/statistics", response_model=Dict[str, Any])
-async def get_api_key_statistics(
+def get_api_key_statistics(
     current_user: User = Depends(require_permission("api_keys:read")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
@@ -165,7 +165,7 @@ async def get_api_key_statistics(
         )
 
 @router.post("/api-keys", response_model=Dict[str, Any])
-async def create_user_api_key(
+def create_user_api_key(
     body: CreateApiKeyRequest,
     request: Request,
     current_user: User = Depends(require_permission("api_keys:create")),
@@ -213,7 +213,7 @@ async def create_user_api_key(
 
 
 @router.patch("/api-keys/{api_key_id}", response_model=Dict[str, Any])
-async def update_user_api_key(
+def update_user_api_key(
     api_key_id: int,
     body: UpdateApiKeyRequest,
     request: Request,
@@ -262,7 +262,7 @@ async def update_user_api_key(
 
 
 @router.delete("/api-keys/{api_key_id}", response_model=Dict[str, Any])
-async def revoke_user_api_key(
+def revoke_user_api_key(
     api_key_id: int,
     request: Request,
     current_user: CurrentUser,

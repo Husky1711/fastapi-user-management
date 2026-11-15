@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["Sessions Admin"])
 # ============================================================================
 
 @router.get("/sessions/statistics", response_model=Dict[str, Any])
-async def get_session_statistics(
+def get_session_statistics(
     current_user: User = Depends(require_permission("sessions:read")),
     db: Session = Depends(get_db),
     organization_id: int = Query(None, description="Filter by organization ID"),
@@ -90,7 +90,7 @@ async def get_session_statistics(
         )
 
 @router.post("/sessions/cleanup", response_model=Dict[str, Any])
-async def cleanup_expired_sessions(
+def cleanup_expired_sessions(
     current_user: User = Depends(require_permission("sessions:revoke")),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_cleanup"))
@@ -121,7 +121,7 @@ async def cleanup_expired_sessions(
 
 
 @router.post("/maintenance/cleanup", response_model=Dict[str, Any])
-async def run_maintenance_cleanup(
+def run_maintenance_cleanup(
     current_user: User = Depends(
         require_permission(
             "system:maintenance",

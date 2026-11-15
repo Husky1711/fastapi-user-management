@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/v1/integration", tags=["Integration"])
 
 
 @router.get("/whoami", response_model=Dict[str, Any])
-async def integration_whoami(
+def integration_whoami(
     current_user: User = Depends(get_authenticated_user),
 ) -> Dict[str, Any]:
     """

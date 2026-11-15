@@ -208,6 +208,16 @@ class PasswordPolicySettings(BaseSettings):
         False,
         description="Reject login when password_changed_at exceeds max_password_age_days",
     )
+    hash_concurrency: int = Field(
+        0,
+        ge=0,
+        le=64,
+        description=(
+            "Max bcrypt hash/verify operations running at once per process "
+            "(PASSWORD__HASH_CONCURRENCY). 0 = auto: CPU cores available to the container. "
+            "Keeps login bursts from starving other requests of CPU."
+        ),
+    )
     allow_legacy_sha256_hashes: bool = Field(
         True,
         description=(
@@ -427,6 +437,12 @@ class EmailSettings(BaseSettings):
     """Email configuration settings"""
     smtp_host: str = Field("", description="SMTP server host")
     smtp_port: int = Field(587, description="SMTP server port")
+    smtp_timeout_seconds: float = Field(
+        10.0,
+        gt=0,
+        le=120,
+        description="Socket timeout for SMTP connect/send (EMAIL__SMTP_TIMEOUT_SECONDS)",
+    )
     smtp_username: str = Field("", description="SMTP username")
     smtp_password: str = Field("", description="SMTP password")
     from_email: str = Field("", description="From email address")
@@ -448,6 +464,33 @@ class AppSettings(BaseSettings):
     host: str = Field("localhost", description="Server host")
     port: int = Field(9000, description="Server port")
     reload: bool = Field(False, description="Auto-reload on code changes")
+    threadpool_size: int = Field(
+        2,
+        ge=1,
+        le=200,
+        description=(
+            "Threads per process for sync endpoints/dependencies (APP__THREADPOOL_SIZE). "
+            "Requests are CPU/GIL-bound, so few threads per process + more processes "
+            "is fastest (load-tested: 2 > 3 > 4 > 16 > 1). Raise it only if endpoints "
+            "start making slow external calls inline. Scale with workers/replicas."
+        ),
+    )
+    max_concurrent_requests: int = Field(
+        0,
+        ge=0,
+        le=1000,
+        description=(
+            "Requests processed at once per process (APP__MAX_CONCURRENT_REQUESTS); "
+            "extra requests wait in line. 0 = auto: DB pool_size + max_overflow - 2, "
+            "which prevents threadpool/DB-pool deadlock."
+        ),
+    )
+    request_queue_timeout_seconds: float = Field(
+        15.0,
+        gt=0,
+        le=120,
+        description="Max seconds a request waits for a slot before HTTP 503 + Retry-After",
+    )
     
     # Environment
     environment: str = Field("development", description="Environment (development/staging/production)")
@@ -585,7 +628,7 @@ class Settings(BaseSettings):
             )
         if self.password_policy.allow_legacy_sha256_hashes:
             errors.append(
-                "PASSWORD__ALLOW_LEGACY_SHA256_HASHES must be false in production "
+                "PASSWORD_POLICY__ALLOW_LEGACY_SHA256_HASHES must be false in production "
                 "(run scripts/ensure_bcrypt_seed_passwords.py --report first)"
             )
 
@@ -611,6 +654,53 @@ class Settings(BaseSettings):
             "retention_days": self.logging.retention_days,
             "environment": self.app.environment,
         }
+
+# Documented-but-unbound env spellings -> names that actually bind.
+# ``DB__*`` / ``PASSWORD__*`` / ``LOG__*`` look like the nested form but the root
+# fields are ``database`` / ``password_policy`` / ``logging``, so pydantic silently
+# ignored them (e.g. DB__URL, DB__POOL_SIZE, LOG__LEVEL, and the
+# PASSWORD__ALLOW_LEGACY_SHA256_HASHES name the production check asks for).
+_ENV_ALIAS_PREFIXES = {
+    "DB__": ("DATABASE__", "DB_"),
+    "PASSWORD__": ("PASSWORD_POLICY__", "PASSWORD_"),
+    "LOG__": ("LOGGING__", "LOG_"),
+}
+
+
+def _apply_env_aliases() -> None:
+    """Copy legacy env names to their binding form unless that form is already set.
+
+    Covers process env and the ``.env`` file (process env wins, as in pydantic).
+    """
+    sources: Dict[str, str] = {}
+    try:
+        from dotenv import dotenv_values
+
+        sources.update(
+            {k: v for k, v in dotenv_values(".env").items() if v is not None}
+        )
+    except Exception:  # noqa: BLE001 — .env is optional
+        pass
+    sources.update(os.environ)
+    upper_keys = {k.upper() for k in sources}
+
+    for key, value in sources.items():
+        ukey = key.upper()
+        for legacy, (nested, flat) in _ENV_ALIAS_PREFIXES.items():
+            if not ukey.startswith(legacy):
+                continue
+            name = ukey[len(legacy):]
+            explicit = {f"{nested}{name}", f"{flat}{name}"}
+            if legacy == "DB__" and name == "URL":
+                explicit.add("DATABASE_URL")
+            if not explicit & upper_keys:
+                os.environ[f"{nested}{name}"] = value
+                if legacy == "DB__" and name == "URL":
+                    # DatabaseSettings.url's default factory reads DATABASE_URL.
+                    os.environ["DATABASE_URL"] = value
+
+
+_apply_env_aliases()
 
 # Global settings instance
 settings = Settings()

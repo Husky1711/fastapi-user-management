@@ -15,7 +15,7 @@ from utils.loggers import auth_logger
 router = create_api_router(tags=["Debug"])
 
 @router.post("/debug-login", response_model=TokenResponse)
-async def debug_login(
+def debug_login(
     credentials: UserSigninRequest,
     request: Request,
     db: Session = Depends(get_db)
@@ -59,7 +59,7 @@ async def debug_login(
         )
 
 @router.post("/debug-refresh", response_model=TokenResponse)
-async def debug_refresh(
+def debug_refresh(
     refresh_data: RefreshTokenRequest,
     request: Request,
     db: Session = Depends(get_db)

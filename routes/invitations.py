@@ -51,7 +51,7 @@ class AcceptInvitationRequest(BaseModel):
 
 
 @router.post("/invitations")
-async def create_invitation(
+def create_invitation(
     body: CreateInvitationRequest,
     current_user: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),
@@ -73,7 +73,7 @@ async def create_invitation(
 
 
 @router.get("/invitations")
-async def list_invitations(
+def list_invitations(
     current_user: User = Depends(require_permission("users:list")),
     db: Session = Depends(get_db),
     include_accepted: bool = False,
@@ -87,7 +87,7 @@ async def list_invitations(
 
 
 @router.get("/invitations/validate/{token}")
-async def validate_invitation(
+def validate_invitation(
     token: str,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("signup", require_auth=False)),
@@ -99,7 +99,7 @@ async def validate_invitation(
 
 
 @router.post("/invitations/accept")
-async def accept_invitation(
+def accept_invitation(
     body: AcceptInvitationRequest,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("signup", require_auth=False)),
@@ -113,7 +113,7 @@ async def accept_invitation(
 
 
 @router.delete("/invitations/{invitation_id}")
-async def revoke_invitation(
+def revoke_invitation(
     invitation_id: int,
     current_user: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),

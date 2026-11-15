@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/v1", tags=["Password History"])
 # ============================================================================
 
 @router.get("/password/history", response_model=Dict[str, Any])
-async def get_password_history(
+def get_password_history(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),
@@ -90,7 +90,7 @@ async def get_password_history(
         )
 
 @router.get("/password/policy-stats", response_model=Dict[str, Any])
-async def get_password_policy_stats(
+def get_password_policy_stats(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     user_id: int = Query(None, description="Filter by user ID"),

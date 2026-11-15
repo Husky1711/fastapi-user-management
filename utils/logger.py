@@ -173,7 +173,10 @@ class BaseLogger:
     
     def __init__(self, name: str):
         self._logger = logging.getLogger(name)
-        self._logger.setLevel(logging.INFO)
+        # Honour LOG__LEVEL (was hard-coded to INFO, so WARNING/ERROR had no effect).
+        self._logger.setLevel(
+            LoggerConfig.LOG_LEVELS.get(settings.logging.level.upper(), logging.INFO)
+        )
         
         # Ensure handlers are only added once
         if not self._logger.handlers:

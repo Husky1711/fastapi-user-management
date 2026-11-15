@@ -19,7 +19,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     APP__HOST=0.0.0.0 \
-    APP__PORT=9000
+    APP__PORT=9000 \
+    WEB_CONCURRENCY=1
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home /app --shell /usr/sbin/nologin app \
@@ -47,5 +48,7 @@ COPY --chown=app:app scripts ./scripts
 USER app
 EXPOSE 9000
 
-# Prefer 1 worker per container; scale with replicas (docs/DEPLOYMENT_TOPOLOGY.md).
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Worker processes = $WEB_CONCURRENCY (uvicorn reads it; default 1). Requests are
+# CPU-bound per process, so match workers to the CPUs given to the container, or keep
+# 1 worker per 1-CPU pod and scale replicas (docs/DEPLOYMENT_TOPOLOGY.md).
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000", "--proxy-headers", "--forwarded-allow-ips", "*"]

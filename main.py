@@ -57,6 +57,13 @@ async def lifespan(app: FastAPI):
     # Startup
     settings.validate_production_config()
 
+    # Sync endpoints/dependencies run in AnyIO's threadpool; size it explicitly.
+    import anyio.to_thread
+
+    anyio.to_thread.current_default_thread_limiter().total_tokens = (
+        settings.app.threadpool_size
+    )
+
     app_logger.info(
         "FastAPI User Management System starting up",
         version=settings.app.version,
@@ -152,6 +159,17 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Bound in-flight requests to the DB pool (see utils/concurrency_limit.py). Added
+# first = innermost, so CORS/security headers still wrap its 503 responses.
+from utils.concurrency_limit import ConcurrencyLimitMiddleware
+
+_db_pool_capacity = settings.database.pool_size + settings.database.max_overflow
+app.add_middleware(
+    ConcurrencyLimitMiddleware,
+    max_concurrent=settings.app.max_concurrent_requests or max(1, _db_pool_capacity - 2),
+    queue_timeout=settings.app.request_queue_timeout_seconds,
+)
+
 # Setup security middleware
 setup_security_middleware(app)
 
@@ -208,7 +226,7 @@ async def api_health_check() -> Dict[str, Any]:
     }
 
 @app.get("/health/detailed", tags=["Health"])
-async def detailed_health_check() -> Dict[str, Any]:
+def detailed_health_check() -> Dict[str, Any]:
     """Detailed health check with system status"""
     health_status = {
         "status": "healthy",
@@ -250,7 +268,7 @@ async def detailed_health_check() -> Dict[str, Any]:
     return health_status
 
 @app.get("/health/ready", tags=["Health"])
-async def readiness_check() -> Dict[str, Any]:
+def readiness_check() -> Dict[str, Any]:
     """Kubernetes readiness probe — database only (Redis optional for traffic)."""
     try:
         with engine.connect() as conn:
@@ -274,7 +292,7 @@ async def readiness_check() -> Dict[str, Any]:
 
 
 @app.get("/health/ready-full", tags=["Health"])
-async def readiness_check_full() -> Dict[str, Any]:
+def readiness_check_full() -> Dict[str, Any]:
     """Stricter readiness: database + Redis (rate limiting / sessions)."""
     try:
         with engine.connect() as conn:

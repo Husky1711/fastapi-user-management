@@ -26,7 +26,7 @@ from schemas.auth_2fa import (
 router = APIRouter(prefix="/api/v1", tags=["Two-Factor Authentication"])
 
 @router.post("/2fa/enable", response_model=Enable2FAResponse)
-async def enable_2fa(
+def enable_2fa(
     request: Enable2FARequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -89,7 +89,7 @@ async def enable_2fa(
         )
 
 @router.post("/2fa/verify", response_model=Verify2FAResponse)
-async def verify_2fa_code(
+def verify_2fa_code(
     request: Verify2FARequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -152,7 +152,7 @@ async def verify_2fa_code(
         )
 
 @router.post("/2fa/disable", response_model=Disable2FAResponse)
-async def disable_2fa(
+def disable_2fa(
     request: Disable2FARequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -200,7 +200,7 @@ async def disable_2fa(
         )
 
 @router.get("/2fa/status")
-async def get_2fa_status(
+def get_2fa_status(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("2fa_status")),
