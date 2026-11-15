@@ -1,0 +1,45 @@
+{
+  "key": "education",
+  "name": "Education",
+  "description": "Schools, colleges and universities: campuses, departments, classes; teachers and heads of department.",
+  "terms": {
+    "organization": "Institution",
+    "organizations": "Institutions",
+    "unit": "Department",
+    "units": "Departments",
+    "member": "Student",
+    "members": "Students",
+    "manager": "Faculty"
+  },
+  "role_labels": {
+    "user": "Student",
+    "admin": "Administrator",
+    "organization_admin": "Principal",
+    "super_admin": "Platform administrator"
+  },
+  "unit_types": [
+    {"key": "campus", "label": "Campus", "plural": "Campuses", "parents": [null]},
+    {"key": "department", "label": "Department", "plural": "Departments", "parents": [null, "campus"]},
+    {"key": "class", "label": "Class", "plural": "Classes", "parents": ["department"]}
+  ],
+  "roles": [
+    {
+      "name": "teacher",
+      "label": "Teacher",
+      "level": 15,
+      "description": "Teaches classes; sees and updates only their own students",
+      "permissions": ["users:list@own", "users:read@own", "users:update@own", "groups:read", "sessions:read", "organizations:read"]
+    },
+    {
+      "name": "hod",
+      "label": "Head of department",
+      "level": 25,
+      "description": "Runs a department (grant it on the department unit)",
+      "permissions": ["*"]
+    }
+  ],
+  "relations": [
+    {"key": "teaches", "label": "Teaches"},
+    {"key": "mentors", "label": "Mentors"}
+  ]
+}

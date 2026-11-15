@@ -74,6 +74,28 @@ def _acting_role_over_unit(db: Session, actor: User, unit, permission: str) -> t
     return unit_role, True
 
 
+def _require_structure_access(db: Session, actor: User, anchor) -> None:
+    """Manage tree structure at ``anchor`` (a parent unit, or None = top level).
+
+    Org-wide ``organizations:update`` may do anything. A unit role granting it may act
+    at its own unit or below - i.e. create children of, and manage units strictly
+    under, the unit it was granted on (never the granted unit itself).
+    """
+    if _org_permission(db, actor, "organizations:update"):
+        return
+    if anchor is not None and role_over_unit(db, actor, anchor, "organizations:update"):
+        return
+    raise APIHTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Missing permission: organizations:update",
+        error_code="PERMISSION_DENIED",
+    )
+
+
+def _parent_of(db: Session, unit):
+    return UnitService.get_unit(db, unit.organization_id, unit.parent_id) if unit.parent_id else None
+
+
 def _get_target(db: Session, user_id: int) -> User:
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if user is None:
@@ -109,11 +131,17 @@ def list_units(current_user: CurrentUser, db: Session = Depends(get_db)) -> Dict
 def create_unit(
     body: CreateUnitRequest,
     request: Request,
-    current_user: User = Depends(require_permission("organizations:update")),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user")),
 ) -> Dict[str, Any]:
     try:
+        parent = (
+            UnitService.get_unit(db, current_user.organization_id, body.parent_id)
+            if body.parent_id is not None
+            else None
+        )
+        _require_structure_access(db, current_user, parent)
         unit = UnitService.create_unit(
             db, current_user.organization_id, body.name, body.unit_type, body.parent_id
         )
@@ -129,11 +157,12 @@ def update_unit(
     unit_id: int,
     body: UpdateUnitRequest,
     request: Request,
-    current_user: User = Depends(require_permission("organizations:update")),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     try:
         unit = UnitService.get_unit(db, current_user.organization_id, unit_id)
+        _require_structure_access(db, current_user, _parent_of(db, unit))
         UnitService.update_unit(db, unit, body.name, body.unit_type)
     except UnitError as exc:
         _fail(exc)
@@ -146,17 +175,48 @@ def update_unit(
 def delete_unit(
     unit_id: int,
     request: Request,
-    current_user: User = Depends(require_permission("organizations:update")),
+    current_user: CurrentUser,
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     try:
         unit = UnitService.get_unit(db, current_user.organization_id, unit_id)
+        _require_structure_access(db, current_user, _parent_of(db, unit))
         UnitService.delete_unit(db, unit)
     except UnitError as exc:
         _fail(exc)
     _audit(db, request, current_user, "unit_delete", unit_id, {})
     db.commit()
     return {"id": unit_id, "deleted": True}
+
+
+class MoveUnitRequest(BaseModel):
+    parent_id: Optional[int] = Field(None, description="New parent unit; null = top level")
+
+
+@router.post("/units/{unit_id}/move")
+def move_unit(
+    unit_id: int,
+    body: MoveUnitRequest,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Move a unit (and everything below it) under another parent."""
+    try:
+        unit = UnitService.get_unit(db, current_user.organization_id, unit_id)
+        _require_structure_access(db, current_user, _parent_of(db, unit))
+        new_parent = (
+            UnitService.get_unit(db, current_user.organization_id, body.parent_id)
+            if body.parent_id is not None
+            else None
+        )
+        _require_structure_access(db, current_user, new_parent)
+        UnitService.move_unit(db, unit, body.parent_id)
+    except UnitError as exc:
+        _fail(exc)
+    _audit(db, request, current_user, "unit_move", unit.id, {"parent_id": body.parent_id})
+    db.commit()
+    return UnitService.serialize(unit)
 
 
 # --- people in units -------------------------------------------------------------
@@ -250,7 +310,9 @@ def grant_unit_role(
     try:
         unit = UnitService.get_unit(db, current_user.organization_id, unit_id)
         acting, _via_unit = _acting_role_over_unit(db, current_user, unit, "users:update")
-        if is_platform_role(body.role) or not RoleHierarchyValidator.can_create_role(acting, body.role):
+        if is_platform_role(body.role) or not RoleHierarchyValidator.can_create_role(
+            acting, body.role, unit.organization_id
+        ):
             raise UnitError(f"You cannot grant role '{body.role}'", 403)
         target = _get_target(db, body.user_id)
         if target.id == current_user.id:

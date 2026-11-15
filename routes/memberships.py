@@ -93,7 +93,7 @@ def add_member(
     if db.query(Organization.id).filter(Organization.id == organization_id).first() is None:
         raise APIHTTPException(status_code=404, detail="Organization not found", error_code="NOT_FOUND")
     if is_platform_role(body.role) or not RoleHierarchyValidator.can_create_role(
-        current_user.role, body.role
+        current_user.role, body.role, organization_id
     ):
         raise APIHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

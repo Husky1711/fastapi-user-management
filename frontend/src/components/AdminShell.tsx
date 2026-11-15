@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import styles from "@/pages/AdminPage.module.css";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { UnitsNavLabel } from "@/components/UnitsNavLabel";
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -41,6 +42,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
           className={location.pathname === "/admin/users/new" ? styles.navActive : undefined}
         >
           Create user
+        </Link>
+        <Link to="/units">
+          <UnitsNavLabel />
         </Link>
         <Link to="/compliance">Compliance</Link>
         <Link to="/profile">Profile</Link>

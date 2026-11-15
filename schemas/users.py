@@ -4,18 +4,35 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from utils.datetime_utc import utc_now
 
 
 class UserRole(str, Enum):
+    """The four default system roles (kept for imports; fields use ``RoleName``)."""
+
     SUPER_ADMIN = "super_admin"
     ORGANIZATION_ADMIN = "organization_admin"
     ADMIN = "admin"
     USER = "user"
+
+
+def _known_role(value: Optional[str]) -> Optional[str]:
+    """Accept any role defined in the roles table (custom roles such as 'teacher')."""
+    if value is None:
+        return value
+    from services.permissions.role_catalog import role_info
+
+    if role_info(value) is None:
+        raise ValueError(f"Unknown role '{value}'")
+    return value
+
+
+# Role names are data (roles table), not a fixed enum.
+RoleName = Annotated[str, AfterValidator(_known_role)]
 
 
 class UserStatus(str, Enum):
@@ -31,7 +48,7 @@ class UserResponse(BaseModel):
     id: int = Field(..., description="User ID")
     username: str = Field(..., description="Username")
     email: EmailStr = Field(..., description="Email address")
-    role: UserRole = Field(..., description="User role")
+    role: str = Field(..., description="User role")
     organization_id: int = Field(..., description="Organization ID")
     organization_name: Optional[str] = Field(None, description="Organization name")
     status: UserStatus = Field(..., description="User status")
@@ -93,7 +110,7 @@ class UserDetailResponse(BaseModel):
     id: int = Field(..., description="User ID")
     username: str = Field(..., description="Username")
     email: EmailStr = Field(..., description="Email address")
-    role: UserRole = Field(..., description="User role")
+    role: str = Field(..., description="User role")
     organization_id: int = Field(..., description="Organization ID")
     status: UserStatus = Field(..., description="User status")
     phone_number: Optional[str] = Field(None, description="Phone number")
@@ -115,7 +132,7 @@ class UserSearchParams(BaseModel):
     """Schema for user search parameters"""
 
     query: Optional[str] = Field(None, description="Search query")
-    role: Optional[UserRole] = Field(None, description="Filter by role")
+    role: Optional[RoleName] = Field(None, description="Filter by role")
     status: Optional[UserStatus] = Field(None, description="Filter by status")
     organization_id: Optional[int] = Field(None, description="Filter by organization")
     created_after: Optional[datetime] = Field(None, description="Filter by creation date")
@@ -135,7 +152,7 @@ class AdminCreateUserRequest(BaseModel):
         max_length=100,
         description="Password (optional if auto_generate_password is True)",
     )
-    role: UserRole = Field(default=UserRole.USER, description="User role to assign")
+    role: RoleName = Field(default="user", description="User role to assign")
     organization_id: Optional[int] = Field(
         None, description="Organization ID (inherited from creator if not specified)"
     )
@@ -192,7 +209,7 @@ class AdminUpdateUserRequest(BaseModel):
 
     email: Optional[EmailStr] = Field(None, description="New email address")
     phone_number: Optional[str] = Field(None, description="New phone number")
-    role: Optional[UserRole] = Field(None, description="New user role")
+    role: Optional[RoleName] = Field(None, description="New user role")
     status: Optional[UserStatus] = Field(None, description="New user status")
     manager_id: Optional[int] = Field(None, description="Reporting manager user ID (null clears)")
     organization_id: Optional[int] = Field(None, description="Organization ID (super admin only)")

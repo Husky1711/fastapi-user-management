@@ -24,6 +24,7 @@ import { SuperAdminCreateOrganizationPage } from "@/pages/SuperAdminCreateOrgani
 import { SuperAdminOrganizationDetailPage } from "@/pages/SuperAdminOrganizationDetailPage";
 import { CompliancePage } from "@/pages/CompliancePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { UnitsPage } from "@/pages/UnitsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +54,8 @@ export function AppRouter() {
             <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              {/* any member: unit heads are plain users org-wide; the API decides */}
+              <Route path="/units" element={<UnitsPage />} />
             </Route>
 
             <Route element={<ProtectedRoute adminOnly />}>

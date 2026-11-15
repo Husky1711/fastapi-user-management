@@ -9,6 +9,7 @@ import {
 import { getApiError } from "@/lib/apiClient";
 import styles from "@/pages/AdminPage.module.css";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { UnitsNavLabel } from "@/components/UnitsNavLabel";
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
@@ -60,6 +61,9 @@ export function DashboardPage() {
       </header>
 
       <nav className={styles.nav}>
+        <Link to="/units">
+          <UnitsNavLabel />
+        </Link>
         <Link to="/profile">Profile</Link>
       </nav>
 

@@ -17,6 +17,7 @@ from services.permissions.role_catalog import is_base_role, is_manager_role, is_
 from services.users.membership import member_of
 from services.users.membership import is_member
 from services.permissions.unit_access import in_subtrees, role_over_user, unit_grants
+from services.permissions.relations import is_related, permission_scope, related_to
 
 class UserService:
     _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
@@ -151,6 +152,12 @@ class UserService:
         query = filter_users_for_viewer(
             UserService._active_users_query(db), current_user_role, current_user_org_id
         )
+        if actor is not None and not is_platform_role(current_user_role):
+            scope = permission_scope(db, actor, "users:list")
+            if scope is None:
+                return []
+            if scope == "own":
+                query = query.filter(related_to(actor.id, current_user_org_id))
         return (
             UserService._with_serialization_eager_loads(query)
             .offset(skip)
@@ -163,14 +170,16 @@ class UserService:
         db: Session, actor: User, org_id: int, skip: int = 0, limit: int = 100
     ) -> List[User]:
         """People placed under the actor's units that the unit role may see."""
-        by_role: Dict[str, List[str]] = {}
+        by_role: Dict[tuple, List[str]] = {}
         for g in unit_grants(db, actor, "users:list"):
-            by_role.setdefault(g["role"], []).append(g["path"])
+            by_role.setdefault((g["role"], g["scope"]), []).append(g["path"])
         seen: Dict[int, User] = {}
-        for unit_role, paths in by_role.items():
+        for (unit_role, scope), paths in by_role.items():
             query = filter_users_for_viewer(
                 UserService._active_users_query(db), unit_role, org_id
             ).filter(in_subtrees(paths, org_id))
+            if scope == "own":
+                query = query.filter(related_to(actor.id, org_id))
             for u in UserService._with_serialization_eager_loads(query).all():
                 seen.setdefault(u.id, u)
         users = sorted(seen.values(), key=lambda u: u.id)
@@ -211,6 +220,12 @@ class UserService:
             return None
         if not can_view_user(current_user_role, target.role):
             return None
+        if actor is not None and target.id != actor.id:
+            scope = permission_scope(db, actor, "users:read")
+            if scope is None or (
+                scope == "own" and not is_related(db, actor.id, current_user_org_id, target.id)
+            ):
+                return None
         return target
     
     @staticmethod
@@ -242,6 +257,10 @@ class UserService:
                 "error": "Cannot delete users in another organization",
                 "reason": "not_found",
             }
+        if not is_platform_role(editor.role) and can_edit_user(editor.role, target.role):
+            scope = permission_scope(db, editor, "users:delete")
+            if scope == "own" and not is_related(db, editor.id, editor.organization_id, target.id):
+                return {"success": False, "error": "User not found", "reason": "not_found"}
         if not can_edit_user(editor.role, target.role):
             unit_role = (
                 role_over_user(db, editor, target, "users:delete")
@@ -503,11 +522,12 @@ class UserService:
             auto_generate_password = user_data.get('auto_generate_password', True)
             
             # Validate creator permissions
-            if not RoleHierarchyValidator.can_create_role(creator_user.role, role):
+            role_org = organization_id or creator_user.organization_id
+            if not RoleHierarchyValidator.can_create_role(creator_user.role, role, role_org):
                 return {
                     "success": False,
                     "error": f"Role '{creator_user.role}' cannot create users with role '{role}'",
-                    "allowed_roles": RoleHierarchyValidator.get_allowed_roles(creator_user.role)
+                    "allowed_roles": RoleHierarchyValidator.get_allowed_roles(creator_user.role, role_org)
                 }
             
             # Check if username already exists
@@ -657,6 +677,12 @@ class UserService:
                 acting_role = unit_role
             if target is None:
                 return {"success": False, "error": "User not found or access denied"}
+            if acting_role == editor.role and not is_platform_role(editor.role):
+                scope = permission_scope(db, editor, "users:update")
+                if scope == "own" and not is_related(
+                    db, editor.id, editor.organization_id, target.id
+                ):
+                    return {"success": False, "error": "User not found or access denied"}
 
             if not can_edit_user(acting_role, target.role):
                 return {
@@ -672,11 +698,15 @@ class UserService:
 
             new_role = updates.get("role", target.role)
             if "role" in updates and new_role != target.role:
-                if not RoleHierarchyValidator.can_create_role(editor.role, new_role):
+                if not RoleHierarchyValidator.can_create_role(
+                    editor.role, new_role, editor.organization_id
+                ):
                     return {
                         "success": False,
                         "error": f"Role '{editor.role}' cannot assign role '{new_role}'",
-                        "allowed_roles": RoleHierarchyValidator.get_allowed_roles(editor.role),
+                        "allowed_roles": RoleHierarchyValidator.get_allowed_roles(
+                            editor.role, editor.organization_id
+                        ),
                     }
 
             new_org_id = updates.get("organization_id", target.organization_id)

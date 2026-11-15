@@ -1,0 +1,28 @@
+{
+  "key": "generic",
+  "name": "Generic organization",
+  "description": "Neutral wording; departments and teams. Default when no template is set.",
+  "terms": {
+    "organization": "Organization",
+    "organizations": "Organizations",
+    "unit": "Unit",
+    "units": "Units",
+    "member": "Member",
+    "members": "Members",
+    "manager": "Manager"
+  },
+  "role_labels": {
+    "user": "Member",
+    "admin": "Administrator",
+    "organization_admin": "Organization administrator",
+    "super_admin": "Platform administrator"
+  },
+  "unit_types": [
+    {"key": "department", "label": "Department", "plural": "Departments", "parents": [null]},
+    {"key": "team", "label": "Team", "plural": "Teams", "parents": [null, "department", "team"]}
+  ],
+  "roles": [],
+  "relations": [
+    {"key": "manages", "label": "Manages"}
+  ]
+}

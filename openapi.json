@@ -3749,6 +3749,928 @@
         }
       }
     },
+    "/api/v1/units": {
+      "get": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "List Units",
+        "description": "The active organization's unit tree (ordered so parents precede children).",
+        "operationId": "list_units_api_v1_units_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Units Api V1 Units Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Create Unit",
+        "operationId": "create_unit_api_v1_units_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Create Unit Api V1 Units Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/units/{unit_id}": {
+      "patch": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Update Unit",
+        "operationId": "update_unit_api_v1_units__unit_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Unit Api V1 Units  Unit Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Delete Unit",
+        "operationId": "delete_unit_api_v1_units__unit_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Unit Api V1 Units  Unit Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/move": {
+      "post": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Move Unit",
+        "description": "Move a unit (and everything below it) under another parent.",
+        "operationId": "move_unit_api_v1_units__unit_id__move_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveUnitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Move Unit Api V1 Units  Unit Id  Move Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/members": {
+      "get": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "List Unit Members",
+        "operationId": "list_unit_members_api_v1_units__unit_id__members_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          },
+          {
+            "name": "include_subtree",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Subtree"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Unit Members Api V1 Units  Unit Id  Members Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Add Unit Member",
+        "operationId": "add_unit_member_api_v1_units__unit_id__members_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Add Unit Member Api V1 Units  Unit Id  Members Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/members/{user_id}": {
+      "delete": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Remove Unit Member",
+        "operationId": "remove_unit_member_api_v1_units__unit_id__members__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Remove Unit Member Api V1 Units  Unit Id  Members  User Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/roles": {
+      "get": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "List Unit Roles",
+        "operationId": "list_unit_roles_api_v1_units__unit_id__roles_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Unit Roles Api V1 Units  Unit Id  Roles Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Grant Unit Role",
+        "description": "Grant a role on this unit (applies to the unit and everything below it).",
+        "operationId": "grant_unit_role_api_v1_units__unit_id__roles_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnitRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Grant Unit Role Api V1 Units  Unit Id  Roles Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/units/{unit_id}/roles/{user_id}/{role}": {
+      "delete": {
+        "tags": [
+          "Organization units"
+        ],
+        "summary": "Revoke Unit Role",
+        "operationId": "revoke_unit_role_api_v1_units__unit_id__roles__user_id___role__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Unit Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Revoke Unit Role Api V1 Units  Unit Id  Roles  User Id   Role  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sector-templates": {
+      "get": {
+        "tags": [
+          "Sector templates"
+        ],
+        "summary": "Get Sector Templates",
+        "description": "Available sector templates (education, medical, pharma, ...).",
+        "operationId": "get_sector_templates_api_v1_sector_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Sector Templates Api V1 Sector Templates Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/vocabulary": {
+      "get": {
+        "tags": [
+          "Sector templates"
+        ],
+        "summary": "Get Vocabulary",
+        "description": "UI wording for the active organization (terms, role labels, unit types).",
+        "operationId": "get_vocabulary_api_v1_vocabulary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Vocabulary Api V1 Vocabulary Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Sector templates"
+        ],
+        "summary": "Patch Vocabulary",
+        "description": "Override words for the active organization (null removes an override).",
+        "operationId": "patch_vocabulary_api_v1_vocabulary_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocabularyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Patch Vocabulary Api V1 Vocabulary Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/organizations/{organization_id}/sector-template": {
+      "put": {
+        "tags": [
+          "Sector templates"
+        ],
+        "summary": "Set Sector Template",
+        "description": "Choose an organization's sector template and create its roles.\n\nPlatform staff for any org; org admins (organizations:update) for the org they act in.\nRefused if existing units do not fit the new template's unit types.",
+        "operationId": "set_sector_template_api_v1_organizations__organization_id__sector_template_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Organization Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTemplateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Sector Template Api V1 Organizations  Organization Id  Sector Template Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/relations": {
+      "get": {
+        "tags": [
+          "Relations"
+        ],
+        "summary": "Get Relations",
+        "description": "Relations in the active org.\n\nNon-managers may only list their own. Managers see a relation only when they can\nsee both people in it (so relations between people above them stay hidden).",
+        "operationId": "get_relations_api_v1_relations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject User Id"
+            }
+          },
+          {
+            "name": "object_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Object User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Relations Api V1 Relations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Relations"
+        ],
+        "summary": "Create Relation",
+        "operationId": "create_relation_api_v1_relations_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRelationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Relation Api V1 Relations Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/relations/{relation_id}": {
+      "delete": {
+        "tags": [
+          "Relations"
+        ],
+        "summary": "Delete Relation",
+        "operationId": "delete_relation_api_v1_relations__relation_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "relation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Relation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Relation Api V1 Relations  Relation Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/consents": {
       "get": {
         "tags": [
@@ -4801,7 +5723,8 @@
             "description": "Password (optional if auto_generate_password is True)"
           },
           "role": {
-            "$ref": "#/components/schemas/UserRole",
+            "type": "string",
+            "title": "Role",
             "description": "User role to assign",
             "default": "user"
           },
@@ -4998,12 +5921,13 @@
           "role": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/UserRole"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
+            "title": "Role",
             "description": "New user role"
           },
           "status": {
@@ -5151,6 +6075,21 @@
             "locked": 2
           }
         }
+      },
+      "ApplyTemplateRequest": {
+        "properties": {
+          "template": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Template"
+          }
+        },
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "title": "ApplyTemplateRequest"
       },
       "ConsentRequest": {
         "properties": {
@@ -5335,6 +6274,68 @@
         ],
         "title": "CreateInvitationRequest"
       },
+      "CreateRelationRequest": {
+        "properties": {
+          "subject_user_id": {
+            "type": "integer",
+            "title": "Subject User Id",
+            "description": "Who holds the relation (e.g. the teacher)"
+          },
+          "relation": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Relation",
+            "description": "e.g. teaches, attends"
+          },
+          "object_user_id": {
+            "type": "integer",
+            "title": "Object User Id",
+            "description": "Who it points to (e.g. the student)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_user_id",
+          "relation",
+          "object_user_id"
+        ],
+        "title": "CreateRelationRequest"
+      },
+      "CreateUnitRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "unit_type": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Unit Type",
+            "description": "e.g. department, class, ward"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "unit_type"
+        ],
+        "title": "CreateUnitRequest"
+      },
       "Disable2FARequest": {
         "properties": {
           "totp_code": {
@@ -5465,6 +6466,24 @@
         ],
         "title": "Login2FARequest",
         "description": "Complete login after password step when 2FA is enabled."
+      },
+      "MoveUnitRequest": {
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id",
+            "description": "New parent unit; null = top level"
+          }
+        },
+        "type": "object",
+        "title": "MoveUnitRequest"
       },
       "OrganizationCreateRequest": {
         "properties": {
@@ -6263,6 +7282,39 @@
           "password_resets": 5
         }
       },
+      "UnitMemberRequest": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "title": "UnitMemberRequest"
+      },
+      "UnitRoleRequest": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "role"
+        ],
+        "title": "UnitRoleRequest"
+      },
       "UpdateApiKeyRequest": {
         "properties": {
           "key_name": {
@@ -6363,6 +7415,38 @@
         },
         "type": "object",
         "title": "UpdateGroupRequest"
+      },
+      "UpdateUnitRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 150,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "unit_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Type"
+          }
+        },
+        "type": "object",
+        "title": "UpdateUnitRequest"
       },
       "UserActivityResponse": {
         "properties": {
@@ -6637,7 +7721,8 @@
             "description": "Email address"
           },
           "role": {
-            "$ref": "#/components/schemas/UserRole",
+            "type": "string",
+            "title": "Role",
             "description": "User role"
           },
           "organization_id": {
@@ -6735,16 +7820,6 @@
         ],
         "title": "UserResponse",
         "description": "Schema for user information response"
-      },
-      "UserRole": {
-        "type": "string",
-        "enum": [
-          "super_admin",
-          "organization_admin",
-          "admin",
-          "user"
-        ],
-        "title": "UserRole"
       },
       "UserSessionsResponse": {
         "properties": {
@@ -6960,6 +8035,54 @@
         ],
         "title": "Verify2FAResponse",
         "description": "Response for 2FA verification"
+      },
+      "VocabularyPatch": {
+        "properties": {
+          "terms": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          },
+          "role_labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Labels"
+          }
+        },
+        "type": "object",
+        "title": "VocabularyPatch"
       },
       "schemas__auth__SessionInfo": {
         "properties": {

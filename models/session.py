@@ -85,7 +85,7 @@ class UserInvitation(Base):
         Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     email = Column(String(255), nullable=False, index=True)
-    role = Column(String(20), nullable=False, default="user")
+    role = Column(String(50), nullable=False, default="user")
     token_hash = Column(String(255), unique=True, nullable=False, index=True)
     invited_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

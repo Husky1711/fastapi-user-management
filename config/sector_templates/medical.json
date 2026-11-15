@@ -1,0 +1,52 @@
+{
+  "key": "medical",
+  "name": "Medical",
+  "description": "Hospitals and clinics: hospitals, wards, care teams; nurses, doctors and head nurses.",
+  "terms": {
+    "organization": "Hospital group",
+    "organizations": "Hospital groups",
+    "unit": "Ward",
+    "units": "Wards",
+    "member": "Staff member",
+    "members": "Staff",
+    "manager": "Charge nurse"
+  },
+  "role_labels": {
+    "user": "Staff member",
+    "admin": "Administrator",
+    "organization_admin": "Medical director",
+    "super_admin": "Platform administrator"
+  },
+  "unit_types": [
+    {"key": "hospital", "label": "Hospital", "plural": "Hospitals", "parents": [null]},
+    {"key": "ward", "label": "Ward", "plural": "Wards", "parents": ["hospital"]},
+    {"key": "care_team", "label": "Care team", "plural": "Care teams", "parents": ["ward"]}
+  ],
+  "roles": [
+    {
+      "name": "nurse",
+      "label": "Nurse",
+      "level": 14,
+      "description": "Sees only people they are assigned to",
+      "permissions": ["users:list@own", "users:read@own", "groups:read", "sessions:read", "organizations:read"]
+    },
+    {
+      "name": "doctor",
+      "label": "Doctor",
+      "level": 16,
+      "description": "Sees and updates only people they attend",
+      "permissions": ["users:list@own", "users:read@own", "users:update@own", "groups:read", "sessions:read", "organizations:read"]
+    },
+    {
+      "name": "head_nurse",
+      "label": "Head nurse",
+      "level": 24,
+      "description": "Runs a ward (grant it on the ward unit)",
+      "permissions": ["*"]
+    }
+  ],
+  "relations": [
+    {"key": "attends", "label": "Attends"},
+    {"key": "assigned_to", "label": "Assigned to"}
+  ]
+}

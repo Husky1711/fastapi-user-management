@@ -59,11 +59,12 @@ class InvitationService:
                 "success": False,
                 "error": "Invalid invitation role",
             }
-        if not RoleHierarchyValidator.can_create_role(inviter.role, role):
+        invite_org = organization_id or inviter.organization_id
+        if not RoleHierarchyValidator.can_create_role(inviter.role, role, invite_org):
             return {
                 "success": False,
                 "error": f"Role '{inviter.role}' cannot invite role '{role}'",
-                "allowed_roles": RoleHierarchyValidator.get_allowed_roles(inviter.role),
+                "allowed_roles": RoleHierarchyValidator.get_allowed_roles(inviter.role, invite_org),
             }
 
         target_org_id = organization_id or inviter.organization_id

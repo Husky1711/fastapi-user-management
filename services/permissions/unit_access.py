@@ -25,27 +25,27 @@ from services.permissions.role_catalog import highest
 def unit_grants(db: Session, user: User, permission: str) -> List[Dict[str, object]]:
     """Unit-scoped roles ``user`` holds in the active org that grant ``permission``.
 
-    Returns ``[{"unit_id", "path", "role"}]``.
+    Returns ``[{"unit_id", "path", "role", "scope"}]``; scope ``own`` means the grant
+    reaches only people the holder is related to (services/permissions/relations).
     """
     org_id = user.organization_id  # active org for this request
-    grants_permission = (
-        db.query(RolePermission.id)
-        .join(Permission, Permission.id == RolePermission.permission_id)
-        .filter(RolePermission.role_id == Role.id, Permission.name == permission)
-        .exists()
-    )
     rows = (
-        db.query(OrgUnit.id, OrgUnit.path, Role.name)
+        db.query(OrgUnit.id, OrgUnit.path, Role.name, RolePermission.scope)
         .join(UserRole, UserRole.unit_id == OrgUnit.id)
         .join(Role, Role.id == UserRole.role_id)
+        .join(RolePermission, RolePermission.role_id == Role.id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
         .filter(
             UserRole.user_id == user.id,
             OrgUnit.organization_id == org_id,
-            or_(Role.is_platform.is_(True), grants_permission),
+            Permission.name == permission,
         )
         .all()
     )
-    return [{"unit_id": uid, "path": path, "role": role} for uid, path, role in rows]
+    return [
+        {"unit_id": uid, "path": path, "role": role, "scope": scope or "all"}
+        for uid, path, role, scope in rows
+    ]
 
 
 def unit_paths_of(db: Session, user_id: int, organization_id: int) -> List[str]:
@@ -59,14 +59,22 @@ def unit_paths_of(db: Session, user_id: int, organization_id: int) -> List[str]:
 
 
 def role_over_user(db: Session, actor: User, target: User, permission: str) -> Optional[str]:
-    """Highest unit role of ``actor`` covering any unit ``target`` is placed in."""
+    """Highest unit role of ``actor`` covering any unit ``target`` is placed in.
+
+    ``own``-scoped grants only count when the actor is related to the target.
+    """
+    from services.permissions.relations import is_related
+
     grants = unit_grants(db, actor, permission)
     if not grants:
         return None
     target_paths = unit_paths_of(db, target.id, actor.organization_id)
-    return highest(
-        g["role"] for g in grants if any(tp.startswith(g["path"]) for tp in target_paths)
-    )
+    covering = [g for g in grants if any(tp.startswith(g["path"]) for tp in target_paths)]
+    if any(g["scope"] == "own" for g in covering) and not is_related(
+        db, actor.id, actor.organization_id, target.id
+    ):
+        covering = [g for g in covering if g["scope"] != "own"]
+    return highest(g["role"] for g in covering)
 
 
 def role_over_unit(db: Session, actor: User, unit: OrgUnit, permission: str) -> Optional[str]:

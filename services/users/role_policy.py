@@ -8,21 +8,36 @@ role (e.g. ``teacher``) is a row in ``roles``, not a code change.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from services.permissions.role_catalog import assignable_roles, role_info
 
 
 class RoleHierarchyValidator:
-    """Utility class for role hierarchy validation."""
+    """Utility class for role hierarchy validation.
+
+    With ``organization_id``, roles are also limited to those the organization's
+    sector template uses (default roles + template roles), so e.g. a hospital role
+    cannot be granted in a college.
+    """
 
     @classmethod
-    def can_create_role(cls, creator_role: str, target_role: str) -> bool:
-        return target_role in assignable_roles(creator_role)
+    def can_create_role(
+        cls, creator_role: str, target_role: str, organization_id: Optional[int] = None
+    ) -> bool:
+        return target_role in cls.get_allowed_roles(creator_role, organization_id)
 
     @classmethod
-    def get_allowed_roles(cls, creator_role: str) -> List[str]:
-        return assignable_roles(creator_role)
+    def get_allowed_roles(
+        cls, creator_role: str, organization_id: Optional[int] = None
+    ) -> List[str]:
+        roles = assignable_roles(creator_role)
+        if organization_id is None:
+            return roles
+        from services.sector.template_service import allowed_role_names
+
+        allowed = allowed_role_names(organization_id)
+        return roles if allowed is None else [r for r in roles if r in allowed]
 
     @classmethod
     def is_valid_role(cls, role: str) -> bool:

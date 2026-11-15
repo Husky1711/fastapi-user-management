@@ -30,6 +30,10 @@ class Organization(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     deleted_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Sector template key (config/sector_templates/<key>.json); NULL = generic.
+    sector_template = Column(String(50), nullable=True)
+    # Per-organization wording overrides: {"terms": {...}, "role_labels": {...}}
+    vocabulary_overrides = Column(JSON, nullable=True)
 
     users = relationship(
         "User",

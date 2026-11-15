@@ -30,6 +30,7 @@ from models.rbac_model import (  # noqa: F401 — User.role_assignments -> UserR
     UserRole,
 )
 from models.units import OrgUnit, OrgUnitMember  # noqa: F401,E402
+from models.relations import ResourceRelation  # noqa: F401,E402
 import models.role_events  # noqa: F401,E402 — persists user.role into user_roles
 from models.session import (  # noqa: F401
     EmailVerificationToken,

@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import styles from "@/pages/AdminPage.module.css";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { UnitsNavLabel } from "@/components/UnitsNavLabel";
 
 export function OrgAdminShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -33,6 +34,9 @@ export function OrgAdminShell({ children }: { children: ReactNode }) {
         </Link>
         <Link to="/admin/users">Users</Link>
         <Link to="/admin/users/new">Create user</Link>
+        <Link to="/units">
+          <UnitsNavLabel />
+        </Link>
         <Link to="/compliance">Compliance</Link>
         <Link to="/profile">Profile</Link>
       </nav>

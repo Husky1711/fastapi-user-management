@@ -1,0 +1,52 @@
+{
+  "key": "pharma",
+  "name": "Pharmaceutical / research",
+  "description": "Research sites, studies and labs: researchers, QA auditors and study leads.",
+  "terms": {
+    "organization": "Company",
+    "organizations": "Companies",
+    "unit": "Site",
+    "units": "Sites",
+    "member": "Associate",
+    "members": "Associates",
+    "manager": "Study lead"
+  },
+  "role_labels": {
+    "user": "Associate",
+    "admin": "Administrator",
+    "organization_admin": "Site director",
+    "super_admin": "Platform administrator"
+  },
+  "unit_types": [
+    {"key": "site", "label": "Site", "plural": "Sites", "parents": [null]},
+    {"key": "study", "label": "Study", "plural": "Studies", "parents": ["site"]},
+    {"key": "lab", "label": "Lab", "plural": "Labs", "parents": ["site", "study"]}
+  ],
+  "roles": [
+    {
+      "name": "researcher",
+      "label": "Researcher",
+      "level": 13,
+      "description": "Sees only colleagues on their own studies",
+      "permissions": ["users:list@own", "users:read@own", "groups:read", "sessions:read", "organizations:read"]
+    },
+    {
+      "name": "qa_auditor",
+      "label": "QA auditor",
+      "level": 17,
+      "description": "Reads people and audit records across the organization (no edits)",
+      "permissions": ["users:list", "users:read", "audit:read", "audit:statistics", "groups:read", "sessions:read", "organizations:read"]
+    },
+    {
+      "name": "study_lead",
+      "label": "Study lead",
+      "level": 23,
+      "description": "Runs a study (grant it on the study unit)",
+      "permissions": ["*"]
+    }
+  ],
+  "relations": [
+    {"key": "monitors", "label": "Monitors"},
+    {"key": "supervises", "label": "Supervises"}
+  ]
+}

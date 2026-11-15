@@ -15,6 +15,16 @@ from utils.datetime_utc import utc_now
 MAX_DEPTH = 10
 
 
+def _check_type(organization_id: int, unit_type: str, parent: Optional[OrgUnit]) -> None:
+    """Sector template rules (only for orgs that chose a template)."""
+    from services.sector.template_service import TemplateError, validate_unit_type
+
+    try:
+        validate_unit_type(organization_id, unit_type, parent.unit_type if parent else None)
+    except TemplateError as exc:
+        raise UnitError(str(exc), exc.status) from None
+
+
 class UnitError(ValueError):
     """Validation failure; ``status`` is the HTTP status to report."""
 
@@ -84,6 +94,7 @@ class UnitService:
             parent = UnitService.get_unit(db, organization_id, parent_id)
             if parent.depth + 1 >= MAX_DEPTH:
                 raise UnitError(f"Units can be nested at most {MAX_DEPTH} levels")
+        _check_type(organization_id, unit_type, parent)
         dup = (
             db.query(OrgUnit.id)
             .filter(
@@ -119,7 +130,54 @@ class UnitService:
             unit_type = unit_type.strip().lower()
             if not unit_type:
                 raise UnitError("unit_type cannot be empty")
+            parent = UnitService.get_unit(db, unit.organization_id, unit.parent_id) if unit.parent_id else None
+            _check_type(unit.organization_id, unit_type, parent)
             unit.unit_type = unit_type
+            for child in db.query(OrgUnit).filter(OrgUnit.parent_id == unit.id):
+                _check_type(unit.organization_id, child.unit_type, unit)
+        return unit
+
+    @staticmethod
+    def move_unit(db: Session, unit: OrgUnit, new_parent_id: Optional[int]) -> OrgUnit:
+        """Re-parent ``unit`` (None = top level); rewrites paths/depths of its subtree."""
+        new_parent = None
+        if new_parent_id is not None:
+            new_parent = UnitService.get_unit(db, unit.organization_id, new_parent_id)
+            if new_parent.path.startswith(unit.path):
+                raise UnitError("A unit cannot be moved under itself or its descendants", 400)
+        if (new_parent.id if new_parent else None) == unit.parent_id:
+            return unit
+        _check_type(unit.organization_id, unit.unit_type, new_parent)
+        subtree = (
+            db.query(OrgUnit)
+            .filter(
+                OrgUnit.organization_id == unit.organization_id,
+                OrgUnit.path.startswith(unit.path),
+            )
+            .all()
+        )
+        new_depth = (new_parent.depth + 1) if new_parent else 0
+        delta = new_depth - unit.depth
+        if max(u.depth for u in subtree) + delta >= MAX_DEPTH:
+            raise UnitError(f"Units can be nested at most {MAX_DEPTH} levels")
+        dup = (
+            db.query(OrgUnit.id)
+            .filter(
+                OrgUnit.organization_id == unit.organization_id,
+                OrgUnit.parent_id.is_(None) if new_parent is None else OrgUnit.parent_id == new_parent.id,
+                func.lower(OrgUnit.name) == unit.name.lower(),
+                OrgUnit.id != unit.id,
+            )
+            .first()
+        )
+        if dup:
+            raise UnitError("A unit with this name already exists there", 409)
+        old_prefix = unit.path
+        new_prefix = f"{new_parent.path if new_parent else '/'}{unit.id}/"
+        for u in subtree:
+            u.path = new_prefix + u.path[len(old_prefix):]
+            u.depth += delta
+        unit.parent_id = new_parent.id if new_parent else None
         return unit
 
     @staticmethod

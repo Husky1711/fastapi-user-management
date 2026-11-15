@@ -27,6 +27,8 @@ from routes.auth_2fa import router as auth_2fa_router
 from routes.organizations import router as organizations_router
 from routes.memberships import router as memberships_router
 from routes.units import router as units_router
+from routes.sector import router as sector_router
+from routes.relations import router as relations_router
 from routes.invitations import router as invitations_router
 from routes.compliance import router as compliance_router
 
@@ -220,6 +222,8 @@ app.include_router(auth_2fa_router)
 app.include_router(organizations_router)
 app.include_router(memberships_router)
 app.include_router(units_router)
+app.include_router(sector_router)
+app.include_router(relations_router)
 app.include_router(compliance_router)
 
 # Include dashboard router

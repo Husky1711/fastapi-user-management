@@ -77,6 +77,9 @@ class RolePermission(Base):
         nullable=False,
         index=True,
     )
+    # 'all' = anyone the role may otherwise reach; 'own' = only people related to
+    # the holder (resource_relations), e.g. a teacher's own students.
+    scope = Column(String(10), nullable=False, default="all", server_default="all")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     role = relationship("Role", back_populates="role_permissions")
