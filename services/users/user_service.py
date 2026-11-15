@@ -16,6 +16,7 @@ from utils.loggers import auth_logger
 from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 from services.users.membership import member_of
 from services.users.membership import is_member
+from services.permissions.unit_access import in_subtrees, role_over_user, unit_grants
 
 class UserService:
     _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
@@ -136,10 +137,16 @@ class UserService:
         )
     
     @staticmethod
-    def get_users_by_role_and_organization(db: Session, current_user_role: str, current_user_org_id: int, skip: int = 0, limit: int = 100) -> List[User]:
-        """Get users filtered by role and organization"""
+    def get_users_by_role_and_organization(db: Session, current_user_role: str, current_user_org_id: int, skip: int = 0, limit: int = 100, actor: Optional[User] = None) -> List[User]:
+        """Get users filtered by role and organization.
+
+        Org-wide role decides; a base-role user who holds roles on org units sees the
+        people placed under those units that their unit role may see.
+        """
         if is_base_role(current_user_role):
-            return []
+            if actor is None:
+                return []
+            return UserService._users_under_units(db, actor, current_user_org_id, skip, limit)
 
         query = filter_users_for_viewer(
             UserService._active_users_query(db), current_user_role, current_user_org_id
@@ -152,7 +159,25 @@ class UserService:
         )
     
     @staticmethod
-    def get_user_by_role_and_organization(db: Session, user_id: int, current_user_role: str, current_user_org_id: int, current_user_id: int) -> Optional[User]:
+    def _users_under_units(
+        db: Session, actor: User, org_id: int, skip: int = 0, limit: int = 100
+    ) -> List[User]:
+        """People placed under the actor's units that the unit role may see."""
+        by_role: Dict[str, List[str]] = {}
+        for g in unit_grants(db, actor, "users:list"):
+            by_role.setdefault(g["role"], []).append(g["path"])
+        seen: Dict[int, User] = {}
+        for unit_role, paths in by_role.items():
+            query = filter_users_for_viewer(
+                UserService._active_users_query(db), unit_role, org_id
+            ).filter(in_subtrees(paths, org_id))
+            for u in UserService._with_serialization_eager_loads(query).all():
+                seen.setdefault(u.id, u)
+        users = sorted(seen.values(), key=lambda u: u.id)
+        return users[skip: skip + limit]
+
+    @staticmethod
+    def get_user_by_role_and_organization(db: Session, user_id: int, current_user_role: str, current_user_org_id: int, current_user_id: int, actor: Optional[User] = None) -> Optional[User]:
         """Get a specific user filtered by role and organization"""
         if is_platform_role(current_user_role):
             return UserService.get_user_by_id(db, user_id)
@@ -160,7 +185,19 @@ class UserService:
         if is_base_role(current_user_role):
             if user_id == current_user_id:
                 return UserService.get_user_by_id(db, user_id)
-            return None
+            if actor is None:
+                return None
+            target = (
+                UserService._with_serialization_eager_loads(UserService._active_users_query(db))
+                .filter(User.id == user_id, member_of(current_user_org_id))
+                .first()
+            )
+            if target is None:
+                return None
+            unit_role = role_over_user(db, actor, target, "users:read")
+            if unit_role is None or not can_view_user(unit_role, target.role):
+                return None
+            return target
 
         target = (
             UserService._with_serialization_eager_loads(UserService._active_users_query(db))
@@ -206,7 +243,13 @@ class UserService:
                 "reason": "not_found",
             }
         if not can_edit_user(editor.role, target.role):
-            return {"success": False, "error": "Cannot delete this user", "reason": "forbidden"}
+            unit_role = (
+                role_over_user(db, editor, target, "users:delete")
+                if is_base_role(editor.role)
+                else None
+            )
+            if unit_role is None or not can_edit_user(unit_role, target.role):
+                return {"success": False, "error": "Cannot delete this user", "reason": "forbidden"}
 
         now = utc_now()
         original_username = target.username
@@ -587,20 +630,35 @@ class UserService:
     ) -> Dict[str, Any]:
         """Update a manageable user with role-based validation."""
         try:
-            if is_base_role(editor.role):
-                return {"success": False, "error": "Users cannot update other users"}
-
+            acting_role = editor.role
             target = UserService.get_user_by_role_and_organization(
                 db,
                 target_user_id,
                 editor.role,
                 editor.organization_id,
                 editor.id,
+                actor=editor,
             )
+            if is_base_role(editor.role):
+                # Only through a role held on a unit that covers the target.
+                unit_role = (
+                    role_over_user(db, editor, target, "users:update")
+                    if target is not None and target.id != editor.id
+                    else None
+                )
+                if unit_role is None:
+                    return {"success": False, "error": "Users cannot update other users"}
+                blocked = {"role", "organization_id", "manager_id"} & set(updates)
+                if blocked:
+                    return {
+                        "success": False,
+                        "error": "Unit-level admins cannot change " + ", ".join(sorted(blocked)),
+                    }
+                acting_role = unit_role
             if target is None:
                 return {"success": False, "error": "User not found or access denied"}
 
-            if not can_edit_user(editor.role, target.role):
+            if not can_edit_user(acting_role, target.role):
                 return {
                     "success": False,
                     "error": f"Role '{editor.role}' cannot edit users with role '{target.role}'",

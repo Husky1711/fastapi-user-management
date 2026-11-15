@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getHomePathForRole } from "@/lib/auth/routing";
 import styles from "@/pages/AdminPage.module.css";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 
 export function ComplianceShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -19,6 +20,7 @@ export function ComplianceShell({ children }: { children: ReactNode }) {
             {user?.username}
             {orgLabel && <span className={styles.badge}>{orgLabel}</span>}
           </p>
+          <OrgSwitcher />
         </div>
         <button type="button" className={styles.logoutBtn} onClick={() => void logout()}>
           Log out

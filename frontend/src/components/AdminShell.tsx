@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import styles from "@/pages/AdminPage.module.css";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -13,6 +14,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div>
           <h1>Admin</h1>
           <p className={styles.subtitle}>{user?.username}</p>
+          <OrgSwitcher />
         </div>
         <button type="button" className={styles.logoutBtn} onClick={() => void logout()}>
           Log out

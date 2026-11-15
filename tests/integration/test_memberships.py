@@ -128,3 +128,68 @@ def test_tenant_admin_cannot_grant_membership_in_other_org(second_college):
             headers={**admin, "X-Organization-Id": str(second_college)},
         )
         assert r.status_code == 403  # not a member of that org
+
+
+def test_inviting_an_existing_user_adds_a_membership():
+    admin_creds = ("testadmin", "admin123")          # admin in org 1
+    invitee_creds = ("testuser_org2", "user2123")    # exists, home org 2
+    other_creds = ("testuser", "user123")            # someone else
+    with TestClient(main.app) as c:
+        admin = _login(c, admin_creds)
+        home = c.get("/api/v1/me/organizations", headers=admin).json()["active_organization_id"]
+
+        r = c.post(
+            "/api/v1/invitations",
+            json={"email": "user2@test.com", "role": "user"},
+            headers=admin,
+        )
+        assert r.status_code == 200, r.text
+        token = r.json().get("invite_token")
+        assert token, "dev mode returns the raw token"
+
+        v = c.get(f"/api/v1/invitations/validate/{token}").json()
+        assert v["existing_account"] is True and v["organization_id"] == home
+
+        # Sign-up path refuses an email that already has an account
+        r = c.post(
+            "/api/v1/invitations/accept",
+            json={"token": token, "username": "newname_x", "password": "Password123!"},
+        )
+        assert r.status_code == 400
+
+        # A different signed-in user cannot use the link
+        r = c.post(
+            "/api/v1/invitations/accept-existing",
+            json={"token": token},
+            headers=_login(c, other_creds),
+        )
+        assert r.status_code == 403
+
+        invitee = _login(c, invitee_creds)
+        r = c.post("/api/v1/invitations/accept-existing", json={"token": token}, headers=invitee)
+        assert r.status_code == 200, r.text
+        roles = {
+            o["organization_id"]: o["role"]
+            for o in c.get("/api/v1/me/organizations", headers=invitee).json()["organizations"]
+        }
+        assert roles.get(home) == "user"
+
+        # Token is spent; re-inviting a current member is refused
+        r = c.post("/api/v1/invitations/accept-existing", json={"token": token}, headers=invitee)
+        assert r.status_code == 400
+        r = c.post(
+            "/api/v1/invitations", json={"email": "user2@test.com", "role": "user"}, headers=admin
+        )
+        assert r.status_code == 400
+
+    # cleanup: drop the added membership
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == invitee_creds[0]).one()
+    for m in list(user.memberships):
+        if m.organization_id == home:
+            user.memberships.remove(m)
+    for a in list(user.role_assignments):
+        if a.organization_id == home:
+            user.role_assignments.remove(a)
+    db.commit()
+    db.close()

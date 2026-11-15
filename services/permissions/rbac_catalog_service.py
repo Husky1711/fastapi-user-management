@@ -67,6 +67,7 @@ class RbacCatalogService:
                     UserRole.user_id == user_id,
                     Role.is_system.is_(True),
                     Role.org_scope_key == 0,
+                    UserRole.unit_id.is_(None),
                 )
                 .all()
             )
@@ -93,7 +94,11 @@ class RbacCatalogService:
         platform = (
             db.query(Role.id)
             .join(UserRole, UserRole.role_id == Role.id)
-            .filter(UserRole.user_id == user_id, Role.is_platform.is_(True))
+            .filter(
+                UserRole.user_id == user_id,
+                Role.is_platform.is_(True),
+                UserRole.unit_id.is_(None),
+            )
             .first()
         )
         if platform is not None:
@@ -106,6 +111,7 @@ class RbacCatalogService:
             .filter(
                 UserRole.user_id == user_id,
                 Permission.name == permission_name,
+                UserRole.unit_id.is_(None),  # unit grants: see unit_access
                 # role assignments apply only in their org (None = everywhere)
                 True
                 if organization_id is None
@@ -203,6 +209,7 @@ class RbacCatalogService:
                 UserRole.user_id == User.id,
                 Role.is_system.is_(True),
                 Role.org_scope_key == 0,
+                UserRole.unit_id.is_(None),
             )
             .exists()
         )

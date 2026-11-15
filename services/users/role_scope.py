@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Query
 
 from models.rbac_model import Role, UserRole
@@ -72,7 +72,10 @@ def filter_users_for_viewer(
 
     # Roles live in user_roles, scoped per org: judge each user by the system roles
     # that apply in this org (org-scoped or platform-wide).
-    in_org = or_(UserRole.organization_id == org_id, UserRole.organization_id.is_(None))
+    in_org = and_(
+        or_(UserRole.organization_id == org_id, UserRole.organization_id.is_(None)),
+        UserRole.unit_id.is_(None),  # org role only; unit grants never count here
+    )
     has_visible_role = (
         query.session.query(UserRole.id)
         .join(Role, Role.id == UserRole.role_id)

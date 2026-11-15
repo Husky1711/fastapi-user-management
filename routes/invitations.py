@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from dependencies.auth import require_permission
+from dependencies.auth import CurrentUser, require_permission
 from models.user_model import User
 from routes.auth_common import create_api_router
 from services.users.invitation_service import InvitationService
@@ -110,6 +110,25 @@ def accept_invitation(
     )
     if not result["success"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
+    return result
+
+
+class AcceptExistingRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=128)
+
+
+@router.post("/invitations/accept-existing")
+def accept_invitation_existing_account(
+    body: AcceptExistingRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+    _: None = Depends(RateLimitDependency.check_rate_limit("signup", require_auth=False)),
+) -> Dict[str, Any]:
+    """Signed-in user joins the inviting organization (email must match the invite)."""
+    result = InvitationService.accept_invitation_as_existing(db, body.token, current_user)
+    if not result["success"]:
+        code = status.HTTP_403_FORBIDDEN if result.get("forbidden") else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=result["error"])
     return result
 
 

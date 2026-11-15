@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from models.user_model import User
-from dependencies.auth import CurrentUser, require_permission
+from dependencies.auth import CurrentUser, require_permission, require_permission_or_unit_grant
 from routes.auth_common import create_api_router
 from schemas.login import (
     AdminCreateUserRequest,
@@ -64,7 +64,7 @@ def get_all_users(
     current_user_org_id = current_user.organization_id
 
     users = UserService.get_users_by_role_and_organization(
-        db, current_user_role, current_user_org_id
+        db, current_user_role, current_user_org_id, actor=current_user
     )
 
     if is_platform_role(current_user_role):
@@ -80,7 +80,8 @@ def get_all_users(
             response[org_key].users.append(_user_list_item(db, user))
         return response
 
-    if is_manager_role(current_user_role):
+    # Org-wide managers, or base users holding roles on units (people under them).
+    if is_manager_role(current_user_role) or users:
         return OrganizationUsersListResponse(
             organization_id=current_user_org_id,
             users=[_user_list_item(db, user) for user in users],
@@ -103,7 +104,8 @@ def get_user_by_id(
     current_user_id = current_user.id
 
     specific_user = UserService.get_user_by_role_and_organization(
-        db, user_id, current_user_role, current_user_org_id, current_user_id
+        db, user_id, current_user_role, current_user_org_id, current_user_id,
+        actor=current_user,
     )
 
     if specific_user is None:
@@ -126,7 +128,7 @@ def update_user_by_admin(
     user_id: int,
     updates: AdminUpdateUserRequest,
     request: Request,
-    current_user: User = Depends(require_permission("users:update")),
+    current_user: User = Depends(require_permission_or_unit_grant("users:update")),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("profile_update")),
 ):
@@ -295,7 +297,7 @@ def create_user_by_admin(
 def soft_delete_user(
     user_id: int,
     request: Request,
-    current_user: User = Depends(require_permission("users:delete")),
+    current_user: User = Depends(require_permission_or_unit_grant("users:delete")),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user")),
 ):

@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { setActiveOrgId } from "@/lib/org/activeOrg";
 import {
   apiClient,
   applyLoginTokens,
@@ -32,6 +34,8 @@ interface AuthContextValue {
     sessionStrategy: SessionStrategy,
   ) => Promise<TokenResponse["session_info"]>;
   logout: () => Promise<void>;
+  /** Act in another organization (multi-org users); role and home screen may change. */
+  switchOrganization: (organizationId: number) => Promise<void>;
   bootstrapError: boolean;
 }
 
@@ -39,6 +43,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const accessTokenRef = useRef<string | null>(null);
   const [status, setStatus] = useState<AuthStatus>("bootstrapping");
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -54,11 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (reason?: string) => {
       clearAuthTimers();
       accessTokenRef.current = null;
+      setActiveOrgId(null);
+      queryClient.clear();
       setUser(null);
       setStatus("unauthenticated");
       navigate(reason ? `/login?reason=${reason}` : "/login", { replace: true });
     },
-    [navigate],
+    [navigate, queryClient],
   );
 
   useEffect(() => {
@@ -166,6 +173,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     hardLogout();
   }, [hardLogout]);
 
+  const switchOrganization = useCallback(
+    async (organizationId: number) => {
+      setActiveOrgId(organizationId);
+      queryClient.clear(); // cached data belongs to the previous organization
+      const profile = await fetchProfile(); // role is per organization
+      navigate(getHomePathForRole(profile.role), { replace: true });
+    },
+    [fetchProfile, navigate, queryClient],
+  );
+
   const value = useMemo(
     () => ({
       status,
@@ -174,9 +191,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loginWith2fa,
       loginWithSessionStrategy,
       logout,
+      switchOrganization,
       bootstrapError,
     }),
-    [status, user, login, loginWith2fa, loginWithSessionStrategy, logout, bootstrapError],
+    [
+      status,
+      user,
+      login,
+      loginWith2fa,
+      loginWithSessionStrategy,
+      logout,
+      switchOrganization,
+      bootstrapError,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

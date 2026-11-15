@@ -8,6 +8,7 @@ import {
 } from "@/lib/dashboard/api";
 import { getApiError } from "@/lib/apiClient";
 import styles from "@/pages/AdminPage.module.css";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
@@ -51,6 +52,7 @@ export function DashboardPage() {
         <div>
           <h1>Dashboard</h1>
           <p className={styles.subtitle}>Welcome, {user?.username}</p>
+          <OrgSwitcher />
         </div>
         <button type="button" className={styles.logoutBtn} onClick={() => void logout()}>
           Log out

@@ -79,12 +79,18 @@ class InvitationService:
         if (org.status or "").lower() != "active":
             return {"success": False, "error": "Organization is not active"}
 
-        if (
+        existing = (
             db.query(User)
             .filter(User.email == email, User.deleted_at.is_(None))
             .first()
-        ):
-            return {"success": False, "error": "A user with this email already exists"}
+        )
+        # Existing accounts can be invited to *other* organizations (memberships);
+        # they accept while signed in (accept_invitation_as_existing).
+        if existing is not None and target_org_id in existing.member_org_ids():
+            return {
+                "success": False,
+                "error": "This person is already a member of this organization",
+            }
 
         # Revoke prior open invites for same email+org
         (
@@ -226,13 +232,68 @@ class InvitationService:
         if not row:
             return {"valid": False, "error": "Invalid or expired invitation"}
         org = db.query(Organization).filter(Organization.id == row.organization_id).first()
+        existing = (
+            db.query(User.id)
+            .filter(User.email == row.email, User.deleted_at.is_(None))
+            .first()
+        )
         return {
             "valid": True,
+            # True: sign in and POST /invitations/accept-existing; False: sign-up form
+            "existing_account": existing is not None,
             "email": row.email,
             "role": row.role,
             "organization_id": row.organization_id,
             "organization_name": org.name if org else None,
             "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        }
+
+    @staticmethod
+    def accept_invitation_as_existing(
+        db: Session,
+        token: str,
+        current_user: User,
+    ) -> Dict[str, Any]:
+        """Signed-in user accepts an invite to another organization (adds a membership).
+
+        The invitation email must match the signed-in account, so a forwarded or
+        leaked link cannot attach someone else's account.
+        """
+        row = InvitationService._active_invite_query(db, token).first()
+        if not row:
+            return {"success": False, "error": "Invalid or expired invitation"}
+        if (current_user.email or "").strip().lower() != (row.email or "").strip().lower():
+            return {
+                "success": False,
+                "error": "This invitation was sent to a different email address",
+                "forbidden": True,
+            }
+        user = db.query(User).filter(User.id == current_user.id).first()
+        home_org = user.__dict__.get("_home_org_id", user.organization_id)
+        if row.organization_id == home_org or any(
+            m.organization_id == row.organization_id and m.status == "active"
+            for m in user.memberships
+        ):
+            return {"success": False, "error": "You are already a member of this organization"}
+
+        user.role = row.role or "user"
+        user.__dict__["_pending_role_org"] = row.organization_id
+        user.__dict__["_pending_granted_by"] = row.invited_by
+        row.accepted_at = utc_now()
+        db.commit()
+        auth_logger.info(
+            f"Invitation accepted by existing user {user.username}",
+            user_id=user.id,
+            invitation_id=row.id,
+            organization_id=row.organization_id,
+            event_type="invitation_accepted_existing",
+        )
+        return {
+            "success": True,
+            "message": "Invitation accepted",
+            "user_id": user.id,
+            "organization_id": row.organization_id,
+            "role": row.role or "user",
         }
 
     @staticmethod
@@ -253,7 +314,11 @@ class InvitationService:
         if UserService.check_username_exists(db, username):
             return {"success": False, "error": "Username already exists"}
         if UserService.check_email_exists(db, row.email):
-            return {"success": False, "error": "Email already registered"}
+            return {
+                "success": False,
+                "error": "This email already has an account: sign in and accept the invitation",
+                "existing_account": True,
+            }
 
         now = utc_now()
         user = User(

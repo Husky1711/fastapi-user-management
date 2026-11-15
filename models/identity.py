@@ -169,6 +169,7 @@ class User(Base):
             if a.role is not None
             and a.role.is_system
             and a.role.org_scope_key == 0
+            and a.unit_id is None  # unit-scoped grants never count org-wide
             and (a.organization_id is None or a.organization_id == organization_id)
         ]
 

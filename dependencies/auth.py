@@ -96,6 +96,35 @@ def require_permission(
     return _dependency
 
 
+def require_permission_or_unit_grant(
+    permission_name: str, *, error_code: str = "PERMISSION_DENIED"
+) -> Callable[..., User]:
+    """Pass if the permission is held org-wide **or** through a role on any org unit.
+
+    Unit holders get through the route gate only; services must then check that the
+    specific target lies under one of their units (services/permissions/unit_access).
+    """
+
+    def _dependency(current_user: CurrentUser, db: Session = Depends(get_db)) -> User:
+        from services.permissions import UserPermissionService
+        from services.permissions.unit_access import has_any_unit_grant
+
+        result = UserPermissionService.check_permission(
+            db=db, user_id=current_user.id, permission_name=permission_name
+        )
+        if (result.get("success") and result.get("has_permission")) or has_any_unit_grant(
+            db, current_user, permission_name
+        ):
+            return current_user
+        raise APIHTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing permission: {permission_name}",
+            error_code=error_code,
+        )
+
+    return _dependency
+
+
 def require_staff(current_user: CurrentUser) -> User:
     """Allow roles ranked above the base end-user role (managers / admins)."""
     if not is_manager_role(current_user.role):

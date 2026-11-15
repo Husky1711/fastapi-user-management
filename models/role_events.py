@@ -73,8 +73,14 @@ def _move_home_org(user, old_org, new_org) -> None:
             user.memberships.remove(old_m)
         else:
             old_m.organization_id = new_org
-    new_role_ids = {a.role_id for a in user.role_assignments if a.organization_id == new_org}
+    new_role_ids = {
+        a.role_id for a in user.role_assignments
+        if a.organization_id == new_org and a.unit_id is None
+    }
     for a in list(user.role_assignments):
+        if a.organization_id == old_org and a.unit_id is not None:
+            user.role_assignments.remove(a)  # units belong to the old org
+            continue
         if a.organization_id == old_org:
             if a.role_id in new_role_ids:
                 user.role_assignments.remove(a)
@@ -125,13 +131,16 @@ def _apply_pending_system_roles(session: Session, flush_context, instances) -> N
 
             for assignment in list(user.role_assignments):
                 r = assignment.role
+                if assignment.unit_id is not None:
+                    continue  # unit-scoped grants are managed separately (unit_service)
                 if not _is_system(r) or r is role and assignment.organization_id == scope_org:
                     continue
                 same_scope = assignment.organization_id == scope_org
                 if role.is_platform or same_scope or assignment.organization_id is None:
                     user.role_assignments.remove(assignment)  # delete-orphan
             if not any(
-                a.role is role and a.organization_id == scope_org for a in user.role_assignments
+                a.role is role and a.organization_id == scope_org and a.unit_id is None
+                for a in user.role_assignments
             ):
                 user.role_assignments.append(
                     UserRole(

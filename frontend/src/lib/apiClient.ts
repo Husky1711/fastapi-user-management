@@ -1,6 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { env } from "@/lib/env";
 import type { ApiErrorBody, TokenResponse } from "@/lib/auth/types";
+import { getActiveOrgId, ORG_HEADER, setActiveOrgId } from "@/lib/org/activeOrg";
 
 type AccessTokenGetter = () => string | null;
 type AccessTokenSetter = (token: string | null, expiresIn?: number) => void;
@@ -69,6 +70,10 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  const orgId = getActiveOrgId();
+  if (orgId !== null && !config.headers.has(ORG_HEADER)) {
+    config.headers.set(ORG_HEADER, String(orgId));
+  }
   return config;
 });
 
@@ -76,6 +81,19 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiErrorBody>) => {
     const original = error.config;
+    // Saved organization no longer valid (e.g. removed from it): forget it and
+    // retry once in the home organization instead of leaving the user stuck.
+    if (
+      original &&
+      error.response?.status === 403 &&
+      error.response.data?.error_code === "NOT_ORGANIZATION_MEMBER" &&
+      !(original as InternalAxiosRequestConfig & { _orgRetry?: boolean })._orgRetry
+    ) {
+      (original as InternalAxiosRequestConfig & { _orgRetry?: boolean })._orgRetry = true;
+      setActiveOrgId(null);
+      original.headers.delete(ORG_HEADER);
+      return apiClient(original);
+    }
     if (!original || error.response?.status !== 401) {
       return Promise.reject(error);
     }

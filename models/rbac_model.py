@@ -86,7 +86,9 @@ class RolePermission(Base):
 class UserRole(Base):
     __tablename__ = "user_roles"
     __table_args__ = (
-        UniqueConstraint("user_id", "role_id", "scope_key", name="uq_user_roles_scope"),
+        UniqueConstraint(
+            "user_id", "role_id", "scope_key", "unit_key", name="uq_user_roles_scope_unit"
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -96,6 +98,11 @@ class UserRole(Base):
     )
     # 0 when organization_id is NULL; mirrors it otherwise (unique-friendly, like roles)
     scope_key = Column(Integer, nullable=False, server_default="0")
+    # Unit-scoped grant: applies to this unit and its subtree only (never org-wide).
+    unit_id = Column(
+        Integer, ForeignKey("org_units.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    unit_key = Column(Integer, nullable=False, server_default="0")
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
