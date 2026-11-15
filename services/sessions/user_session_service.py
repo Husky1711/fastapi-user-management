@@ -16,6 +16,7 @@ import hashlib
 import json
 import uuid
 import re
+from services.users.membership import member_of
 
 class UserSessionService:
     """Service for advanced session tracking and management"""
@@ -560,7 +561,7 @@ class UserSessionService:
             if needs_user_join:
                 query = query.join(User, UserSession.user_id == User.id)
                 if organization_id:
-                    query = query.filter(User.organization_id == organization_id)
+                    query = query.filter(member_of(organization_id))
                 if user_ids is not None:
                     if user_ids:
                         query = query.filter(UserSession.user_id.in_(user_ids))

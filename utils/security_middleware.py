@@ -265,6 +265,7 @@ def setup_security_middleware(app: FastAPI) -> None:
                 "Content-Type",
                 "X-Request-ID",
                 "X-Requested-With",
+                "X-Organization-Id",
                 "Accept",
             ],
         )

@@ -305,6 +305,9 @@ class UserPermissionService:
                 UserPermission.expires_at.is_(None),
                 UserPermission.expires_at > utc_now(),
             )
+            # Grants only count in the organization the request acts in
+            # (services/users/membership.activate_organization); None = no context.
+            active_org = db.info.get("active_org_id")
 
             # Check direct permissions
             permission = db.query(UserPermission)\
@@ -314,6 +317,10 @@ class UserPermissionService:
                 .filter(UserPermission.resource_id == resource_id)\
                 .filter(UserPermission.is_active == True)\
                 .filter(not_expired)\
+                .filter(
+                    True if active_org is None
+                    else UserPermission.organization_id == active_org
+                )\
                 .first()
             
             if permission:
@@ -329,7 +336,7 @@ class UserPermissionService:
             from services.permissions.rbac_catalog_service import RbacCatalogService
 
             if RbacCatalogService.user_has_role_permission(
-                db, user_id, permission_name
+                db, user_id, permission_name, organization_id=active_org
             ):
                 return {
                     "success": True,
@@ -352,9 +359,14 @@ class UserPermissionService:
                     UserGroupMembership,
                     UserGroupMembership.group_id == GroupPermission.group_id,
                 )
+                .join(UserGroup, UserGroup.id == GroupPermission.group_id)
                 .filter(UserGroupMembership.user_id == user_id)
                 .filter(UserGroupMembership.is_active == True)
                 .filter(CatalogPermission.name == permission_name)
+                .filter(
+                    True if active_org is None
+                    else UserGroup.organization_id == active_org
+                )
                 .first()
             )
             if group_grant:

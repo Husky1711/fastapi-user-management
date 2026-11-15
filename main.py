@@ -25,6 +25,7 @@ from routes.retention import router as retention_router
 from routes.integration import router as integration_router
 from routes.auth_2fa import router as auth_2fa_router
 from routes.organizations import router as organizations_router
+from routes.memberships import router as memberships_router
 from routes.invitations import router as invitations_router
 from routes.compliance import router as compliance_router
 
@@ -184,6 +185,11 @@ app.add_middleware(
     queue_timeout=settings.app.request_queue_timeout_seconds,
 )
 
+# Active organization per request (X-Organization-Id; validated on authentication).
+from services.users.membership import OrganizationContextMiddleware
+
+app.add_middleware(OrganizationContextMiddleware)
+
 # Setup security middleware
 setup_security_middleware(app)
 
@@ -211,6 +217,7 @@ app.include_router(retention_router)
 app.include_router(integration_router)
 app.include_router(auth_2fa_router)
 app.include_router(organizations_router)
+app.include_router(memberships_router)
 app.include_router(compliance_router)
 
 # Include dashboard router

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from models.user_model import Organization, User
 from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
+from services.users.membership import member_of
 
 
 class OrganizationService:
@@ -39,13 +40,13 @@ class OrganizationService:
     def serialize_organization(db: Session, org: Organization) -> Dict[str, Any]:
         total_users = (
             db.query(User)
-            .filter(User.organization_id == org.id, User.deleted_at.is_(None))
+            .filter(member_of(org.id), User.deleted_at.is_(None))
             .count()
         )
         active_users = (
             db.query(User)
             .filter(
-                User.organization_id == org.id,
+                member_of(org.id),
                 User.status == "active",
                 User.deleted_at.is_(None),
             )
@@ -146,7 +147,7 @@ class OrganizationService:
 
         active_users = (
             db.query(User)
-            .filter(User.organization_id == org.id, User.deleted_at.is_(None))
+            .filter(member_of(org.id), User.deleted_at.is_(None))
             .count()
         )
         if active_users > 0:

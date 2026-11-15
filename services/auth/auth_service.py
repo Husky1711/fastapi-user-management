@@ -96,9 +96,11 @@ class AuthService:
         # Defense in depth: get_user_by_id already excludes soft-deleted.
         if getattr(user, "deleted_at", None) is not None:
             return None
-        from services.permissions.rbac_catalog_service import RbacCatalogService
+        from services.users.membership import activate_organization
 
-        RbacCatalogService.apply_effective_role(db, user)
+        # Acting organization for this request (X-Organization-Id, else home org);
+        # user.role then reflects the role held in that organization.
+        activate_organization(db, user)
         return user
 
     @staticmethod

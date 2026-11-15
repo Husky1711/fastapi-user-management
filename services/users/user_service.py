@@ -14,6 +14,8 @@ from models.user_model import Organization
 from services.permissions.rbac_catalog_service import RbacCatalogService
 from utils.loggers import auth_logger
 from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
+from services.users.membership import member_of
+from services.users.membership import is_member
 
 class UserService:
     _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
@@ -164,7 +166,7 @@ class UserService:
             UserService._with_serialization_eager_loads(UserService._active_users_query(db))
             .filter(
                 User.id == user_id,
-                User.organization_id == current_user_org_id,
+                member_of(current_user_org_id),
             )
             .first()
         )
@@ -197,7 +199,7 @@ class UserService:
         target = UserService.get_user_by_id(db, target_user_id)
         if target is None:
             return {"success": False, "error": "User not found", "reason": "not_found"}
-        if not is_platform_role(editor.role) and target.organization_id != editor.organization_id:
+        if not is_platform_role(editor.role) and not is_member(target, editor.organization_id):
             return {
                 "success": False,
                 "error": "Cannot delete users in another organization",
@@ -385,7 +387,9 @@ class UserService:
             return "Manager not found"
         if not is_manager_role(manager.role):
             return "Manager must be an admin or organization admin"
-        if manager.organization_id != target_user.organization_id:
+        if not is_member(manager, editor.organization_id) or not is_member(
+            target_user, editor.organization_id
+        ):
             return "Manager must be in the same organization"
         if not is_base_role(target_user.role):
             return "Only regular users can have a reporting manager"
@@ -655,7 +659,7 @@ class UserService:
                     manager = (
                         db.query(User).filter(User.id == target.manager_id).first()
                     )
-                    if manager is None or manager.organization_id != new_org_id:
+                    if manager is None or not is_member(manager, new_org_id):
                         target.manager_id = None
 
             effective_role = target.role

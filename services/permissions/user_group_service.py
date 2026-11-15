@@ -6,6 +6,7 @@ from utils.loggers import auth_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import json
+from services.users.membership import is_member
 
 class UserGroupService:
     """Service for user group management"""
@@ -301,7 +302,7 @@ class UserGroupService:
                     "success": False,
                     "error": "User not found",
                 }
-            if user.organization_id != group.organization_id:
+            if not is_member(user, group.organization_id):
                 return {
                     "success": False,
                     "error": "User and group must belong to the same organization",

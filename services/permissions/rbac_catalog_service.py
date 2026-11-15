@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set
 
+from sqlalchemy import or_
+
 from sqlalchemy.orm import Session
 
 from models.rbac_model import Permission, Role, RolePermission, UserRole
@@ -78,7 +80,11 @@ class RbacCatalogService:
 
     @staticmethod
     def user_has_role_permission(
-        db: Session, user_id: int, permission_name: str
+        db: Session,
+        user_id: int,
+        permission_name: str,
+        *,
+        organization_id: Optional[int] = None,
     ) -> bool:
         """True if any of the user's roles map to this catalog permission.
 
@@ -100,6 +106,13 @@ class RbacCatalogService:
             .filter(
                 UserRole.user_id == user_id,
                 Permission.name == permission_name,
+                # role assignments apply only in their org (None = everywhere)
+                True
+                if organization_id is None
+                else or_(
+                    UserRole.organization_id == organization_id,
+                    UserRole.organization_id.is_(None),
+                ),
             )
             .first()
         )

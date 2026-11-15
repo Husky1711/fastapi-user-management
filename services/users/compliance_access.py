@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from models.user_model import ApiKey, User, UserGroup
 from services.users.role_scope import can_view_user, filter_users_for_viewer
 from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
+from services.users.membership import is_member
 
 
 def manageable_user_ids(
@@ -52,7 +53,7 @@ def require_user_data_access(db: Session, viewer: User, target_user_id: int) -> 
         return viewer
 
     target = db.query(User).filter(User.id == target_user_id).first()
-    if not target or target.organization_id != viewer.organization_id:
+    if not target or not is_member(target, viewer.organization_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot access data for users outside your organization",

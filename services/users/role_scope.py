@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
 from models.rbac_model import Role, UserRole
 from models.user_model import User
+from services.users.membership import member_of
 from services.permissions.role_catalog import (
     is_manager_role,
     is_platform_role,
@@ -43,11 +45,13 @@ def can_view_user(viewer_role: str, target_role: str) -> bool:
 
 
 def can_edit_user(editor_role: str, target_role: str) -> bool:
-    """Editors may change users they can view who are strictly below them in rank."""
+    """Editors may change users they can view who are strictly below them in rank.
+
+    Applies to platform roles too: a platform admin (e.g. level 90) manages every
+    tenant user but not a super admin (100) or other platform admins at its level.
+    """
     if not can_view_user(editor_role, target_role):
         return False
-    if is_platform_role(editor_role):
-        return True
     return level_of(target_role) < level_of(editor_role)
 
 
@@ -66,7 +70,9 @@ def filter_users_for_viewer(
     if not allowed:
         return query.filter(False)
 
-    # Roles live in user_roles: match users whose system role is visible.
+    # Roles live in user_roles, scoped per org: judge each user by the system roles
+    # that apply in this org (org-scoped or platform-wide).
+    in_org = or_(UserRole.organization_id == org_id, UserRole.organization_id.is_(None))
     has_visible_role = (
         query.session.query(UserRole.id)
         .join(Role, Role.id == UserRole.role_id)
@@ -75,6 +81,7 @@ def filter_users_for_viewer(
             Role.is_system.is_(True),
             Role.org_scope_key == 0,
             Role.name.in_(allowed),
+            in_org,
         )
         .exists()
     )
@@ -86,11 +93,12 @@ def filter_users_for_viewer(
             Role.is_system.is_(True),
             Role.org_scope_key == 0,
             Role.name.notin_(allowed),
+            in_org,
         )
         .exists()
     )
     return query.filter(
-        User.organization_id == org_id,
+        member_of(org_id),
         has_visible_role,
         ~has_hidden_role,  # a higher (invisible) role anywhere hides the user
     )

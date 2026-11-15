@@ -15,6 +15,7 @@ from services.users import UserService
 from services.users.role_scope import filter_users_for_viewer
 from utils.datetime_utc import utc_now
 from utils.loggers import api_logger, auth_logger
+from services.users.membership import member_of
 
 
 class OrgAdminDashboardService:
@@ -72,7 +73,7 @@ class OrgAdminDashboardService:
             logins_today = db.query(AuditLog).join(
                 User, AuditLog.user_id == User.id
             ).filter(
-                User.organization_id == org_id,
+                member_of(org_id),
                 AuditLog.action == "login",
                 AuditLog.status == "success",
                 AuditLog.created_at >= today_start,

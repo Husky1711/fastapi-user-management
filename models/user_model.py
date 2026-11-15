@@ -11,7 +11,7 @@ from models.compliance import (  # noqa: F401
     UserGroupMembership,
     UserPermission,
 )
-from models.identity import Organization, RefreshToken, User  # noqa: F401
+from models.identity import Organization, OrganizationMembership, RefreshToken, User  # noqa: F401
 from models.session import (  # noqa: F401
     EmailVerificationToken,
     LoginAttempt,

@@ -11,6 +11,8 @@ from models.user_model import AuditLog, Organization, RefreshToken, User
 from services.dashboard.cache import cached_dashboard, dashboard_cache_key
 from utils.datetime_utc import utc_now
 from utils.loggers import api_logger
+from services.users.membership import member_of
+from models.identity import OrganizationMembership
 
 
 class SuperAdminDashboardService:
@@ -47,7 +49,7 @@ class SuperAdminDashboardService:
                 active_sessions = len(all_sessions)
                 total_sessions = db.query(RefreshToken).count()
 
-                org_ids = db.query(User.organization_id).distinct().all()
+                org_ids = db.query(OrganizationMembership.organization_id).distinct().all()
                 total_organizations = len(
                     [org[0] for org in org_ids if org[0] is not None]
                 )
@@ -233,7 +235,7 @@ class SuperAdminDashboardService:
         try:
 
             def _build():
-                org_ids = db.query(User.organization_id).distinct().all()
+                org_ids = db.query(OrganizationMembership.organization_id).distinct().all()
                 all_org_ids = [org[0] for org in org_ids if org[0] is not None]
                 total_organizations = len(all_org_ids)
 
@@ -243,7 +245,7 @@ class SuperAdminDashboardService:
 
                 for org_id in all_org_ids:
                     user_count = (
-                        db.query(User).filter(User.organization_id == org_id).count()
+                        db.query(User).filter(member_of(org_id)).count()
                     )
                     if user_count < 10:
                         small_orgs += 1
@@ -259,12 +261,12 @@ class SuperAdminDashboardService:
                         db.query(Organization).filter(Organization.id == org_id).first()
                     )
                     user_count = (
-                        db.query(User).filter(User.organization_id == org_id).count()
+                        db.query(User).filter(member_of(org_id)).count()
                     )
                     active_users = (
                         db.query(User)
                         .filter(
-                            User.organization_id == org_id,
+                            member_of(org_id),
                             User.status == "active",
                         )
                         .count()

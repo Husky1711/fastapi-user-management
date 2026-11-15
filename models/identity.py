@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -35,6 +36,27 @@ class Organization(Base):
         back_populates="organization",
         foreign_keys="[User.organization_id]",
     )
+
+
+class OrganizationMembership(Base):
+    """A person belongs to one or more organizations (users.organization_id = home org)."""
+
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "organization_id", name="uq_org_memberships_user_org"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status = Column(String(20), nullable=False, default="active", server_default="active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization", lazy="joined")
 
 
 class RefreshToken(Base):
@@ -114,24 +136,56 @@ class User(Base):
         lazy="selectin",
     )
 
+    memberships = relationship(
+        "OrganizationMembership",
+        foreign_keys="OrganizationMembership.user_id",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    def member_org_ids(self) -> set:
+        """Organizations this user is an active member of (always includes home org)."""
+        ids = {m.organization_id for m in self.memberships if m.status == "active"}
+        if self.organization_id is not None:
+            ids.add(self.organization_id)
+        return ids
+
+    def role_context_org_id(self):
+        """Organization whose role applies: the request's active org if this user is a
+        member of it (see services/users/membership.py), else the user's home org."""
+        from sqlalchemy.orm import object_session
+
+        session = object_session(self)
+        active = session.info.get("active_org_id") if session is not None else None
+        if active is not None and active in self.member_org_ids():
+            return active
+        return self.organization_id
+
+    def roles_in(self, organization_id) -> list:
+        """System role names that apply in an organization (platform roles included)."""
+        return [
+            a.role.name
+            for a in self.role_assignments
+            if a.role is not None
+            and a.role.is_system
+            and a.role.org_scope_key == 0
+            and (a.organization_id is None or a.organization_id == organization_id)
+        ]
+
     @property
     def role(self) -> str:
-        """Effective system role: highest-level system role in ``user_roles``.
+        """Effective system role in the current organization context.
 
-        Read-only view kept for API/JWT compatibility; assign with ``user.role = x``
-        (stored only in ``user_roles`` on flush, see models/role_events.py).
+        Highest-level system role in ``user_roles`` that is either unscoped (platform)
+        or scoped to ``role_context_org_id()``. Assign with ``user.role = x`` (stored
+        only in ``user_roles`` on flush, see models/role_events.py).
         """
         pending = self.__dict__.get("_pending_system_role")
         if pending:
             return pending
         from services.permissions.role_catalog import DEFAULT_ROLE_NAME, highest
 
-        names = [
-            a.role.name
-            for a in self.role_assignments
-            if a.role is not None and a.role.is_system and a.role.org_scope_key == 0
-        ]
-        return highest(names) or DEFAULT_ROLE_NAME
+        return highest(self.roles_in(self.role_context_org_id())) or DEFAULT_ROLE_NAME
 
     @role.setter
     def role(self, name: str) -> None:

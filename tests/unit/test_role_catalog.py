@@ -68,3 +68,28 @@ def test_apply_effective_role_is_derived():
 def test_highest_picks_top_level():
     assert rc.highest(["user", "organization_admin", "admin"]) == "organization_admin"
     assert rc.highest([]) is None
+
+
+@pytest.fixture
+def platform_staff(monkeypatch):
+    roles = {r.name: r for r in rc.DEFAULT_SYSTEM_ROLES}
+    roles["platform_admin"] = rc.RoleInfo("platform_admin", 90, is_platform=True)
+    monkeypatch.setattr(rc, "_load_from_db", lambda: roles)
+    rc.invalidate_cache()
+    yield
+    rc.invalidate_cache()
+
+
+def test_platform_admins_respect_levels(platform_staff):
+    # super admin can create and manage a lower platform admin
+    assert RoleHierarchyValidator.can_create_role("super_admin", "platform_admin")
+    assert can_edit_user("super_admin", "platform_admin")
+    # a platform admin manages every tenant role ...
+    assert can_edit_user("platform_admin", "organization_admin")
+    assert can_view_user("platform_admin", "super_admin")
+    # ... but not the super admin, a peer, or itself-level roles
+    assert not can_edit_user("platform_admin", "super_admin")
+    assert not can_edit_user("platform_admin", "platform_admin")
+    assert not RoleHierarchyValidator.can_create_role("platform_admin", "super_admin")
+    # and super admins no longer edit each other
+    assert not can_edit_user("super_admin", "super_admin")

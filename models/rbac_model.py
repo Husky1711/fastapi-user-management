@@ -85,9 +85,17 @@ class RolePermission(Base):
 
 class UserRole(Base):
     __tablename__ = "user_roles"
-    __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_roles"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "role_id", "scope_key", name="uq_user_roles_scope"),
+    )
 
     id = Column(Integer, primary_key=True)
+    # Where the role applies: an organization, or everywhere (NULL; platform roles).
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # 0 when organization_id is NULL; mirrors it otherwise (unique-friendly, like roles)
+    scope_key = Column(Integer, nullable=False, server_default="0")
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
