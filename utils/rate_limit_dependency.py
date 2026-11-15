@@ -41,14 +41,28 @@ class RateLimitDependency:
             
             # Check if Redis is available
             if not RedisClient.test_connection():
-                # If Redis is down, allow request but log warning
-                api_logger.warning(
-                    "Redis unavailable, skipping rate limiting",
+                if settings.rate_limit.fail_open:
+                    api_logger.warning(
+                        "Redis unavailable, skipping rate limiting (fail-open)",
+                        ip_address=ip_address,
+                        endpoint=endpoint,
+                        event_type="redis_unavailable",
+                    )
+                    return
+                # Fail closed (required in production): without Redis there is no
+                # brute-force / abuse protection, so refuse rather than allow.
+                api_logger.error(
+                    "Redis unavailable, rejecting request (rate limiting fail-closed)",
                     ip_address=ip_address,
                     endpoint=endpoint,
-                    event_type="redis_unavailable"
+                    event_type="redis_unavailable_fail_closed",
                 )
-                return
+                raise APIHTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Service temporarily unavailable, please retry shortly",
+                    error_code="SERVICE_UNAVAILABLE",
+                    headers={"Retry-After": "5"},
+                )
 
             if not settings.rate_limit.enable_ip_limits:
                 return

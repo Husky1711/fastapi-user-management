@@ -87,7 +87,21 @@ async def lifespan(app: FastAPI):
         # CI/pytest may hit transient pool errors across many TestClient lifespans.
         if not _allow_db_startup_fail_open():
             raise
-    
+
+    # Production must not run with publicly known seed/test accounts usable.
+    if settings.is_production():
+        from utils.database import SessionLocal
+        from utils.seed_credentials import find_accounts_with_known_passwords
+
+        with SessionLocal() as seed_db:
+            exposed = find_accounts_with_known_passwords(seed_db)
+        if exposed:
+            raise RuntimeError(
+                "Refusing to start in production: these accounts still use publicly "
+                f"known seed passwords: {', '.join(exposed)}. Delete them or reset their "
+                "passwords (python scripts/disable_seed_accounts.py)."
+            )
+
     # Test Redis connection
     if RedisClient.test_connection():
         app_logger.info("Redis connection successful", event_type="redis_startup")

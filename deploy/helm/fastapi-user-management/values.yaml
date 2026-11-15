@@ -70,8 +70,9 @@ tmpVolume:
   mountPath: /tmp
 
 # Logical mysqldump CronJob — see docs/BACKUP_RESTORE.md (prefer managed PITR in prod)
+# Write dumps to a persistent volume / object storage (BACKUP_DIR), never the repo.
 backup:
-  enabled: false
+  enabled: true
   schedule: "0 2 * * *"
   retentionDays: 30
   mountPath: /backups

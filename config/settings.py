@@ -626,6 +626,24 @@ class Settings(BaseSettings):
                 "RATE_LIMIT__FAIL_OPEN must be false in production "
                 "(Redis is a hard dependency for rate limiting)"
             )
+        local_or_http = [
+            origin
+            for origin in self.security.cors_origins
+            if not origin.startswith("https://")
+            or "localhost" in origin
+            or "127.0.0.1" in origin
+        ]
+        if local_or_http or not self.security.cors_origins:
+            errors.append(
+                "SECURITY__CORS_ORIGINS must list only your real https:// frontend "
+                f"origin(s) in production (got {self.security.cors_origins}; '*' is "
+                "dropped automatically and falls back to localhost)"
+            )
+        if self.email.enable_emails and not self.email.base_url.startswith("https://"):
+            errors.append(
+                "EMAIL__BASE_URL must be your public https:// frontend URL in production "
+                f"(got {self.email.base_url}); reset/invite links would point there"
+            )
         if self.password_policy.allow_legacy_sha256_hashes:
             errors.append(
                 "PASSWORD_POLICY__ALLOW_LEGACY_SHA256_HASHES must be false in production "
