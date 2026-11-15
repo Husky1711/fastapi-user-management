@@ -18,14 +18,15 @@ from services.users.organization_settings_service import OrganizationSettingsSer
 from utils.api_errors import APIHTTPException
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 router = APIRouter(prefix="/api/v1", tags=["Organizations"])
 
 
 def _assert_org_settings_access(user: User, organization_id: int) -> None:
-    if user.role == "super_admin":
+    if is_platform_role(user.role):
         return
-    if user.role in ("admin", "organization_admin") and user.organization_id == organization_id:
+    if is_manager_role(user.role) and user.organization_id == organization_id:
         return
     raise APIHTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

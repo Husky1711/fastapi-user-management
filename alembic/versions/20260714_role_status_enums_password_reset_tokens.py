@@ -21,14 +21,21 @@ USER_STATUSES = ("active", "inactive", "suspended", "pending")
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # Normalize free-form strings before converting to ENUM.
-    op.execute(
-        sa.text(
-            "UPDATE users SET role = 'user' "
-            "WHERE role IS NULL OR role NOT IN "
-            "('user', 'admin', 'organization_admin', 'super_admin')"
-        )
+    # users.role was dropped in 20261115_role_authority (roles live in user_roles);
+    # greenfield DBs built from current models have no such column.
+    has_role = any(
+        c["name"] == "role" for c in sa.inspect(bind).get_columns("users")
     )
+
+    # Normalize free-form strings before converting to ENUM.
+    if has_role:
+        op.execute(
+            sa.text(
+                "UPDATE users SET role = 'user' "
+                "WHERE role IS NULL OR role NOT IN "
+                "('user', 'admin', 'organization_admin', 'super_admin')"
+            )
+        )
     op.execute(
         sa.text(
             "UPDATE users SET status = 'active' "
@@ -45,14 +52,15 @@ def upgrade() -> None:
 
     # MySQL ENUM via native ALTER (portable enough for this project's dialect).
     if bind.dialect.name == "mysql":
-        op.execute(
-            sa.text(
-                "ALTER TABLE users "
-                "MODIFY COLUMN role ENUM("
-                "'user','admin','organization_admin','super_admin'"
-                ") NOT NULL DEFAULT 'user'"
+        if has_role:
+            op.execute(
+                sa.text(
+                    "ALTER TABLE users "
+                    "MODIFY COLUMN role ENUM("
+                    "'user','admin','organization_admin','super_admin'"
+                    ") NOT NULL DEFAULT 'user'"
+                )
             )
-        )
         op.execute(
             sa.text(
                 "ALTER TABLE users "
@@ -72,15 +80,16 @@ def upgrade() -> None:
         status_enum = sa.Enum(*USER_STATUSES, name="user_status_enum")
         role_enum.create(bind, checkfirst=True)
         status_enum.create(bind, checkfirst=True)
-        op.alter_column(
-            "users",
-            "role",
-            existing_type=sa.String(length=20),
-            type_=role_enum,
-            existing_nullable=True,
-            nullable=False,
-            server_default="user",
-        )
+        if has_role:
+            op.alter_column(
+                "users",
+                "role",
+                existing_type=sa.String(length=20),
+                type_=role_enum,
+                existing_nullable=True,
+                nullable=False,
+                server_default="user",
+            )
         op.alter_column(
             "users",
             "status",

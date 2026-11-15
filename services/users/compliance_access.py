@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from models.user_model import ApiKey, User, UserGroup
 from services.users.role_scope import can_view_user, filter_users_for_viewer
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 
 def manageable_user_ids(
@@ -17,10 +18,10 @@ def manageable_user_ids(
     org_id: Optional[int],
     viewer_id: Optional[int] = None,
 ) -> Optional[List[int]]:
-    """User IDs the viewer may access. None means unrestricted (super_admin)."""
-    if viewer_role == "super_admin":
+    """User IDs the viewer may access. None means unrestricted (platform roles)."""
+    if is_platform_role(viewer_role):
         return None
-    if viewer_role == "user":
+    if is_base_role(viewer_role):
         return [viewer_id] if viewer_id is not None else []
     return [
         row[0]
@@ -29,20 +30,20 @@ def manageable_user_ids(
 
 
 def resolve_organization_filter(viewer: User, organization_id: Optional[int]) -> Optional[int]:
-    if viewer.role == "super_admin":
+    if is_platform_role(viewer.role):
         return organization_id
     return viewer.organization_id
 
 
 def require_user_data_access(db: Session, viewer: User, target_user_id: int) -> User:
     """Ensure viewer may read compliance data for target_user_id."""
-    if viewer.role == "super_admin":
+    if is_platform_role(viewer.role):
         target = db.query(User).filter(User.id == target_user_id).first()
         if not target:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return target
 
-    if viewer.role == "user":
+    if is_base_role(viewer.role):
         if target_user_id != viewer.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -69,7 +70,7 @@ def require_group_access(db: Session, viewer: User, group_id: int) -> UserGroup:
     group = db.query(UserGroup).filter(UserGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-    if viewer.role != "super_admin" and group.organization_id != viewer.organization_id:
+    if not is_platform_role(viewer.role) and group.organization_id != viewer.organization_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
     return group
 
@@ -97,12 +98,9 @@ def filter_members_by_scope(
     return [member for member in members if member.get("user_id") in allowed]
 
 
-_GROUP_MANAGER_ROLES = frozenset({"super_admin", "organization_admin", "admin"})
-
-
 def require_group_manager(viewer: User) -> None:
     """Only staff roles may create or modify groups."""
-    if viewer.role not in _GROUP_MANAGER_ROLES:
+    if not is_manager_role(viewer.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions to manage groups",
@@ -115,7 +113,7 @@ def require_api_key_record_access(db: Session, viewer: User, api_key_id: int) ->
     if not api_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
     require_user_data_access(db, viewer, api_key.user_id)
-    if viewer.role != "super_admin" and api_key.organization_id != viewer.organization_id:
+    if not is_platform_role(viewer.role) and api_key.organization_id != viewer.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot access API keys outside your organization",

@@ -324,7 +324,13 @@ def _seed_catalog(bind) -> None:
         for row in bind.execute(sa.select(user_roles.c.user_id, user_roles.c.role_id))
     }
     ur_rows = []
-    for row in bind.execute(sa.select(users.c.id, users.c.role)):
+    users_has_role = any(
+        c["name"] == "role" for c in sa.inspect(bind).get_columns("users")
+    )
+    user_rows = (
+        bind.execute(sa.select(users.c.id, users.c.role)) if users_has_role else []
+    )
+    for row in user_rows:
         rid = role_id_by_name.get(row.role)
         if rid is not None and (row.id, rid) not in existing_ur:
             ur_rows.append({"user_id": row.id, "role_id": rid})

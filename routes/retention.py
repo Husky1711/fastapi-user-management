@@ -26,10 +26,7 @@ class RetentionPolicyUpsertRequest(BaseModel):
 @router.get("/retention/policies", response_model=Dict[str, Any])
 def list_retention_policies(
     current_user: User = Depends(
-        require_permission(
-            "system:maintenance",
-            allow_roles=frozenset({"super_admin"}),
-        )
+        require_permission("system:maintenance")
     ),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("retention_policies")),
@@ -43,10 +40,7 @@ def upsert_retention_policy(
     table_name: str,
     body: RetentionPolicyUpsertRequest,
     current_user: User = Depends(
-        require_permission(
-            "system:maintenance",
-            allow_roles=frozenset({"super_admin"}),
-        )
+        require_permission("system:maintenance")
     ),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("retention_policies_put")),

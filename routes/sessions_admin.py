@@ -123,10 +123,7 @@ def cleanup_expired_sessions(
 @router.post("/maintenance/cleanup", response_model=Dict[str, Any])
 def run_maintenance_cleanup(
     current_user: User = Depends(
-        require_permission(
-            "system:maintenance",
-            allow_roles=frozenset({"super_admin"}),
-        )
+        require_permission("system:maintenance")
     ),
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("session_cleanup")),

@@ -62,16 +62,11 @@ bootstrap_database() {
 }
 
 seed_database() {
-  if [[ ! -f scripts/seed.sql ]]; then
-    echo "scripts/seed.sql not found — skipping seed."
-    return 0
-  fi
-  docker exec -i fastapi-mysql mysql -ufastapi -pfastapi fastapi_users < scripts/seed.sql \
-    || echo "WARN: seed.sql had errors (may be safe if data already exists)."
+  # Canonical seed (same as CI): orgs with slugs, bcrypt users, roles in user_roles.
   # shellcheck disable=SC1091
   source .venv/bin/activate
-  python scripts/ensure_bcrypt_seed_passwords.py \
-    || echo "WARN: bcrypt seed password upgrade failed."
+  python scripts/ci_bootstrap_db.py \
+    || echo "WARN: seeding dev data failed (see output above)."
 }
 
 frontend_is_running() {

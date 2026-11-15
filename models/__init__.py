@@ -22,6 +22,14 @@ from models.compliance import (  # noqa: F401
     UserPermission,
 )
 from models.identity import Organization, RefreshToken, User  # noqa: F401
+from models.rbac_model import (  # noqa: F401 — User.role_assignments -> UserRole
+    GroupPermission,
+    Permission,
+    Role,
+    RolePermission,
+    UserRole,
+)
+import models.role_events  # noqa: F401,E402 — persists user.role into user_roles
 from models.session import (  # noqa: F401
     EmailVerificationToken,
     LoginAttempt,

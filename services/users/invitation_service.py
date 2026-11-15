@@ -16,6 +16,7 @@ from utils.datetime_utc import utc_now
 from utils.jwt_config import get_password_hash
 from utils.loggers import auth_logger
 from services.permissions.rbac_catalog_service import RbacCatalogService
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 INVITE_TTL_DAYS = 7
 
@@ -53,7 +54,7 @@ class InvitationService:
         expires_in_days: int = INVITE_TTL_DAYS,
     ) -> Dict[str, Any]:
         email = email.strip().lower()
-        if not RoleHierarchyValidator.is_valid_role(role) or role == "super_admin":
+        if not RoleHierarchyValidator.is_valid_role(role) or is_platform_role(role):
             return {
                 "success": False,
                 "error": "Invalid invitation role",
@@ -66,7 +67,7 @@ class InvitationService:
             }
 
         target_org_id = organization_id or inviter.organization_id
-        if inviter.role != "super_admin" and target_org_id != inviter.organization_id:
+        if not is_platform_role(inviter.role) and target_org_id != inviter.organization_id:
             return {
                 "success": False,
                 "error": "Cannot invite users to another organization",
@@ -175,7 +176,7 @@ class InvitationService:
         include_accepted: bool = False,
     ) -> Dict[str, Any]:
         q = db.query(UserInvitation)
-        if viewer.role != "super_admin":
+        if not is_platform_role(viewer.role):
             q = q.filter(UserInvitation.organization_id == viewer.organization_id)
         if not include_accepted:
             q = (
@@ -209,7 +210,7 @@ class InvitationService:
         row = db.query(UserInvitation).filter(UserInvitation.id == invitation_id).first()
         if not row:
             return {"success": False, "error": "Invitation not found"}
-        if viewer.role != "super_admin" and row.organization_id != viewer.organization_id:
+        if not is_platform_role(viewer.role) and row.organization_id != viewer.organization_id:
             return {"success": False, "error": "Access denied"}
         if row.accepted_at is not None:
             return {"success": False, "error": "Invitation already accepted"}

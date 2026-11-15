@@ -26,6 +26,7 @@ from utils.database import get_db
 from utils.loggers import auth_logger
 from utils.production_logging import CorrelationIDGenerator
 from utils.rate_limit_dependency import RateLimitDependency
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 router = create_api_router(tags=["Users"])
 
@@ -66,7 +67,7 @@ def get_all_users(
         db, current_user_role, current_user_org_id
     )
 
-    if current_user_role == "super_admin":
+    if is_platform_role(current_user_role):
         # Super admin sees all users grouped by organization id (string keys in JSON)
         response: Dict[str, OrganizationUsersListResponse] = {}
         for user in users:
@@ -79,7 +80,7 @@ def get_all_users(
             response[org_key].users.append(_user_list_item(db, user))
         return response
 
-    if current_user_role in ("admin", "organization_admin"):
+    if is_manager_role(current_user_role):
         return OrganizationUsersListResponse(
             organization_id=current_user_org_id,
             users=[_user_list_item(db, user) for user in users],

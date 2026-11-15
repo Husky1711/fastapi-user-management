@@ -10,12 +10,11 @@ from sqlalchemy.orm import Session
 
 from models.user_model import User
 from services.auth import AuthService
+from services.permissions.role_catalog import is_manager_role, is_platform_role
 from utils.api_errors import APIHTTPException
 from utils.database import get_db
 
 bearer_scheme = HTTPBearer()
-
-STAFF_ROLES: FrozenSet[str] = frozenset({"admin", "organization_admin", "super_admin"})
 
 
 def get_current_user(
@@ -64,23 +63,19 @@ def require_permission(
     *,
     resource_type: Optional[str] = None,
     resource_id: Optional[int] = None,
-    allow_roles: Optional[FrozenSet[str]] = STAFF_ROLES,
     error_code: str = "PERMISSION_DENIED",
 ) -> Callable[..., User]:
     """
-    Gate a route on catalog / grant permission.
+    Gate a route on a catalog permission — no role-name bypass.
 
-    Order: staff role bypass → role_permissions → group_permissions →
-    user_permissions direct grant.
+    Order: user_permissions direct grant → role_permissions (via user_roles;
+    platform roles hold every permission) → group_permissions.
     """
 
     def _dependency(
         current_user: CurrentUser,
         db: Session = Depends(get_db),
     ) -> User:
-        if allow_roles and current_user.role in allow_roles:
-            return current_user
-
         from services.permissions import UserPermissionService
 
         result = UserPermissionService.check_permission(
@@ -102,8 +97,8 @@ def require_permission(
 
 
 def require_staff(current_user: CurrentUser) -> User:
-    """Allow admin, organization_admin, and super_admin only."""
-    if current_user.role not in STAFF_ROLES:
+    """Allow roles ranked above the base end-user role (managers / admins)."""
+    if not is_manager_role(current_user.role):
         raise APIHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff privileges required",
@@ -112,8 +107,25 @@ def require_staff(current_user: CurrentUser) -> User:
     return current_user
 
 
+def require_platform(error_code: str = "INSUFFICIENT_PERMISSIONS") -> Callable[..., User]:
+    """Factory: allow only platform (cross-tenant) roles, e.g. the super admin."""
+
+    def _dependency(current_user: CurrentUser) -> User:
+        if not is_platform_role(current_user.role):
+            raise APIHTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Platform administrator role required",
+                error_code=error_code,
+            )
+        return current_user
+
+    return _dependency
+
+
 StaffUser = Annotated[User, Depends(require_staff)]
-SuperAdminUser = Annotated[User, Depends(require_roles("super_admin"))]
+SuperAdminUser = Annotated[User, Depends(require_platform())]
+# Persona dashboards: each endpoint renders the view designed for one system role,
+# so these stay keyed by role name (they gate a UI layout, not data access).
 AdminUser = Annotated[
     User, Depends(require_roles("admin", error_code="DASHBOARD_ROLE_REQUIRED"))
 ]
@@ -123,5 +135,5 @@ OrgAdminUser = Annotated[
 ]
 DashboardSuperAdminUser = Annotated[
     User,
-    Depends(require_roles("super_admin", error_code="DASHBOARD_ROLE_REQUIRED")),
+    Depends(require_platform(error_code="DASHBOARD_ROLE_REQUIRED")),
 ]

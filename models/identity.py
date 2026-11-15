@@ -80,7 +80,6 @@ class User(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     deleted_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
-    role = Column(String(20), default="user")
     organization_id = Column(
         Integer, ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
@@ -107,3 +106,35 @@ class User(Base):
         back_populates="manager",
         foreign_keys=[manager_id],
     )
+    # Single source of truth for a user's roles (users.role column was dropped).
+    role_assignments = relationship(
+        "UserRole",
+        foreign_keys="UserRole.user_id",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    @property
+    def role(self) -> str:
+        """Effective system role: highest-level system role in ``user_roles``.
+
+        Read-only view kept for API/JWT compatibility; assign with ``user.role = x``
+        (stored only in ``user_roles`` on flush, see models/role_events.py).
+        """
+        pending = self.__dict__.get("_pending_system_role")
+        if pending:
+            return pending
+        from services.permissions.role_catalog import DEFAULT_ROLE_NAME, highest
+
+        names = [
+            a.role.name
+            for a in self.role_assignments
+            if a.role is not None and a.role.is_system and a.role.org_scope_key == 0
+        ]
+        return highest(names) or DEFAULT_ROLE_NAME
+
+    @role.setter
+    def role(self, name: str) -> None:
+        if not name:
+            raise ValueError("role must be a non-empty role name")
+        self.__dict__["_pending_system_role"] = name

@@ -33,6 +33,7 @@ from utils.rate_limit_dependency import RateLimitDependency
 from dependencies.auth import CurrentUser, require_permission, require_roles
 from utils.database import get_db
 from utils.loggers import auth_logger
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 router = APIRouter(prefix="/api/v1", tags=["Groups"])
 
@@ -200,13 +201,13 @@ def create_organization_group(
     try:
         require_group_manager(current_user)
 
-        org_id = body.organization_id if current_user.role == "super_admin" else current_user.organization_id
+        org_id = body.organization_id if is_platform_role(current_user.role) else current_user.organization_id
         if org_id is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="organization_id is required",
             )
-        if current_user.role != "super_admin" and body.organization_id not in (None, current_user.organization_id):
+        if not is_platform_role(current_user.role) and body.organization_id not in (None, current_user.organization_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot create groups in another organization",

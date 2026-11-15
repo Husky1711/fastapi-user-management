@@ -10,7 +10,7 @@ from fastapi import HTTPException
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from dependencies.auth import STAFF_ROLES, require_roles, require_staff
+from dependencies.auth import require_platform, require_roles, require_staff
 
 
 def _user(role: str) -> MagicMock:
@@ -32,15 +32,10 @@ class TestRequireRoles(unittest.TestCase):
             dep(_user("admin"))
         self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_super_admin_only(self):
-        dep = require_roles("super_admin")
-        user = _user("super_admin")
-        self.assertIs(dep(user), user)
-
 
 class TestRequireStaff(unittest.TestCase):
-    def test_staff_roles_allowed(self):
-        for role in STAFF_ROLES:
+    def test_roles_above_base_allowed(self):
+        for role in ("admin", "organization_admin", "super_admin"):
             with self.subTest(role=role):
                 user = _user(role)
                 self.assertIs(require_staff(user), user)
@@ -49,6 +44,19 @@ class TestRequireStaff(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             require_staff(_user("user"))
         self.assertEqual(ctx.exception.status_code, 403)
+
+
+class TestRequirePlatform(unittest.TestCase):
+    def test_platform_role_allowed(self):
+        user = _user("super_admin")
+        self.assertIs(require_platform()(user), user)
+
+    def test_tenant_roles_denied(self):
+        for role in ("user", "admin", "organization_admin"):
+            with self.subTest(role=role):
+                with self.assertRaises(HTTPException) as ctx:
+                    require_platform()(_user(role))
+                self.assertEqual(ctx.exception.status_code, 403)
 
 
 if __name__ == "__main__":

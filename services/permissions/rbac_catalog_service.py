@@ -1,4 +1,9 @@
-"""RBAC catalog + dual-write helpers for normalized roles/permissions."""
+"""RBAC catalog: system roles, permissions and user role assignments.
+
+Roles are stored only in ``user_roles`` (``users.role`` was dropped); role rules
+(level / platform / peers) live on ``roles`` and are read via
+``services.permissions.role_catalog``.
+"""
 
 from __future__ import annotations
 
@@ -11,22 +16,16 @@ from services.permissions.api_key_service import ApiKeyService
 from services.permissions.user_permission_service import UserPermissionService
 from utils.datetime_utc import utc_now
 from utils.loggers import auth_logger
+from services.permissions.role_catalog import (
+    DEFAULT_ROLE_NAME,
+    DEFAULT_SYSTEM_ROLES,
+    highest,
+    invalidate_cache,
+)
 
-SYSTEM_ROLE_NAMES = ("user", "admin", "organization_admin", "super_admin")
-
-SYSTEM_ROLE_RANK = {
-    "user": 1,
-    "admin": 2,
-    "organization_admin": 3,
-    "super_admin": 4,
-}
-
-SYSTEM_ROLE_DESCRIPTIONS = {
-    "user": "Standard end user",
-    "admin": "Organization staff administrator",
-    "organization_admin": "Organization administrator",
-    "super_admin": "Platform super administrator",
-}
+# Seed defaults (runtime rules come from the roles table via role_catalog).
+SYSTEM_ROLE_NAMES = tuple(r.name for r in DEFAULT_SYSTEM_ROLES)
+SYSTEM_ROLE_DESCRIPTIONS = {r.name: r.description for r in DEFAULT_SYSTEM_ROLES}
 
 
 def _category_for_permission(name: str) -> str:
@@ -36,18 +35,15 @@ def _category_for_permission(name: str) -> str:
 
 
 def _default_role_permission_names(role_name: str) -> Set[str]:
+    """Seed permissions for a default system role, derived from its rules."""
     all_names = set(UserPermissionService.STANDARD_PERMISSIONS.keys())
-    if role_name == "super_admin":
+    info = next((r for r in DEFAULT_SYSTEM_ROLES if r.name == role_name), None)
+    if info is not None and info.is_platform:
         return all_names
-    if role_name in ("admin", "organization_admin"):
+    base = min(r.level for r in DEFAULT_SYSTEM_ROLES)
+    if info is not None and info.level > base:
         return {n for n in all_names if not n.startswith("system:")}
-    # end user
-    return {
-        "users:read",
-        "sessions:read",
-        "groups:read",
-        "organizations:read",
-    }
+    return {"users:read", "sessions:read", "groups:read", "organizations:read"}
 
 
 class RbacCatalogService:
@@ -57,9 +53,9 @@ class RbacCatalogService:
     def get_effective_system_role(
         db: Session,
         user_id: int,
-        fallback: str = "user",
+        fallback: str = DEFAULT_ROLE_NAME,
     ) -> str:
-        """Highest-ranked system role from `user_roles`, else `fallback` (`users.role`)."""
+        """Highest-level system role assigned in ``user_roles`` (else ``fallback``)."""
         names = [
             row[0]
             for row in (
@@ -73,33 +69,29 @@ class RbacCatalogService:
                 .all()
             )
         ]
-        if not names:
-            return fallback or "user"
-        return max(names, key=lambda n: SYSTEM_ROLE_RANK.get(n, 0))
+        return highest(names) or fallback or DEFAULT_ROLE_NAME
 
     @staticmethod
     def apply_effective_role(db: Session, user) -> str:
-        """
-        Align `user.role` with catalog without dirtying the ORM session.
-
-        Uses SQLAlchemy `set_committed_value` so accidental commits do not
-        rewrite `users.role` on every authenticated request.
-        """
-        from sqlalchemy.orm.attributes import set_committed_value
-
-        fallback = getattr(user, "role", None) or "user"
-        effective = RbacCatalogService.get_effective_system_role(
-            db, user.id, fallback
-        )
-        if effective != user.role:
-            set_committed_value(user, "role", effective)
-        return effective
+        """Kept for callers: ``user.role`` is already derived from ``user_roles``."""
+        return user.role
 
     @staticmethod
     def user_has_role_permission(
         db: Session, user_id: int, permission_name: str
     ) -> bool:
-        """True if any of the user's roles map to this catalog permission."""
+        """True if any of the user's roles map to this catalog permission.
+
+        Platform roles hold every permission, including ones added after seeding.
+        """
+        platform = (
+            db.query(Role.id)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .filter(UserRole.user_id == user_id, Role.is_platform.is_(True))
+            .first()
+        )
+        if platform is not None:
+            return True
         row = (
             db.query(Permission.id)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
@@ -160,102 +152,66 @@ class RbacCatalogService:
         *,
         commit: bool = False,
     ) -> bool:
-        """
-        Replace the user's system-role membership to match users.role.
+        """Set the user's system role (stored only in ``user_roles``).
 
-        Does not touch org-scoped custom roles (org_scope_key != 0).
+        Org-scoped custom roles are untouched. Returns False for an unknown user/role.
         """
-        role = RbacCatalogService.get_system_role(db, role_name)
-        if role is None:
+        from models.user_model import User
+
+        user = db.get(User, user_id)
+        if user is None:
+            return False
+        try:
+            user.role = role_name
+            user.__dict__["_pending_granted_by"] = granted_by
+            db.flush()
+        except ValueError as exc:
+            user.__dict__.pop("_pending_system_role", None)
+            user.__dict__.pop("_pending_granted_by", None)
             auth_logger.warning(
-                f"System role '{role_name}' missing from roles table; skip user_roles sync",
+                f"Cannot assign system role '{role_name}': {exc}",
                 user_id=user_id,
                 event_type="rbac_sync_role_missing",
             )
             return False
-
-        existing = (
-            db.query(UserRole)
-            .join(Role, Role.id == UserRole.role_id)
-            .filter(UserRole.user_id == user_id, Role.is_system.is_(True))
-            .all()
-        )
-        for row in existing:
-            if row.role_id != role.id:
-                db.delete(row)
-
-        still = (
-            db.query(UserRole)
-            .filter(UserRole.user_id == user_id, UserRole.role_id == role.id)
-            .first()
-        )
-        if still is None:
-            db.add(
-                UserRole(
-                    user_id=user_id,
-                    role_id=role.id,
-                    granted_by=granted_by,
-                    granted_at=utc_now(),
-                )
-            )
         if commit:
             db.commit()
         return True
 
     @staticmethod
     def find_role_drifts(db: Session) -> List[Dict[str, object]]:
-        """
-        Users where `users.role` disagrees with highest system role in `user_roles`,
-        or where no system `user_roles` row exists.
-
-        Used by CI / ops repair — dual-write invariant until Option A collapse.
-        """
+        """Active users with no system role in ``user_roles`` (invariant check)."""
         from models.user_model import User
 
-        drifts: List[Dict[str, object]] = []
-        users = db.query(User).filter(User.deleted_at.is_(None)).all()
-        for user in users:
-            column_role = (user.role or "user").strip()
-            catalog_role = RbacCatalogService.get_effective_system_role(
-                db, user.id, fallback=""
+        has_system_role = (
+            db.query(UserRole.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .filter(
+                UserRole.user_id == User.id,
+                Role.is_system.is_(True),
+                Role.org_scope_key == 0,
             )
-            has_membership = bool(
-                db.query(UserRole.id)
-                .join(Role, Role.id == UserRole.role_id)
-                .filter(
-                    UserRole.user_id == user.id,
-                    Role.is_system.is_(True),
-                    Role.org_scope_key == 0,
-                )
-                .first()
-            )
-            if not has_membership or catalog_role != column_role:
-                drifts.append(
-                    {
-                        "user_id": user.id,
-                        "username": user.username,
-                        "users_role": column_role,
-                        "catalog_role": catalog_role or None,
-                        "has_system_user_role": has_membership,
-                    }
-                )
-        return drifts
+            .exists()
+        )
+        users = (
+            db.query(User.id, User.username)
+            .filter(User.deleted_at.is_(None), ~has_system_role)
+            .all()
+        )
+        return [
+            {"user_id": uid, "username": name, "has_system_user_role": False}
+            for uid, name in users
+        ]
 
     @staticmethod
     def repair_role_drifts(db: Session, *, commit: bool = True) -> int:
-        """Resync `user_roles` from `users.role` for every drifted user. Returns count."""
-        from models.user_model import User
-
-        drifts = RbacCatalogService.find_role_drifts(db)
-        repaired = 0
-        for row in drifts:
-            user = db.query(User).filter(User.id == row["user_id"]).first()
-            if user is None:
-                continue
-            if RbacCatalogService.sync_user_system_role(
-                db, user.id, user.role or "user", commit=False
-            ):
-                repaired += 1
+        """Give every user without a system role the default role. Returns count."""
+        repaired = sum(
+            RbacCatalogService.sync_user_system_role(
+                db, row["user_id"], DEFAULT_ROLE_NAME, commit=False
+            )
+            for row in RbacCatalogService.find_role_drifts(db)
+        )
         if commit and repaired:
             db.commit()
         return repaired
@@ -304,7 +260,8 @@ class RbacCatalogService:
         db.flush()
 
         created_roles = 0
-        for role_name in SYSTEM_ROLE_NAMES:
+        for info in DEFAULT_SYSTEM_ROLES:
+            role_name = info.name
             role = RbacCatalogService.get_system_role(db, role_name)
             if role is None:
                 role = Role(
@@ -312,7 +269,10 @@ class RbacCatalogService:
                     organization_id=None,
                     org_scope_key=0,
                     is_system=True,
-                    description=SYSTEM_ROLE_DESCRIPTIONS.get(role_name),
+                    level=info.level,
+                    is_platform=info.is_platform,
+                    can_view_peers=info.can_view_peers,
+                    description=info.description,
                 )
                 db.add(role)
                 db.flush()
@@ -340,4 +300,5 @@ class RbacCatalogService:
                     )
 
         db.flush()
+        invalidate_cache()
         return {"permissions_created": created_perms, "roles_created": created_roles}

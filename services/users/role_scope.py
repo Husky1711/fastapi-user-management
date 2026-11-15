@@ -1,4 +1,12 @@
-"""Role-based visibility rules for org-scoped user listings."""
+"""Role-based visibility rules for org-scoped user listings.
+
+All rules come from role data (``level`` / ``is_platform`` / ``can_view_peers`` on
+``roles``) via ``services.permissions.role_catalog`` — no role names here:
+  * platform roles see and manage everyone; tenant users never see platform users;
+  * others see strictly lower levels in their organization, plus peers when the role
+    has ``can_view_peers``;
+  * editing requires visibility and a strictly lower target level.
+"""
 
 from __future__ import annotations
 
@@ -6,57 +14,41 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Query
 
+from models.rbac_model import Role, UserRole
 from models.user_model import User
+from services.permissions.role_catalog import (
+    is_manager_role,
+    is_platform_role,
+    level_of,
+    visible_role_names,
+)
 
-# System-wide roles never appear in organization-scoped views.
-ORG_INVISIBLE_ROLES = frozenset({"super_admin"})
-
-# Roles each viewer may see within their organization (None = all except invisible).
-_VIEWABLE_ROLES: dict[str, Optional[List[str]]] = {
-    "organization_admin": ["organization_admin", "admin", "user"],
-    "admin": ["user"],
-}
-
-_ROLE_RANK: dict[str, int] = {
-    "user": 1,
-    "admin": 2,
-    "organization_admin": 3,
-    "super_admin": 4,
-}
-
-_MANAGER_ROLES = frozenset({"admin", "organization_admin", "super_admin"})
+__all__ = [
+    "viewable_roles_for",
+    "can_view_user",
+    "can_edit_user",
+    "is_manager_role",
+    "filter_users_for_viewer",
+]
 
 
 def viewable_roles_for(viewer_role: str) -> Optional[List[str]]:
-    if viewer_role == "super_admin":
-        return None
-    return _VIEWABLE_ROLES.get(viewer_role, [])
+    """Role names a viewer may see in their org; None = all (platform roles)."""
+    return visible_role_names(viewer_role)
 
 
 def can_view_user(viewer_role: str, target_role: str) -> bool:
-    if viewer_role == "super_admin":
-        return True
-    if target_role in ORG_INVISIBLE_ROLES:
-        return False
     allowed = viewable_roles_for(viewer_role)
-    if allowed is None:
-        return True
-    return target_role in allowed
+    return allowed is None or target_role in allowed
 
 
 def can_edit_user(editor_role: str, target_role: str) -> bool:
     """Editors may change users they can view who are strictly below them in rank."""
-    if editor_role == "user":
-        return False
     if not can_view_user(editor_role, target_role):
         return False
-    if editor_role == "super_admin":
+    if is_platform_role(editor_role):
         return True
-    return _ROLE_RANK.get(target_role, 0) < _ROLE_RANK.get(editor_role, 0)
-
-
-def is_manager_role(role: str) -> bool:
-    return role in _MANAGER_ROLES
+    return level_of(target_role) < level_of(editor_role)
 
 
 def filter_users_for_viewer(
@@ -64,19 +56,41 @@ def filter_users_for_viewer(
     viewer_role: str,
     org_id: Optional[int],
 ) -> Query:
-    if viewer_role == "super_admin":
+    if is_platform_role(viewer_role):
         return query
 
     if org_id is None:
         return query.filter(False)
 
-    query = query.filter(User.organization_id == org_id)
-    query = query.filter(User.role.notin_(list(ORG_INVISIBLE_ROLES)))
+    allowed = viewable_roles_for(viewer_role) or []
+    if not allowed:
+        return query.filter(False)
 
-    allowed = viewable_roles_for(viewer_role)
-    if allowed is not None:
-        if not allowed:
-            return query.filter(False)
-        query = query.filter(User.role.in_(allowed))
-
-    return query
+    # Roles live in user_roles: match users whose system role is visible.
+    has_visible_role = (
+        query.session.query(UserRole.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(
+            UserRole.user_id == User.id,
+            Role.is_system.is_(True),
+            Role.org_scope_key == 0,
+            Role.name.in_(allowed),
+        )
+        .exists()
+    )
+    has_hidden_role = (
+        query.session.query(UserRole.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(
+            UserRole.user_id == User.id,
+            Role.is_system.is_(True),
+            Role.org_scope_key == 0,
+            Role.name.notin_(allowed),
+        )
+        .exists()
+    )
+    return query.filter(
+        User.organization_id == org_id,
+        has_visible_role,
+        ~has_hidden_role,  # a higher (invisible) role anywhere hides the user
+    )

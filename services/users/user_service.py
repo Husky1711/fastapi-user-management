@@ -13,6 +13,7 @@ from services.users.role_scope import can_view_user, can_edit_user, filter_users
 from models.user_model import Organization
 from services.permissions.rbac_catalog_service import RbacCatalogService
 from utils.loggers import auth_logger
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 class UserService:
     _USERNAME_REGEX = re.compile(r"^[A-Za-z0-9_]{3,30}$")
@@ -135,7 +136,7 @@ class UserService:
     @staticmethod
     def get_users_by_role_and_organization(db: Session, current_user_role: str, current_user_org_id: int, skip: int = 0, limit: int = 100) -> List[User]:
         """Get users filtered by role and organization"""
-        if current_user_role == "user":
+        if is_base_role(current_user_role):
             return []
 
         query = filter_users_for_viewer(
@@ -151,10 +152,10 @@ class UserService:
     @staticmethod
     def get_user_by_role_and_organization(db: Session, user_id: int, current_user_role: str, current_user_org_id: int, current_user_id: int) -> Optional[User]:
         """Get a specific user filtered by role and organization"""
-        if current_user_role == "super_admin":
+        if is_platform_role(current_user_role):
             return UserService.get_user_by_id(db, user_id)
 
-        if current_user_role == "user":
+        if is_base_role(current_user_role):
             if user_id == current_user_id:
                 return UserService.get_user_by_id(db, user_id)
             return None
@@ -196,7 +197,7 @@ class UserService:
         target = UserService.get_user_by_id(db, target_user_id)
         if target is None:
             return {"success": False, "error": "User not found", "reason": "not_found"}
-        if editor.role != "super_admin" and target.organization_id != editor.organization_id:
+        if not is_platform_role(editor.role) and target.organization_id != editor.organization_id:
             return {
                 "success": False,
                 "error": "Cannot delete users in another organization",
@@ -386,7 +387,7 @@ class UserService:
             return "Manager must be an admin or organization admin"
         if manager.organization_id != target_user.organization_id:
             return "Manager must be in the same organization"
-        if target_user.role != "user":
+        if not is_base_role(target_user.role):
             return "Only regular users can have a reporting manager"
 
         # Cycle detection: walk the manager chain upward.
@@ -402,16 +403,17 @@ class UserService:
                 break
             cursor = db.query(User).filter(User.id == cursor.manager_id).first()
 
-        if editor.role == "admin":
-            if manager_id != editor.id:
-                return "Admins can only assign themselves as manager"
-        elif editor.role == "organization_admin":
-            if manager.role not in ("admin", "organization_admin"):
-                return "Users can only be assigned to an admin or organization admin"
-            if not can_view_user(editor.role, manager.role):
-                return "Cannot assign this manager"
-        elif editor.role != "super_admin":
+        # Platform roles may assign any manager; other managers may assign
+        # themselves or a (non-platform) manager they can see; others may not.
+        if is_platform_role(editor.role):
+            return None
+        if not is_manager_role(editor.role):
             return "Insufficient permissions to assign a manager"
+        if manager_id != editor.id:
+            if is_platform_role(manager.role) or not can_view_user(
+                editor.role, manager.role
+            ):
+                return "You can only assign yourself or a manager you can see"
 
         return None
 
@@ -487,7 +489,7 @@ class UserService:
             # Handle organization assignment
             if organization_id is None:
                 # Inherit from creator (unless creator is super_admin)
-                if creator_user.role == "super_admin":
+                if is_platform_role(creator_user.role):
                     return {
                         "success": False,
                         "error": "Super admin must specify organization_id"
@@ -495,7 +497,7 @@ class UserService:
                 organization_id = creator_user.organization_id
             
             # Validate organization access (super_admin can create in any org)
-            if creator_user.role != "super_admin" and organization_id != creator_user.organization_id:
+            if not is_platform_role(creator_user.role) and organization_id != creator_user.organization_id:
                 return {
                     "success": False,
                     "error": f"Cannot create user in organization {organization_id}. Access denied."
@@ -581,7 +583,7 @@ class UserService:
     ) -> Dict[str, Any]:
         """Update a manageable user with role-based validation."""
         try:
-            if editor.role == "user":
+            if is_base_role(editor.role):
                 return {"success": False, "error": "Users cannot update other users"}
 
             target = UserService.get_user_by_role_and_organization(
@@ -617,7 +619,7 @@ class UserService:
 
             new_org_id = updates.get("organization_id", target.organization_id)
             if "organization_id" in updates and new_org_id != target.organization_id:
-                if editor.role != "super_admin":
+                if not is_platform_role(editor.role):
                     return {
                         "success": False,
                         "error": "Only super admins can change organization",
@@ -639,7 +641,7 @@ class UserService:
 
             if "role" in updates:
                 target.role = new_role
-                if new_role != "user":
+                if not is_base_role(new_role):
                     target.manager_id = None
 
             if "organization_id" in updates:
@@ -659,7 +661,7 @@ class UserService:
             effective_role = target.role
             if "manager_id" in updates:
                 manager_id = updates["manager_id"]
-                if manager_id is not None and effective_role != "user":
+                if manager_id is not None and not is_base_role(effective_role):
                     return {
                         "success": False,
                         "error": "Only regular users can have a reporting manager",

@@ -45,6 +45,11 @@ class Role(Base):
     # 0 when organization_id is NULL (system roles); mirrors org id otherwise
     org_scope_key = Column(Integer, nullable=False, server_default="0")
     is_system = Column(Boolean, nullable=False, server_default="0", index=True)
+    # Role rules as data (see services/permissions/role_catalog.py):
+    # higher level manages strictly lower levels; platform roles span all orgs.
+    level = Column(Integer, nullable=False, server_default="0")
+    is_platform = Column(Boolean, nullable=False, server_default="0")
+    can_view_peers = Column(Boolean, nullable=False, server_default="0")
     description = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -94,7 +99,7 @@ class UserRole(Base):
     )
     granted_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    role = relationship("Role", back_populates="user_roles")
+    role = relationship("Role", back_populates="user_roles", lazy="joined")
 
 
 class GroupPermission(Base):

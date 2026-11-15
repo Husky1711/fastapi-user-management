@@ -1,35 +1,53 @@
-# Role authority cutover (bar-1 must)
+# Role authority (bar-1 must) — collapsed to Option A
 
-**Decision (2026-07-14):** **Option B — ironclad dual-write** for v1 production cutover.
-
-**Related docs:** [ROLE_AUTHORITY_CUTOVER.md](./ROLE_AUTHORITY_CUTOVER.md) (owner + **2026-08-14** B end date).
+**Status (2026-11-15):** done. Migration `20261115_role_authority` dropped `users.role`.
 
 | Field | Value |
 |-------|--------|
-| Status | In sprint |
-| Choice | **B** — `users.role` remains the app string API; `user_roles`/`roles` is the catalog mirror for permission grants and auth hydration |
-| Owner | Backend / identity (assign named owner before merge to `main`) |
-| Dual-write end date | **2026-08-14** — by this date choose collapse (**Option A**) or extend once with a new dated decision |
-| Collapse target (A) | Sole authority = `user_roles` + system `roles`; demote or drop `users.role` |
+| Role store | `user_roles` only (system roles + org-scoped custom roles) |
+| Role rules | Data on `roles`: `level`, `is_platform`, `can_view_peers` |
+| Code API | `services/permissions/role_catalog.py` (`is_platform_role`, `is_manager_role`, `is_base_role`, `assignable_roles`, `visible_role_names`) |
+| Access checks | `require_permission("x:y")` against `role_permissions` / groups / direct grants — **no role-name bypass**; platform roles hold every permission |
 
-## Why B for this sprint
+## How it works
 
-Most filters, dashboards, and role-hierarchy checks still read `users.role`. Collapsing off that column in one sprint is higher risk than closing dual-write gaps.
+- `user.role` is a read-only **computed property**: the highest-`level` system role in
+  `user_roles`. APIs and JWTs still expose `role`, so clients are unchanged.
+- `user.role = "admin"` (or `RbacCatalogService.sync_user_system_role`) is stored only in
+  `user_roles`, on flush (`models/role_events.py`). New users get `DEFAULT_ROLE_NAME`.
+- Hierarchy rules, all from data:
+  - **assign**: only roles with a strictly lower `level`;
+  - **view** (same org): strictly lower levels, plus peers if `can_view_peers`;
+  - **edit**: visible and strictly lower level;
+  - **platform** roles (`is_platform`) see/manage all orgs and are hidden from tenants;
+  - **manager** = any role ranked above the base (lowest) role.
 
-## Dual-write contract (until end date)
+| Default role | level | is_platform | can_view_peers |
+|---|---|---|---|
+| user | 10 | | |
+| admin | 20 | | |
+| organization_admin | 30 | | yes |
+| super_admin | 100 | yes | |
 
-1. **Write path:** every change to a user’s system role must update `users.role` **and** call `RbacCatalogService.sync_user_system_role`.
-2. **Read path (auth):** `apply_effective_role` on login / `get_current_user` / token refresh — prefer system role from `user_roles`, else fall back to `users.role`.
-3. **Seeds / bootstrap:** must sync after upserting users.
-4. **Invariant tests:** drift (`users.role` vs highest system `user_roles`) fails CI / repair job.
+## Adding a role (no code change)
 
-## Covered write paths
+Example — a college product adds `teacher` between `user` and `admin`:
 
-- Signup / admin create / admin role update (`UserService`)
-- Invite accept (`InvitationService`)
-- CI seed (`scripts/ci_bootstrap_db.py`)
+```sql
+INSERT INTO roles (name, organization_id, org_scope_key, is_system, level, is_platform, can_view_peers, description)
+VALUES ('teacher', NULL, 0, 1, 15, 0, 0, 'Teacher');
+-- grant its permissions
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p ON p.name IN ('users:read', 'users:list')
+WHERE r.name = 'teacher' AND r.is_system = 1;
+```
 
-## Related
+Admins and above can now assign, see and manage teachers; teachers can manage plain
+users only. Role rules are cached per process for 60 s (`role_catalog.invalidate_cache()`).
 
-- [DATABASE_SCHEMA_REVIEW.md](./DATABASE_SCHEMA_REVIEW.md) §4.1
-- `services/permissions/rbac_catalog_service.py`
+## Not yet covered (next steps)
+
+- **Memberships**: a user still belongs to one organization (`users.organization_id`).
+- **Unit tree**: no departments/classes under an organization; roles apply org-wide.
+- **Ownership rules** ("teacher edits *their own* students") need a policy hook.
+- Persona dashboards (`AdminUser`, `OrgAdminUser`) still select a UI view by role name.

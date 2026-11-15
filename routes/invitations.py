@@ -7,12 +7,13 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from dependencies.auth import STAFF_ROLES, require_permission
+from dependencies.auth import require_permission
 from models.user_model import User
 from routes.auth_common import create_api_router
 from services.users.invitation_service import InvitationService
 from utils.database import get_db
 from utils.rate_limit_dependency import RateLimitDependency
+from services.permissions.role_catalog import is_base_role, is_manager_role, is_platform_role
 
 router = create_api_router(tags=["Invitations"])
 
@@ -57,7 +58,7 @@ def create_invitation(
     db: Session = Depends(get_db),
     _: None = Depends(RateLimitDependency.check_rate_limit("admin_create_user")),
 ) -> Dict[str, Any]:
-    if current_user.role not in STAFF_ROLES:
+    if not is_manager_role(current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff only")
     result = InvitationService.create_invitation(
         db,
@@ -79,7 +80,7 @@ def list_invitations(
     include_accepted: bool = False,
     _: None = Depends(RateLimitDependency.check_rate_limit("users_list")),
 ) -> Dict[str, Any]:
-    if current_user.role not in STAFF_ROLES:
+    if not is_manager_role(current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff only")
     return InvitationService.list_invitations(
         db, current_user, include_accepted=include_accepted
@@ -118,7 +119,7 @@ def revoke_invitation(
     current_user: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    if current_user.role not in STAFF_ROLES:
+    if not is_manager_role(current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff only")
     result = InvitationService.revoke_invitation(db, current_user, invitation_id)
     if not result["success"]:
