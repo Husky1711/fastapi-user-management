@@ -9,10 +9,9 @@ import logging
 from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Message, Receive, Scope, Send
 
 from app.core.config import CorsSettings, Environment, Settings
@@ -109,13 +108,13 @@ async def test_t6_error_mid_stream_is_not_swallowed() -> None:
             await client.get("/_test/stream")
 
 
-# T7 — framework errors with a non-text detail fall back to the standard description
+# T7 — an HTTPException with a non-text detail falls back to the standard description
 async def test_t7_http_exception_with_structured_detail() -> None:
     app = create_app(make_settings(), health_checks={})
 
     @app.get("/_test/teapot")
     async def teapot() -> None:
-        raise StarletteHTTPException(status_code=418, detail={"internal": "do not show"})
+        raise HTTPException(status_code=418, detail={"internal": "do not show"})
 
     async with _client(app) as client:
         response = await client.get("/_test/teapot")
