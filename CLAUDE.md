@@ -29,15 +29,24 @@ measurable "10/10" table in `docs/VISION.md` §5.
 
 1. Find the first unfinished step in `docs/ROADMAP.md`. Work only on that step unless the
    owner asks otherwise.
-2. Create a branch from up-to-date `main`: `step-<n>/<short-topic>`
-   (e.g. `step-3/refresh-rotation`). Docs-only work: `docs/<topic>`.
+2. Create a branch from up-to-date **`v2`** (the integration branch, see below):
+   `step-<n>/<short-topic>` (e.g. `step-3/refresh-rotation`). Docs-only work: `docs/<topic>`.
 3. Write the test first when practical, then the code.
 4. Run the full check before every commit: `make lint typecheck test`
    (available from step 1).
 5. Tick the finished items in `docs/ROADMAP.md` in the same PR.
-6. Open a pull request using the template. Never push to `main`; never force-push a shared branch.
+6. Open a pull request **into `v2`** using the template. Never push directly to `v2` or `main`;
+   never force-push a shared branch.
 7. If you discover the plan or architecture is wrong, stop and say so in the PR. Change the
    doc (and add an ADR for a design decision) in that PR rather than silently diverging.
+
+### Branches
+
+| Branch | Holds | Changes by |
+| --- | --- | --- |
+| `main` | The legacy code, untouched, until the new backend is released | One final merge of `v2` at release (roadmap step 10) |
+| `v2` | The new backend in progress | Pull requests from step branches only |
+| `step-<n>/<topic>`, `docs/<topic>` | One step or part of a step | You; short-lived, deleted after merge |
 
 ### Commits
 

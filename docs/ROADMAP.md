@@ -5,8 +5,10 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 
 **Rules**
 
-- One step = one branch = one pull request. Large steps may split into several PRs; each PR
-  still leaves `main` working.
+- All work happens on the `v2` integration branch; `main` keeps the legacy code untouched until
+  release (ADR-0007).
+- One step = one branch off `v2` = one pull request into `v2`. Large steps may split into
+  several PRs; each PR still leaves `v2` installable with CI green.
 - A step is done only when every task is ticked **and** its exit criteria are met.
 - Tick boxes in this file in the same PR that does the work.
 - If a step reveals that the plan is wrong, change this file in that PR and say why.
@@ -33,10 +35,12 @@ The agreed decisions (PostgreSQL, UUID keys, multi-org memberships, permissions 
 new API shape) change the data model and every endpoint. Patching the old code in place would
 mean rewriting each file twice. So:
 
-1. Step 1 moves the current code into `legacy/`, untouched, for reference only. It is not
-   run, tested or imported by the new app.
+0. `main` is not touched until release. Anything that runs the old API (e.g.
+   `user_management_UI`) keeps using `main`.
+1. On `v2`, step 1 moves the current code into `legacy/`, untouched, for reference only. It
+   is not run, tested or imported by the new app.
 2. Steps 1–8 build the new app in `app/`, test-first, in the target architecture.
-3. Step 10 deletes `legacy/`.
+3. Step 10 deletes `legacy/` and merges `v2` into `main` as the v1.0.0 release.
 
 Known bugs in the legacy code (from the review) are **not** fixed in `legacy/`; each one is
 listed below against the step where the new code makes it impossible, so nothing is lost.
@@ -63,7 +67,6 @@ listed below against the step where the new code makes it impossible, so nothing
 **Goal:** an empty-but-production-shaped app that installs, starts, lints, type-checks and
 tests in CI.
 
-- [ ] Tag commit `209a9bd` as `legacy-final` so the old API stays reachable for `user_management_UI`
 - [ ] Move all current Python code, `config_manager.py` and `requirement.txt` into `legacy/`
 - [ ] `pyproject.toml` managed by `uv`; lockfile committed; Python 3.12+
 - [ ] `app/` skeleton matching `docs/ARCHITECTURE.md` §3 (empty packages with `__init__.py`)
@@ -248,6 +251,7 @@ tokens never cleaned.
 - [ ] New `README.md`: what it is, quick start, configuration, links to docs
 - [ ] `docs/API_MIGRATION.md`: every legacy endpoint → new endpoint, for `user_management_UI`
 - [ ] Delete `legacy/`
+- [ ] Tag the last legacy commit on `main` (e.g. `legacy-final`), then merge `v2` into `main`
 - [ ] Mark the GitHub repo as a template; tag `v1.0.0`; `CHANGELOG.md`
 - [ ] Re-score the backend against `docs/VISION.md` §5 and record the result
 
