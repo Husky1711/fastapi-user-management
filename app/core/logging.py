@@ -17,6 +17,7 @@ from typing import Any
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 _FIELDS_ATTR = "structured_fields"
+_REQUEST_ID_ATTR = "request_id"
 
 
 class JsonFormatter(logging.Formatter):
@@ -27,7 +28,8 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        request_id = request_id_var.get()
+        # Captured when the record was created (StructuredLogger), else read now (other loggers).
+        request_id = getattr(record, _REQUEST_ID_ATTR, None) or request_id_var.get()
         if request_id is not None:
             payload["request_id"] = request_id
         fields = getattr(record, _FIELDS_ATTR, None)
@@ -56,9 +58,8 @@ class StructuredLogger:
         self._logger = logger
 
     def _log(self, level: int, message: str, exc_info: bool, fields: dict[str, Any]) -> None:
-        self._logger.log(
-            level, message, exc_info=exc_info, stacklevel=3, extra={_FIELDS_ATTR: fields}
-        )
+        extra = {_FIELDS_ATTR: fields, _REQUEST_ID_ATTR: request_id_var.get()}
+        self._logger.log(level, message, exc_info=exc_info, stacklevel=3, extra=extra)
 
     def debug(self, message: str, **fields: Any) -> None:
         self._log(logging.DEBUG, message, False, fields)
@@ -87,7 +88,8 @@ def configure_logging(level: str) -> None:
     handler.setFormatter(JsonFormatter())
 
     root = logging.getLogger()
-    root.handlers = [handler]
+    # Replace only our own handler, so handlers installed by others (e.g. test capture) survive.
+    root.handlers = [h for h in root.handlers if not isinstance(h, StdoutHandler)] + [handler]
     root.setLevel(level)
 
     for name in ("uvicorn", "uvicorn.error"):

@@ -9,6 +9,7 @@ here turn every error into the same JSON shape:
 `code` is a stable, machine-readable string clients can switch on.
 """
 
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, ClassVar
 
@@ -81,7 +82,7 @@ def problem_response(
     code: str,
     detail: str,
     *,
-    headers: dict[str, str] | None = None,
+    headers: Mapping[str, str] | None = None,
     extra: dict[str, Any] | None = None,
 ) -> JSONResponse:
     body: dict[str, Any] = {
