@@ -18,11 +18,11 @@ measurable "10/10" table in `docs/VISION.md` §5.
 
 ## Current state
 
-- `legacy/` holds the old implementation. It is reference only: do not import it, run it, or
-  fix bugs in it. Lint, type checks and tests ignore it.
-- The new application is built in `app/`, step by step, following `docs/ROADMAP.md`.
-- The current `README.md` describes the legacy code and overstates some features; it is
-  rewritten in step 10.
+- `v2` is built from scratch: it holds only the new application (`app/`), its tests and docs.
+- The **old implementation lives untouched on `main`** (last commit `209a9bd`). Use it only as a
+  reference to cross-check APIs, tables and behaviour (milestone gate check 4). Never copy its
+  code or patterns; it scored 4/10.
+- The new application grows step by step, following `docs/ROADMAP.md`.
 
 ## How to work
 
@@ -33,7 +33,8 @@ measurable "10/10" table in `docs/VISION.md` §5.
 3. Write the test first when practical, then the code.
 4. Run the full check before every commit: `make lint typecheck test`
    (available from step 1).
-5. Tick the finished items in `docs/ROADMAP.md` in the same PR.
+5. Tick the finished items in `docs/ROADMAP.md` in the same PR. For the last PR of a step,
+   run the milestone gate and add its report (see "Milestone gate" below).
 6. Open a pull request **into `v2`** using the template. Never push directly to `v2` or `main`;
    never force-push a shared branch.
 7. If you discover the plan or architecture is wrong, stop and say so in the PR. Change the
@@ -52,6 +53,14 @@ measurable "10/10" table in `docs/VISION.md` §5.
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `refactor:`,
 `test:`, `docs:`, `chore:`, `ci:`. Subject in the imperative, ≤ 72 characters. One logical
 change per commit.
+
+## Milestone gate (every roadmap step)
+
+A step is finished only when it passes the five-check gate in `docs/milestones/README.md`:
+automated checks, tester scenarios, user scenarios on the real stack, a cross-check against the
+old code on `main`, and an independent review. The gate report (`docs/milestones/step-<n>.md`)
+goes in the step's PR. The owner approves the report before merge, and the next step starts
+only after that.
 
 ## Definition of done (every PR)
 

@@ -16,12 +16,14 @@ the owner's own `user_management_UI`.
 - All new work happens on a long-lived integration branch, `v2`, created from `main` at
   `209a9bd`. Step branches merge into `v2` through pull requests. `main` is not touched until
   release, so anything using the old API keeps working from `main`.
-- On `v2`, move the legacy code to `legacy/` in roadmap step 1. It is reference only: not imported,
-  run, tested or fixed.
+- `v2` is built from scratch. Roadmap step 1 deletes the legacy code from the branch; it stays
+  on `main` as the reference for cross-checking APIs, tables and behaviour, and is never copied.
 - Build the new application in `app/` following `docs/ARCHITECTURE.md`.
 - The public API is allowed to change. At the end of the roadmap, `docs/API_MIGRATION.md`
   maps every legacy endpoint to its replacement so the UI can be updated in one pass.
-- At release (step 10): delete `legacy/`, tag the last legacy commit, and merge `v2` into `main`.
+- At release (step 10): tag the last legacy commit on `main`, then merge `v2` into `main`.
+- Not an orphan branch: `v2` shares history with `main`, so old and new stay comparable in
+  git and the final merge is an ordinary one.
 
 ## Consequences
 

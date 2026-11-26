@@ -2,7 +2,6 @@
 .github
 .venv
 venv
-legacy
 docs
 tests
 **/__pycache__

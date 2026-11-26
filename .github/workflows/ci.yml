@@ -85,6 +85,36 @@ jobs:
         run: |
           curl --fail --silent --show-error http://localhost:8000/health/ready
           echo
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: User scenarios against the running stack (milestone gate check 3)
+        env:
+          E2E_BASE_URL: http://localhost:8000
+        run: |
+          uv sync
+          uv run pytest tests/e2e --no-cov -v
+      - name: "Operator scenario: Redis down -> not ready (503), Redis back -> ready (200)"
+        run: |
+          docker compose stop redis
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health/ready)
+          echo "with Redis stopped: $code"; test "$code" = "503"
+          docker compose start redis
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health/ready)
+            [ "$code" = "200" ] && break; sleep 1
+          done
+          echo "after Redis restart: $code"; test "$code" = "200"
+      - name: "Operator scenario: production refuses to start with unsafe defaults"
+        run: |
+          set +e
+          output=$(docker compose run --rm --no-deps -e ENVIRONMENT=production app 2>&1)
+          status=$?
+          set -e
+          echo "$output" | tail -5
+          test "$status" -ne 0
+          echo "$output" | grep -q "Unsafe production configuration"
       - name: Container logs
         if: always()
         run: docker compose logs app
