@@ -78,8 +78,8 @@ tests in CI.
       access (the step-1 build environment had none); then switch CI and Docker to `uv sync --locked`
 - [x] `app/` skeleton matching `docs/ARCHITECTURE.md` §3 (empty packages with `__init__.py`)
 - [x] `app/core/config.py` — `Settings` with nested sections; `.env.example` listing every variable
-- [x] Production safety check: startup fails on default/short JWT secret, `CORS *` + credentials, or debug on
-- [x] `app/core/logging.py` — JSON logs to stdout, request id middleware (one pure ASGI middleware)
+- [x] Safety check for staging and production: startup fails on default/short JWT secret, default DB credentials or debug on; `CORS *` + credentials rejected everywhere
+- [x] `app/core/logging.py` — JSON logs to stdout; `app/core/middleware.py` — request id, security headers, access log, error boundary (pure ASGI)
 - [x] `app/core/errors.py` — `AppError` hierarchy and RFC 9457 handlers for app, validation and unexpected errors
 - [x] `app/api/health.py` — `/health/live`, `/health/ready` (checks DB + Redis)
 - [x] `app/main.py` — `create_app()` factory with lifespan (no `on_event`)

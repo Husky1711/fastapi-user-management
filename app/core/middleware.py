@@ -1,13 +1,16 @@
-"""The single HTTP middleware (pure ASGI, no BaseHTTPMiddleware overhead).
+"""HTTP middleware (pure ASGI, no BaseHTTPMiddleware overhead).
 
-For every HTTP request it:
+`RequestContextMiddleware` is the outermost layer. For every HTTP request it:
 - assigns a request id (reuses a well-formed incoming `X-Request-ID`, else generates one),
   exposes it to logs and error bodies, and returns it in the response header;
 - adds security headers;
-- logs exactly one line with method, path, status and duration;
-- turns any unhandled exception into a generic RFC 9457 500 response.
+- logs exactly one line with method, path, status, duration, client IP and user agent.
+
+`ErrorBoundaryMiddleware` is the innermost layer. It turns any unhandled exception into a
+generic RFC 9457 500, *inside* CORS, so browser clients can read the error and its request id.
 """
 
+import asyncio
 import re
 import time
 import uuid
@@ -19,7 +22,10 @@ from app.core.errors import internal_error_response
 from app.core.logging import get_logger, request_id_var
 
 REQUEST_ID_HEADER = "X-Request-ID"
+_REQUEST_ID_HEADER_BYTES = REQUEST_ID_HEADER.lower().encode("latin-1")
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+MAX_LOGGED_USER_AGENT = 256
+CLIENT_CLOSED_REQUEST = 499  # de-facto status for "client went away" (nginx convention)
 
 SECURITY_HEADERS: dict[str, str] = {
     "X-Content-Type-Options": "nosniff",
@@ -28,25 +34,71 @@ SECURITY_HEADERS: dict[str, str] = {
 }
 HSTS_HEADER = ("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 # JSON responses never need to load scripts, styles or frames. The interactive docs pages
-# (development only) load Swagger UI from a CDN, so they are exempt.
+# (development and test only) load Swagger UI from a CDN, so they are exempt.
 API_CSP_HEADER = ("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 DOCS_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc"})
 
 log = get_logger(__name__)
 
 
-def _incoming_request_id(scope: Scope) -> str | None:
-    for name, value in scope.get("headers", []):
-        if name.decode("latin-1").lower() == REQUEST_ID_HEADER.lower():
-            candidate = value.decode("latin-1")
-            return candidate if _VALID_REQUEST_ID.fullmatch(candidate) else None
+def _header(scope: Scope, name: bytes) -> str | None:
+    """First value of a request header, or None."""
+    for key, value in scope.get("headers", []):
+        if key.lower() == name:
+            return bytes(value).decode("latin-1")
     return None
 
 
+def _incoming_request_id(scope: Scope) -> str | None:
+    candidate = _header(scope, _REQUEST_ID_HEADER_BYTES)
+    if candidate is not None and _VALID_REQUEST_ID.fullmatch(candidate):
+        return candidate
+    return None
+
+
+class ErrorBoundaryMiddleware:
+    """Innermost layer: unhandled exception → generic 500 (no internal details)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception:
+            log.exception("unhandled exception", path=scope["path"])
+            if response_started:
+                raise  # too late for a clean error response; let the server close it
+            await internal_error_response()(scope, receive, send)
+
+
 class RequestContextMiddleware:
+    """Outermost layer: request id, security headers, one access-log line per request."""
+
     def __init__(self, app: ASGIApp, *, enable_hsts: bool = False) -> None:
         self.app = app
         self.enable_hsts = enable_hsts
+
+    def _add_headers(self, message: Message, scope: Scope, request_id: str) -> None:
+        headers = MutableHeaders(scope=message)
+        headers[REQUEST_ID_HEADER] = request_id
+        for name, value in SECURITY_HEADERS.items():
+            headers.setdefault(name, value)
+        if self.enable_hsts:
+            headers.setdefault(*HSTS_HEADER)
+        if scope["path"] not in DOCS_PATHS:
+            headers.setdefault(*API_CSP_HEADER)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -64,19 +116,18 @@ class RequestContextMiddleware:
             if message["type"] == "http.response.start":
                 response_started = True
                 status_code = message["status"]
-                headers = MutableHeaders(scope=message)
-                headers[REQUEST_ID_HEADER] = request_id
-                for name, value in SECURITY_HEADERS.items():
-                    headers.setdefault(name, value)
-                if self.enable_hsts:
-                    headers.setdefault(*HSTS_HEADER)
-                if scope["path"] not in DOCS_PATHS:
-                    headers.setdefault(*API_CSP_HEADER)
+                self._add_headers(message, scope, request_id)
             await send(message)
 
         try:
             await self.app(scope, receive, send_with_headers)
+        except asyncio.CancelledError:
+            # The client disconnected or the server is shutting down: not a server error.
+            if not response_started:
+                status_code = CLIENT_CLOSED_REQUEST
+            raise
         except Exception:
+            # Last resort for failures outside the error boundary (e.g. in other middleware).
             log.exception("unhandled exception", path=scope["path"])
             if response_started:
                 raise
@@ -89,5 +140,6 @@ class RequestContextMiddleware:
                 status=status_code,
                 duration_ms=round((time.perf_counter() - started) * 1000, 2),
                 client_ip=scope["client"][0] if scope.get("client") else None,
+                user_agent=(_header(scope, b"user-agent") or "")[:MAX_LOGGED_USER_AGENT] or None,
             )
             request_id_var.reset(token)

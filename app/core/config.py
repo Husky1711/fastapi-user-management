@@ -3,14 +3,16 @@
 One `Settings` object, loaded from environment variables (and `.env` in development).
 Nested sections use a double underscore: `DATABASE__URL`, `JWT__SECRET_KEY`, ...
 
-Get settings through `get_settings()`; never read `os.environ` directly.
+Get settings through `get_settings()`; never read `os.environ` directly. Settings, including
+every nested section, are immutable once loaded, so they can't be changed after the startup
+safety check has passed.
 """
 
 from enum import StrEnum
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
@@ -25,6 +27,12 @@ class Environment(StrEnum):
     PRODUCTION = "production"
 
 
+# Staging is usually internet-facing and often holds copies of real data, so it gets the same
+# safety checks as production.
+STRICT_ENVIRONMENTS = frozenset({Environment.STAGING, Environment.PRODUCTION})
+DOCS_ENVIRONMENTS = frozenset({Environment.DEVELOPMENT, Environment.TEST})
+
+
 class LogLevel(StrEnum):
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -32,7 +40,11 @@ class LogLevel(StrEnum):
     ERROR = "ERROR"
 
 
-class DatabaseSettings(BaseModel):
+class _Section(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class DatabaseSettings(_Section):
     url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt"
     pool_size: int = Field(default=5, ge=1, le=100)
     max_overflow: int = Field(default=5, ge=0, le=100)
@@ -40,17 +52,18 @@ class DatabaseSettings(BaseModel):
     echo: bool = False
 
 
-class RedisSettings(BaseModel):
+class RedisSettings(_Section):
     url: str = "redis://localhost:6379/0"
 
 
-class JwtSettings(BaseModel):
+class JwtSettings(_Section):
     secret_key: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
-    algorithm: str = "HS256"
+    # HMAC only: an asymmetric algorithm would need a key pair, and "none" must never be possible.
+    algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
 
 
-class CorsSettings(BaseModel):
-    allow_origins: list[str] = Field(default_factory=list)
+class CorsSettings(_Section):
+    allow_origins: tuple[str, ...] = ()
     allow_credentials: bool = True
 
     @model_validator(mode="after")
@@ -62,20 +75,23 @@ class CorsSettings(BaseModel):
         return self
 
 
-class LogSettings(BaseModel):
+class LogSettings(_Section):
     level: LogLevel = LogLevel.INFO
 
 
-class HealthSettings(BaseModel):
+class HealthSettings(_Section):
     check_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    # Readiness results are reused for this long, so a flood of probes costs at most one
+    # database and one Redis round trip per window. 0 disables the cache.
+    cache_seconds: float = Field(default=1.0, ge=0, le=30)
 
 
 class UnsafeConfigurationError(RuntimeError):
-    """Raised at startup when production settings are unsafe."""
+    """Raised at startup when settings are unsafe for a staging or production environment."""
 
-    def __init__(self, problems: list[str]) -> None:
+    def __init__(self, environment: Environment, problems: list[str]) -> None:
         self.problems = problems
-        super().__init__("Unsafe production configuration: " + "; ".join(problems))
+        super().__init__(f"Unsafe configuration for {environment}: " + "; ".join(problems))
 
 
 class Settings(BaseSettings):
@@ -103,13 +119,18 @@ class Settings(BaseSettings):
         return self.environment is Environment.PRODUCTION
 
     @property
-    def docs_enabled(self) -> bool:
-        """Interactive API docs are served everywhere except production."""
-        return not self.is_production
+    def is_strict(self) -> bool:
+        """Staging and production: unsafe settings stop the app from starting."""
+        return self.environment in STRICT_ENVIRONMENTS
 
-    def production_problems(self) -> list[str]:
-        """Return every reason these settings are unsafe for production (empty if safe)."""
-        if not self.is_production:
+    @property
+    def docs_enabled(self) -> bool:
+        """Interactive API docs are served only in development and test."""
+        return self.environment in DOCS_ENVIRONMENTS
+
+    def safety_problems(self) -> list[str]:
+        """Every reason these settings are unsafe for a strict environment (empty if safe)."""
+        if not self.is_strict:
             return []
         problems: list[str] = []
         secret = self.jwt.secret_key.get_secret_value()
@@ -123,10 +144,10 @@ class Settings(BaseSettings):
             problems.append("DATABASE__URL uses the default postgres:postgres credentials")
         return problems
 
-    def ensure_safe_for_production(self) -> None:
-        problems = self.production_problems()
+    def ensure_safe(self) -> None:
+        problems = self.safety_problems()
         if problems:
-            raise UnsafeConfigurationError(problems)
+            raise UnsafeConfigurationError(self.environment, problems)
 
 
 @lru_cache

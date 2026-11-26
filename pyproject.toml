@@ -56,7 +56,7 @@ select = [
 ignore = ["N818"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]  # asserts and dummy secrets are fine in tests
+"tests/**" = ["S101", "S105", "S106", "S603", "S607"]  # asserts, dummy secrets, git calls
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -86,6 +86,8 @@ filterwarnings = ["error"]
 # ---------------------------------------------------------------- coverage
 [tool.coverage.run]
 branch = true
+# SQLAlchemy's async layer runs on greenlets; without this, lines after its awaits look untested.
+concurrency = ["greenlet", "thread"]
 source = ["app"]
 
 [tool.coverage.report]

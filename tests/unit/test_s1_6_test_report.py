@@ -1,3 +1,5 @@
+"""Section 1.6: the automatic test report script used by CI."""
+
 from pathlib import Path
 
 from scripts.test_report import main, read_cases, render
@@ -18,34 +20,33 @@ JUNIT = """<?xml version="1.0" encoding="utf-8"?>
 """
 
 
-def _write(tmp_path: Path) -> Path:
+def _write(tmp_path: Path, content: str = JUNIT) -> Path:
     path = tmp_path / "junit.xml"
-    path.write_text(JUNIT, encoding="utf-8")
+    path.write_text(content, encoding="utf-8")
     return path
 
 
-def test_reads_every_outcome(tmp_path: Path) -> None:
+def test_s1_6_04_reads_every_outcome_and_message(tmp_path: Path) -> None:
     cases = read_cases(_write(tmp_path))
     assert [c.outcome for c in cases] == ["passed", "failed", "error", "skipped"]
     assert cases[1].message == "assert 1 == 2"
     assert cases[2].message == "RuntimeError: x | y"
 
 
-def test_render_shows_totals_failures_and_all_tests(tmp_path: Path) -> None:
+def test_s1_6_05_totals_failures_and_all_tests_with_pipes_escaped(tmp_path: Path) -> None:
     report = render("Suite", read_cases(_write(tmp_path)))
     assert "**4 tests**: ✅ 1 passed · ❌ 1 failed · 💥 1 errors · ⏭️ 1 skipped" in report
     assert "### Failures" in report
-    assert "RuntimeError: x / y" in report  # pipes escaped so the table stays intact
+    assert "RuntimeError: x / y" in report
     assert "`tests.a::test_ok`" in report
 
 
-def test_render_without_failures_has_no_failure_section(tmp_path: Path) -> None:
-    path = tmp_path / "junit.xml"
-    path.write_text('<testsuite><testcase classname="t" name="ok" time="0"/></testsuite>')
+def test_s1_6_06_no_failures_means_no_failure_section(tmp_path: Path) -> None:
+    path = _write(tmp_path, '<testsuite><testcase classname="t" name="ok" time="0"/></testsuite>')
     assert "### Failures" not in render("Suite", read_cases(path))
 
 
-def test_main_handles_missing_file_and_bad_usage(tmp_path: Path) -> None:
+def test_s1_6_06_missing_results_file_and_bad_usage(tmp_path: Path) -> None:
     assert main(["x", "Suite", str(tmp_path / "missing.xml")]) == 0
     assert main(["x"]) == 2
     assert main(["x", "Suite", str(_write(tmp_path))]) == 0

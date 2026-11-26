@@ -12,17 +12,19 @@ import logging
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 _FIELDS_ATTR = "structured_fields"
 _REQUEST_ID_ATTR = "request_id"
+# Keys the formatter owns. A structured field with one of these names is kept under
+# "field_<name>" instead of overwriting it.
+RESERVED_KEYS = frozenset({"timestamp", "level", "logger", "message", "request_id", "exception"})
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        payload: dict[str, Any] = {
+        payload: dict[str, object] = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
@@ -34,7 +36,8 @@ class JsonFormatter(logging.Formatter):
             payload["request_id"] = request_id
         fields = getattr(record, _FIELDS_ATTR, None)
         if isinstance(fields, dict):
-            payload.update(fields)
+            for key, value in fields.items():
+                payload[f"field_{key}" if key in RESERVED_KEYS else key] = value
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
@@ -57,23 +60,25 @@ class StructuredLogger:
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
 
-    def _log(self, level: int, message: str, exc_info: bool, fields: dict[str, Any]) -> None:
+    def _log(self, level: int, message: str, exc_info: bool, fields: dict[str, object]) -> None:
         extra = {_FIELDS_ATTR: fields, _REQUEST_ID_ATTR: request_id_var.get()}
         self._logger.log(level, message, exc_info=exc_info, stacklevel=3, extra=extra)
 
-    def debug(self, message: str, **fields: Any) -> None:
+    # Fields are passed as keyword arguments, so a field called "message" would clash with the
+    # positional parameter. Positional-only parameters ("/") avoid that.
+    def debug(self, message: str, /, **fields: object) -> None:
         self._log(logging.DEBUG, message, False, fields)
 
-    def info(self, message: str, **fields: Any) -> None:
+    def info(self, message: str, /, **fields: object) -> None:
         self._log(logging.INFO, message, False, fields)
 
-    def warning(self, message: str, **fields: Any) -> None:
+    def warning(self, message: str, /, **fields: object) -> None:
         self._log(logging.WARNING, message, False, fields)
 
-    def error(self, message: str, **fields: Any) -> None:
+    def error(self, message: str, /, **fields: object) -> None:
         self._log(logging.ERROR, message, False, fields)
 
-    def exception(self, message: str, **fields: Any) -> None:
+    def exception(self, message: str, /, **fields: object) -> None:
         """Log at ERROR with the current exception's traceback."""
         self._log(logging.ERROR, message, True, fields)
 

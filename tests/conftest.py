@@ -1,36 +1,18 @@
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from app.api.health import HealthCheck
-from app.core.config import Settings
-from app.main import create_app
-from tests.helpers import make_settings
-
-
-async def _ok() -> None:
-    return None
+from tests.helpers import app_with, check_ok, client_for
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return make_settings()
-
-
-@pytest.fixture
-def health_checks() -> Mapping[str, HealthCheck]:
-    return {"database": _ok, "redis": _ok}
-
-
-@pytest.fixture
-def app(settings: Settings, health_checks: Mapping[str, HealthCheck]) -> FastAPI:
-    return create_app(settings, health_checks=health_checks)
+def app() -> FastAPI:
+    return app_with(checks={"database": check_ok, "redis": check_ok})
 
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as http:
+    async with client_for(app) as http:
         yield http

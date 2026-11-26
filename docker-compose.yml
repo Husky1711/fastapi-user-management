@@ -13,6 +13,7 @@ services:
       REDIS__URL: redis://redis:6379/0
       JWT__SECRET_KEY: ${JWT__SECRET_KEY:-insecure-development-secret-change-me-before-production}
       LOG__LEVEL: ${LOG__LEVEL:-INFO}
+      CORS__ALLOW_ORIGINS: ${CORS__ALLOW_ORIGINS:-[]}
     depends_on:
       db:
         condition: service_healthy

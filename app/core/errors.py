@@ -11,7 +11,7 @@ here turn every error into the same JSON shape:
 
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -77,17 +77,24 @@ class RateLimited(AppError):
     default_detail = "Too many requests. Try again later."
 
 
+def _status_phrase(status: int) -> str:
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:  # non-standard codes such as 499 from a library
+        return "Error"
+
+
 def problem_response(
     status: int,
     code: str,
     detail: str,
     *,
     headers: Mapping[str, str] | None = None,
-    extra: dict[str, Any] | None = None,
+    extra: Mapping[str, object] | None = None,
 ) -> JSONResponse:
-    body: dict[str, Any] = {
+    body: dict[str, object] = {
         "type": "about:blank",
-        "title": HTTPStatus(status).phrase,
+        "title": _status_phrase(status),
         "status": status,
         "detail": detail,
         "code": code,
@@ -134,10 +141,14 @@ async def _http_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     # Raised by the framework itself (unknown route, wrong method). Our code raises AppError.
     if not isinstance(exc, StarletteHTTPException):  # registered only for this type
         raise exc
-    status = HTTPStatus(exc.status_code)
-    code = f"http.{status.name.lower()}"
-    detail = exc.detail if isinstance(exc.detail, str) else status.description
-    return problem_response(status, code, detail, headers=exc.headers)
+    try:
+        status = HTTPStatus(exc.status_code)
+    except ValueError:  # non-standard code: keep it, but use generic wording
+        code, description = f"http.{exc.status_code}", "The request could not be processed."
+    else:
+        code, description = f"http.{status.name.lower()}", status.description
+    detail = exc.detail if isinstance(exc.detail, str) else description
+    return problem_response(exc.status_code, code, detail, headers=exc.headers)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
