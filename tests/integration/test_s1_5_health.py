@@ -9,6 +9,7 @@ from httpx import AsyncClient
 
 import app.main as main_module
 from app.core.config import DatabaseSettings, HealthSettings, RedisSettings
+from app.core.logging import JsonFormatter
 from tests.helpers import app_with, check_never_finishes, check_ok, client_for, make_settings
 
 
@@ -43,8 +44,11 @@ async def test_s1_5_03_failed_check_gives_503_without_leaking_details(
     failures = [r for r in caplog.records if r.getMessage() == "readiness check failed"]
     assert len(failures) == 1
     assert not failures[0].exc_info  # no traceback in the logs
-    assert "secret" not in caplog.text
-    assert "ConnectionError" in caplog.text
+    # Check the JSON lines exactly as they are written in production, fields included.
+    written = "\n".join(JsonFormatter().format(r) for r in caplog.records)
+    assert '"error_type": "ConnectionError"' in written
+    assert "postgresql://***@db/app refused" in written
+    assert "secret" not in written
 
 
 async def test_s1_5_04_hanging_check_gives_503_timeout() -> None:
