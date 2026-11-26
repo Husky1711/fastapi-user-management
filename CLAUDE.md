@@ -30,11 +30,10 @@ measurable "10/10" table in `docs/VISION.md` §5.
    owner asks otherwise.
 2. Create a branch from up-to-date **`v2`** (the integration branch, see below):
    `step-<n>/<short-topic>` (e.g. `step-3/refresh-rotation`). Docs-only work: `docs/<topic>`.
-3. Write the test first when practical, then the code.
-4. Run the full check before every commit: `make lint typecheck test`
-   (available from step 1).
-5. Tick the finished items in `docs/ROADMAP.md` in the same PR. For the last PR of a step,
-   run the milestone gate and add its report (see "Milestone gate" below).
+3. Work section by section (see "Testing, logging and scoring"): scenario plan first, then
+   tests, then code. Never move to the next section with the current one untested.
+4. Run the full check before every commit: `make check`.
+5. Tick the finished items in `docs/ROADMAP.md` and update the step report in the same PR.
 6. Open a pull request **into `v2`** using the template. Never push directly to `v2` or `main`;
    never force-push a shared branch.
 7. If you discover the plan or architecture is wrong, stop and say so in the PR. Change the
@@ -54,13 +53,48 @@ measurable "10/10" table in `docs/VISION.md` §5.
 `test:`, `docs:`, `chore:`, `ci:`. Subject in the imperative, ≤ 72 characters. One logical
 change per commit.
 
-## Milestone gate (every roadmap step)
+## Testing, logging and scoring (mandatory)
 
-A step is finished only when it passes the five-check gate in `docs/milestones/README.md`:
-automated checks, tester scenarios, user scenarios on the real stack, a cross-check against the
-old code on `main`, and an independent review. The gate report (`docs/milestones/step-<n>.md`)
-goes in the step's PR. The owner approves the report before merge, and the next step starts
-only after that.
+Full process: `docs/milestones/README.md`. These rules are not optional and are not skipped
+for small changes or to save time.
+
+**Mindset.** Test as the most experienced tester and a doubtful senior engineer: assume the
+code is broken and try to prove it. Passing tests you wrote for the happy path proves nothing.
+
+**Level 1: every section.**
+1. At the start of a step, split it into sections and create `docs/milestones/step-<n>.md`
+   from the template, with the section log.
+2. Before coding a section, write its scenario plan covering **every category C1–C12** of the
+   scenario checklist (happy path, invalid input, boundaries, authentication, authorization,
+   security abuse, concurrency, repeat calls, dependency failure, data integrity, real user
+   flow, regression). A category is either covered or marked N/A with a reason.
+3. A section is done only when all its scenarios pass in CI. **Never start the next section
+   while the current one is untested.**
+4. Then update the section log (✅, scenario counts), commit and push.
+
+**Level 2: every step.** When all sections are ✅, retest the whole step together on the real
+stack and run the five-check gate: automated, tester, user, cross-check vs the old code on
+`main`, independent review. PASS plus the owner's approval is required before merge, and the
+next step starts only after that.
+
+**Session rule.** Before any session ends, every finished section is tested, committed, pushed
+and marked ✅. Unfinished work is committed and marked 🔄 with a note on what is left. A new
+session starts by reading the section log and continues from the first section that isn't ✅.
+
+**Records.**
+- *Automatic test report*: CI publishes every test's result plus coverage on every run. It is
+  the proof; never type test results by hand.
+- *Written log* in the step report: section log, scenario plan with results per category,
+  totals (passed / failed / fixed), and a link to the CI run.
+- *Failure log*: every failure found (CI, gate, review) with cause and fix. Never hide or
+  silently fix a failure; record it.
+- *Scenario ids* in test names (`test_s<step>_<section>_<n>_<what>`) link plan, test and report.
+
+**Scoring.** After each step, the **independent reviewer** (never the author) scores the nine
+review areas against the old code's baseline, one line of evidence per score, and updates
+`docs/milestones/SCORECARD.md`. Areas not built yet are marked "not built yet", not given a
+number. A step is production-grade when every area it touches scores ≥ 9, or a lower score is
+explained and accepted by the owner.
 
 ## Definition of done (every PR)
 
@@ -71,6 +105,7 @@ only after that.
 - [ ] New settings appear in `.env.example` with a safe default and a comment
 - [ ] New endpoints have a `response_model`, documented error codes and a rate-limit policy
 - [ ] No secrets, tokens, passwords or full emails in logs, errors or fixtures
+- [ ] Scenario checklist C1–C12 covered for each section touched; section log and failure log updated
 - [ ] `docs/ROADMAP.md` boxes ticked; README/docs updated if behaviour changed
 
 ## Code rules

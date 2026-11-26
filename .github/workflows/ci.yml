@@ -72,7 +72,21 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - run: uv sync
-      - run: uv run pytest --cov-report=xml
+      - name: Run tests
+        run: >-
+          uv run pytest
+          --junitxml=reports/junit.xml
+          --cov-report=xml:reports/coverage.xml
+          --cov-report=html:reports/htmlcov
+      - name: Publish test report to the run summary
+        if: always()
+        run: uv run python scripts/test_report.py "Unit & integration" reports/junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test report and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: reports/
 
   compose:
     name: Docker Compose smoke test
@@ -94,7 +108,16 @@ jobs:
           E2E_BASE_URL: http://localhost:8000
         run: |
           uv sync
-          uv run pytest tests/e2e --no-cov -v
+          uv run pytest tests/e2e --no-cov -v --junitxml=reports/e2e-junit.xml
+      - name: Publish user-scenario report to the run summary
+        if: always()
+        run: uv run python scripts/test_report.py "User scenarios (real stack)" reports/e2e-junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload user-scenario report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: reports/
       - name: "Operator scenario: Redis down -> not ready (503), Redis back -> ready (200)"
         run: |
           docker compose stop redis

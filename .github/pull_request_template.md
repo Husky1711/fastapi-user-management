@@ -19,6 +19,7 @@
 - [ ] New settings added to `.env.example` with safe defaults
 - [ ] New endpoints have a `response_model`, documented error codes and a rate-limit policy
 - [ ] No secrets, tokens, passwords or full emails in logs, errors or fixtures
+- [ ] Scenario checklist C1–C12 covered for each section touched; section log and failure log updated
 - [ ] `docs/ROADMAP.md` boxes ticked; docs updated if behaviour changed
 
 ## Notes for the reviewer

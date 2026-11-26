@@ -9,9 +9,11 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
   release (ADR-0007).
 - One step = one branch off `v2` = one pull request into `v2`. Large steps may split into
   several PRs; each PR still leaves `v2` installable with CI green.
+- Each step is split into sections. Each section is tested against the full scenario checklist
+  before the next one starts (`docs/milestones/README.md`).
 - A step is done only when every task is ticked, its exit criteria are met, **and it passes the
-  milestone gate** (`docs/milestones/README.md`) with the owner's approval of the report.
-  The next step starts only after that.
+  step gate** (`docs/milestones/README.md`) with the owner's approval of the report and an
+  independent scorecard. The next step starts only after that.
 - Tick boxes in this file in the same PR that does the work.
 - If a step reveals that the plan is wrong, change this file in that PR and say why.
 
@@ -59,7 +61,7 @@ listed below against the step where the new code makes it impossible, so nothing
 - [x] `docs/ROADMAP.md` — this file
 - [x] `docs/adr/` — the decisions agreed so far
 - [x] Pull request template
-- [x] Milestone gate process (`docs/milestones/README.md`)
+- [x] Testing, logging and scoring process (`docs/milestones/README.md`, `SCORECARD.md`)
 
 **Exit criteria:** reviewed and merged by the project owner.
 
