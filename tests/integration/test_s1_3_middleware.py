@@ -3,33 +3,35 @@
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
-from starlette.types import Message, Receive, Scope, Send
+from starlette.types import Receive, Scope, Send
 
 from app.core.config import CorsSettings, Environment
-from app.core.logging import JsonFormatter
+from app.core.logging import JsonFormatter, request_id_var
 from app.core.middleware import CLIENT_CLOSED_REQUEST, RequestContextMiddleware
-from tests.helpers import app_with, client_for, make_settings, strict_settings
+from tests.helpers import (
+    ALLOWED_ORIGIN,
+    CRASH_PATH,
+    RecordingSend,
+    add_crash_route,
+    app_with,
+    client_for,
+    http_scope,
+    make_settings,
+    receive_disconnect,
+    strict_settings,
+)
 
-ALLOWED_ORIGIN = "https://app.example.com"
 EXPECTED_CSP = "default-src 'none'; frame-ancestors 'none'"
 
 
 def _cors_app() -> FastAPI:
     return app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
-
-
-def _crashing_app() -> FastAPI:
-    app = app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
-
-    @app.get("/_test/crash")
-    async def crash() -> None:
-        raise RuntimeError("internal detail")
-
-    return app
 
 
 def _access_lines(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
@@ -128,8 +130,8 @@ async def test_s1_3_17_security_headers_on_success(client: AsyncClient) -> None:
 
 
 async def test_s1_3_18_security_headers_on_404_and_500() -> None:
-    async with client_for(_crashing_app()) as client:
-        for response in (await client.get("/nope"), await client.get("/_test/crash")):
+    async with client_for(add_crash_route(_cors_app())) as client:
+        for response in (await client.get("/nope"), await client.get(CRASH_PATH)):
             assert response.headers["X-Content-Type-Options"] == "nosniff"
             assert response.headers["Content-Security-Policy"] == EXPECTED_CSP
             assert "X-Request-ID" in response.headers
@@ -180,32 +182,85 @@ async def test_s1_3_23_non_http_traffic_passes_through_untouched() -> None:
     async def inner(scope: Scope, receive: Receive, send: Send) -> None:
         seen.append(scope["type"])
 
-    async def receive() -> Message:
-        return {"type": "lifespan.startup"}
-
-    async def send(message: Message) -> None:
-        return None
-
-    await RequestContextMiddleware(inner)({"type": "lifespan"}, receive, send)
+    await RequestContextMiddleware(inner)({"type": "lifespan"}, receive_disconnect, RecordingSend())
     assert seen == ["lifespan"]
 
 
-async def test_s1_3_24_client_disconnect_is_logged_as_499_not_500(
+async def test_s1_3_24_cancelled_request_is_logged_as_499_not_500(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     async def cancelled_app(scope: Scope, receive: Receive, send: Send) -> None:
-        raise asyncio.CancelledError
+        raise asyncio.CancelledError  # e.g. the server shutting down mid-request
 
-    async def receive() -> Message:
-        return {"type": "http.disconnect"}
-
-    async def send(message: Message) -> None:
-        return None
-
-    scope: Scope = {"type": "http", "method": "GET", "path": "/slow", "headers": []}
     with (
         caplog.at_level(logging.INFO, logger="app.core.middleware"),
         pytest.raises(asyncio.CancelledError),
     ):
-        await RequestContextMiddleware(cancelled_app)(scope, receive, send)
+        await RequestContextMiddleware(cancelled_app)(
+            http_scope(path="/slow"), receive_disconnect, RecordingSend()
+        )
     assert _access_lines(caplog)[-1]["status"] == CLIENT_CLOSED_REQUEST
+
+
+async def test_s1_3_29_client_disconnect_while_sending_body_is_499_without_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = app_with()
+
+    @app.post("/_test/upload")
+    async def upload(request: Request) -> None:
+        await request.body()  # the client is gone: Starlette raises ClientDisconnect
+
+    send = RecordingSend()
+    with caplog.at_level(logging.INFO):
+        await app(http_scope("POST", "/_test/upload"), receive_disconnect, send)
+    assert send.messages == []  # nobody to answer
+    assert _access_lines(caplog)[-1]["status"] == CLIENT_CLOSED_REQUEST
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_s1_3_30_request_id_does_not_leak_into_the_next_request_in_the_same_task(
+    client: AsyncClient,
+) -> None:
+    # httpx's in-process transport runs the app in this very task, so a missing reset of the
+    # request-id context would be visible here.
+    await client.get("/health/live", headers={"X-Request-ID": "first-request"})
+    assert request_id_var.get() is None
+
+
+async def test_s1_3_31_failure_outside_the_error_boundary_gets_a_clean_500(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def broken_layer(scope: Scope, receive: Receive, send: Send) -> None:
+        raise RuntimeError("middleware bug with secret-value")
+
+    send = RecordingSend()
+    with caplog.at_level(logging.INFO, logger="app.core.middleware"):
+        await RequestContextMiddleware(broken_layer)(http_scope(), receive_disconnect, send)
+    start = send.messages[0]
+    assert start["status"] == 500
+    headers = dict(start["headers"])
+    assert b"x-request-id" in headers
+    assert headers[b"content-type"] == b"application/problem+json"
+    assert b"secret-value" not in b"".join(m.get("body", b"") for m in send.messages)
+    errors = [r for r in caplog.records if r.getMessage() == "unhandled exception"]
+    assert len(errors) == 1
+
+
+async def test_s1_3_32_error_after_streaming_started_is_logged_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = app_with()
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("stream broke")
+
+    @app.get("/_test/stream")
+    async def stream() -> StreamingResponse:
+        return StreamingResponse(broken_stream())
+
+    async with client_for(app) as client:
+        with caplog.at_level(logging.INFO), pytest.raises(RuntimeError):
+            await client.get("/_test/stream")
+    assert len([r for r in caplog.records if r.getMessage() == "unhandled exception"]) == 1

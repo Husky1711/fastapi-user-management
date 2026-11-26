@@ -115,10 +115,6 @@ class Settings(BaseSettings):
     health: HealthSettings = Field(default_factory=HealthSettings)
 
     @property
-    def is_production(self) -> bool:
-        return self.environment is Environment.PRODUCTION
-
-    @property
     def is_strict(self) -> bool:
         """Staging and production: unsafe settings stop the app from starting."""
         return self.environment in STRICT_ENVIRONMENTS

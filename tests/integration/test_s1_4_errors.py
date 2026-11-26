@@ -13,9 +13,15 @@ from pydantic import BaseModel
 
 from app.core.config import CorsSettings
 from app.core.errors import Conflict, NotFound
-from tests.helpers import app_with, client_for, make_settings
-
-ALLOWED_ORIGIN = "https://app.example.com"
+from tests.helpers import (
+    ALLOWED_ORIGIN,
+    CRASH_PATH,
+    CRASH_SECRET,
+    add_crash_route,
+    app_with,
+    client_for,
+    make_settings,
+)
 
 
 class SignupIn(BaseModel):
@@ -24,7 +30,9 @@ class SignupIn(BaseModel):
 
 
 def _app_with_test_routes() -> FastAPI:
-    app = app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
+    app = add_crash_route(
+        app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
+    )
 
     @app.get("/_test/not-found")
     async def not_found() -> None:
@@ -42,9 +50,9 @@ def _app_with_test_routes() -> FastAPI:
     async def items(limit: int = Query(ge=1, le=100)) -> None:
         return None
 
-    @app.get("/_test/crash")
-    async def crash() -> None:
-        raise RuntimeError("database password is hunter2")
+    @app.post("/_test/scores")
+    async def scores(body: dict[str, int]) -> None:
+        return None
 
     @app.get("/_test/teapot")
     async def teapot() -> None:
@@ -142,10 +150,10 @@ async def test_s1_4_07_wrong_method_is_problem_json(http: AsyncClient) -> None:
 
 
 async def test_s1_4_08_unhandled_exception_is_a_generic_500(http: AsyncClient) -> None:
-    response = await http.get("/_test/crash")
+    response = await http.get(CRASH_PATH)
     assert response.status_code == 500
     _assert_problem(response.json(), 500, "server.internal_error")
-    assert "hunter2" not in response.text
+    assert CRASH_SECRET not in response.text
     assert response.headers["X-Request-ID"] == response.json()["request_id"]
 
 
@@ -172,7 +180,17 @@ async def test_s1_4_11_error_after_streaming_started_is_not_disguised(http: Asyn
 
 
 async def test_s1_4_12_browser_can_read_a_500_from_an_allowed_origin(http: AsyncClient) -> None:
-    response = await http.get("/_test/crash", headers={"Origin": ALLOWED_ORIGIN})
+    response = await http.get(CRASH_PATH, headers={"Origin": ALLOWED_ORIGIN})
     assert response.status_code == 500
     assert response.headers["access-control-allow-origin"] == ALLOWED_ORIGIN
     assert response.json()["request_id"] == response.headers["X-Request-ID"]
+
+
+async def test_s1_4_16_client_chosen_keys_in_error_paths_are_cut_short(http: AsyncClient) -> None:
+    long_key = "k" * 500
+    response = await http.post("/_test/scores", json={long_key: "not-a-number-secret"})
+    assert response.status_code == 422
+    loc = response.json()["errors"][0]["loc"]
+    assert loc == ["body", "k" * 64 + "…"]
+    assert "not-a-number-secret" not in response.text
+    assert long_key not in response.text

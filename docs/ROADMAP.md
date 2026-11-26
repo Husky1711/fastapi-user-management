@@ -244,6 +244,7 @@ tokens never cleaned.
 - [ ] ASVS L2 V2/V3/V4 checklist in `docs/security/asvs.md`, each item linked to code or test
 - [ ] Security headers reviewed; CORS allow-list only
 - [ ] `pip-audit` and `bandit` in CI; Dependabot enabled
+- [ ] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (from step 1 review, R2-10)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.

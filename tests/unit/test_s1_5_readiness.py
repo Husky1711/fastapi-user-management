@@ -2,7 +2,7 @@
 
 import asyncio
 
-from app.services.health import ReadinessProbe, run_checks
+from app.services.health import ReadinessProbe, redact, run_checks
 from tests.helpers import check_never_finishes, check_ok
 
 
@@ -95,3 +95,16 @@ async def test_s1_5_03_failure_is_reported_and_recovery_is_seen_after_the_window
     healthy = True
     clock.now += 1
     assert (await probe.run()).status == "ready"
+
+
+async def test_s1_5_16_an_empty_check_set_is_never_ready() -> None:
+    result = await run_checks({}, limit_seconds=1)
+    assert (result.status, result.checks) == ("not_ready", {})
+
+
+def test_s1_5_03_redaction_removes_url_credentials_and_caps_length() -> None:
+    message = "connect postgresql+asyncpg://app:s3cr3t@db:5432/x and redis://:pw@cache:6379"
+    assert (
+        redact(message) == "connect postgresql+asyncpg://***@db:5432/x and redis://***@cache:6379"
+    )
+    assert len(redact("x" * 1000)) == 200

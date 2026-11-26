@@ -80,6 +80,8 @@ def create_app(
     )
     app.state.settings = settings
     app.state.injected_health_checks = health_checks
+    # Until the lifespan has started (or if it never runs), there is nothing to check: the
+    # probe has no checks and therefore reports not ready.
     app.state.readiness = _readiness_probe(settings, health_checks or {})
 
     register_exception_handlers(app)

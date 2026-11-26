@@ -21,6 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.logging import request_id_var
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
+MAX_LOC_PART = 64  # field paths can contain client-chosen keys; never reflect long input
 
 
 class AppError(Exception):
@@ -120,13 +121,20 @@ async def _app_error_handler(_: Request, exc: Exception) -> JSONResponse:
     return problem_response(exc.status_code, exc.code, exc.detail, headers=exc.headers)
 
 
+def _short(part: object) -> object:
+    if isinstance(part, str) and len(part) > MAX_LOC_PART:
+        return part[:MAX_LOC_PART] + "…"
+    return part
+
+
 async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
     if not isinstance(exc, RequestValidationError):  # registered only for this type
         raise exc
     # Deliberately drop the "input" and "ctx" keys: they echo request values back,
-    # which could include passwords or tokens.
+    # which could include passwords or tokens. Field paths stay (clients need them), but a
+    # client-chosen key in a path is cut short.
     errors = [
-        {"loc": list(err["loc"]), "message": err["msg"], "type": err["type"]}
+        {"loc": [_short(part) for part in err["loc"]], "message": err["msg"], "type": err["type"]}
         for err in exc.errors()
     ]
     return problem_response(

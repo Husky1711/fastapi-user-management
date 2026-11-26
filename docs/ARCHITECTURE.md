@@ -73,7 +73,7 @@ app/
       audit.py
     health.py             # /health/live, /health/ready (/metrics in step 8)
   models/                 # SQLAlchemy models, one file per aggregate
-  schemas/                # Pydantic request/response models, one file per area
+  schemas/                # Pydantic request/response models, one file per area (e.g. health.py)
   repositories/
   services/               # business logic, e.g. health.py (readiness checks, cache)
   infra/
@@ -81,7 +81,6 @@ app/
     redis.py              # async client, ping
     email/                # EmailSender protocol; console + smtp backends
     rate_limit.py         # GCRA in one Lua script
-    redis.py
   events/                 # event types + dispatcher
 migrations/               # Alembic
 tests/

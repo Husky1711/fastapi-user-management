@@ -7,13 +7,16 @@ services:
     build: .
     ports:
       - "${APP_PORT:-8000}:8000"
+    # Every app setting comes from .env (copied from .env.example). Optional, so the stack also
+    # starts without one, using the app's development defaults.
+    env_file:
+      - path: .env
+        required: false
+    # Only the addresses that differ inside the Compose network are set here; they override the
+    # localhost values in .env.
     environment:
-      ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-usermgmt}
       REDIS__URL: redis://redis:6379/0
-      JWT__SECRET_KEY: ${JWT__SECRET_KEY:-insecure-development-secret-change-me-before-production}
-      LOG__LEVEL: ${LOG__LEVEL:-INFO}
-      CORS__ALLOW_ORIGINS: ${CORS__ALLOW_ORIGINS:-[]}
     depends_on:
       db:
         condition: service_healthy
