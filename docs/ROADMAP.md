@@ -1,0 +1,263 @@
+# Roadmap
+
+How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to the target in
+`docs/VISION.md` and `docs/ARCHITECTURE.md`.
+
+**Rules**
+
+- One step = one branch = one pull request. Large steps may split into several PRs; each PR
+  still leaves `main` working.
+- A step is done only when every task is ticked **and** its exit criteria are met.
+- Tick boxes in this file in the same PR that does the work.
+- If a step reveals that the plan is wrong, change this file in that PR and say why.
+
+## Status
+
+| Step | Title | Status |
+| --- | --- | --- |
+| 0 | Foundation docs | 🔄 In review |
+| 1 | Project skeleton & tooling | ⬜ Not started |
+| 2 | Database foundation | ⬜ Not started |
+| 3 | Authentication core | ⬜ Not started |
+| 4 | Rate limiting | ⬜ Not started |
+| 5 | Organizations, memberships & permissions | ⬜ Not started |
+| 6 | Account lifecycle & email | ⬜ Not started |
+| 7 | Platform admin, audit log & events | ⬜ Not started |
+| 8 | API polish, performance & operations | ⬜ Not started |
+| 9 | Security hardening & review | ⬜ Not started |
+| 10 | Template release (v1.0.0) | ⬜ Not started |
+
+## Strategy: rebuild beside, then switch
+
+The agreed decisions (PostgreSQL, UUID keys, multi-org memberships, permissions as data, a
+new API shape) change the data model and every endpoint. Patching the old code in place would
+mean rewriting each file twice. So:
+
+1. Step 1 moves the current code into `legacy/`, untouched, for reference only. It is not
+   run, tested or imported by the new app.
+2. Steps 1–8 build the new app in `app/`, test-first, in the target architecture.
+3. Step 10 deletes `legacy/`.
+
+Known bugs in the legacy code (from the review) are **not** fixed in `legacy/`; each one is
+listed below against the step where the new code makes it impossible, so nothing is lost.
+
+---
+
+## Step 0 — Foundation docs
+
+**Goal:** agree the vision and rules before writing code.
+
+- [x] `CLAUDE.md` — working rules for developers and AI agents
+- [x] `docs/VISION.md` — purpose, scope, measurable 10/10 bar
+- [x] `docs/ARCHITECTURE.md` — target stack, layers, domain model, conventions
+- [x] `docs/ROADMAP.md` — this file
+- [x] `docs/adr/` — the decisions agreed so far
+- [x] Pull request template
+
+**Exit criteria:** reviewed and merged by the project owner.
+
+---
+
+## Step 1 — Project skeleton & tooling
+
+**Goal:** an empty-but-production-shaped app that installs, starts, lints, type-checks and
+tests in CI.
+
+- [ ] Tag commit `209a9bd` as `legacy-final` so the old API stays reachable for `user_management_UI`
+- [ ] Move all current Python code, `config_manager.py` and `requirement.txt` into `legacy/`
+- [ ] `pyproject.toml` managed by `uv`; lockfile committed; Python 3.12+
+- [ ] `app/` skeleton matching `docs/ARCHITECTURE.md` §3 (empty packages with `__init__.py`)
+- [ ] `app/core/config.py` — `Settings` with nested sections; `.env.example` listing every variable
+- [ ] Production safety check: startup fails on default/short JWT secret, `CORS *` + credentials, or debug on
+- [ ] `app/core/logging.py` — JSON logs to stdout, request id middleware (one pure ASGI middleware)
+- [ ] `app/core/errors.py` — `AppError` hierarchy and RFC 9457 handlers for app, validation and unexpected errors
+- [ ] `app/api/health.py` — `/health/live`, `/health/ready` (checks DB + Redis)
+- [ ] `app/main.py` — `create_app()` factory with lifespan (no `on_event`)
+- [ ] `Dockerfile` (multi-stage, non-root user) and `docker-compose.yml` (app, Postgres 16, Redis 7)
+- [ ] `ruff`, `mypy --strict`, `pytest` configured in `pyproject.toml`
+- [ ] `Makefile` (or `justfile`) with `install`, `run`, `lint`, `typecheck`, `test`, `migrate`
+- [ ] GitHub Actions: lint, type-check, test with Postgres + Redis services, on every PR
+- [ ] First tests: app starts, health endpoints, error format, production safety check
+
+**Fixes from review:** missing `pydantic-settings` dependency; `settings.environment`
+AttributeError; `config_manager.py` copying files that don't exist; deprecated `on_event`;
+five stacked `BaseHTTPMiddleware` layers; logs written to local files; default secrets
+accepted in production; README referring to a missing `.env.example`.
+
+**Exit criteria:** `docker compose up` serves `/health/ready` = 200; CI green; coverage
+reported.
+
+---
+
+## Step 2 — Database foundation
+
+**Goal:** the full v1 schema in PostgreSQL, managed by Alembic, with tested repositories.
+
+- [ ] Async engine + session factory; `get_db` dependency with one transaction per request
+- [ ] Models per `docs/ARCHITECTURE.md` §4: users, organizations, memberships, roles, permissions, role_permissions, sessions, one_time_tokens, invitations, audit_logs
+- [ ] `citext` extension, enums / CHECK constraints, `ON DELETE` rules, unique and supporting indexes
+- [ ] Alembic configured for async; initial migration; `downgrade` works
+- [ ] Seed migration for permissions and system roles (`owner`, `admin`, `member`)
+- [ ] CLI command to create the first platform admin (`python -m app.cli create-admin`)
+- [ ] Repository base with tenant scoping helpers
+- [ ] Test fixtures: per-test transaction rollback against a real Postgres
+- [ ] CI runs `alembic upgrade head` then `alembic downgrade base` then `upgrade head` again
+
+**Fixes from review:** free-text roles; nullable `organization_id` defaulting to 1; missing
+composite index on refresh tokens; no index on `expires_at`; naive vs aware datetimes;
+fake default phone number; duplicated `device_info`/`user_agent`; no FK delete rules; no soft
+delete; no migrations; lockout columns unused.
+
+**Exit criteria:** migrations round-trip in CI; every repository method has a test.
+
+---
+
+## Step 3 — Authentication core
+
+**Goal:** secure sign-up, login, refresh, logout and session management.
+
+- [ ] `core/security.py`: Argon2id hash/verify with `needs_rehash`; PyJWT encode/decode with `iss`, `aud`, `jti`, `sid`
+- [ ] Dummy Argon2 verify for unknown emails (no timing leak)
+- [ ] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
+- [ ] `client_info` dependency — IP (trusted proxy aware) and user agent
+- [ ] `POST /auth/signup` (behind `FEATURE_SIGNUP`), `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`
+- [ ] Refresh rotation with `family_id` and reuse detection (reuse ⇒ revoke family + audit event)
+- [ ] Account lockout: failed counter, `locked_until`, reset on success
+- [ ] Session strategy from settings (`allow_multiple`, `replace_all`, `limit_sessions`, `replace_same_device`)
+- [ ] `GET /me`, `GET /me/sessions`, `DELETE /me/sessions/{id}`, `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
+- [ ] `POST /me/password` (change password; revokes other sessions)
+- [ ] Tests for every path, including reuse detection, lockout and expiry
+
+**Fixes from review:** unsalted SHA-256 passwords; `/debug-login` and `/debug-refresh`
+(not recreated); revocation that hashed the hash and revoked nothing; revoke-others killing the
+current session; `settings` NameError; role/org trusted from JWT claims; hard-coded
+`expires_in`; 7 copies of the token-check block; unused refresh JWT.
+
+**Exit criteria:** ASVS V2/V3 items for these flows pass; coverage ≥ 90 % on auth services.
+
+---
+
+## Step 4 — Rate limiting
+
+**Goal:** correct, cheap, shared rate limiting.
+
+- [ ] GCRA in one Lua script: atomic, O(1) memory per key, one Redis round trip per check
+- [ ] Policies in settings: per IP global, per IP per route, per user per route; per-email limit on login
+- [ ] `rate_limit("login")` dependency; standard `RateLimit-*` and `Retry-After` headers
+- [ ] Fail closed for auth routes, open for others (configurable); no per-request `PING`
+- [ ] Use `SCAN`/key sets, never `KEYS`
+- [ ] Tests with real Redis: burst, steady rate, reset, concurrency, Redis down
+
+**Fixes from review:** same-second requests counted once; rejected requests recorded;
+swallowed per-user 429; O(n) memory per key; up to 8 Redis round trips per request; `KEYS`
+blocking Redis; wrong `Retry-After`.
+
+**Exit criteria:** a load test shows limits enforced within ±1 % at 500 req/s.
+
+---
+
+## Step 5 — Organizations, memberships & permissions
+
+**Goal:** multi-tenant organizations with permission-based access control.
+
+- [ ] Organizations CRUD; creator becomes `owner`; slug unique
+- [ ] `get_current_org` + `require_permission("x:y")` dependencies (404 for non-members, 403 for missing permission)
+- [ ] Members: list (paginated), change role, remove; cannot remove or demote the last owner
+- [ ] Roles: list, create custom role, edit permissions (`roles:manage`)
+- [ ] Transfer ownership
+- [ ] `MAX_ORGS_PER_USER` setting (ADR-0003) enforced on create and accept-invite
+- [ ] `GET /me/organizations`
+- [ ] Tenant-isolation test suite: a member of org A gets 404 for every org-B endpoint
+
+**Fixes from review:** hard-coded role `if/elif` chains; missing org-admin role; signup
+forcing org 1; `/users` returning a different shape per role; no pagination (limit 100);
+missing CRUD.
+
+**Exit criteria:** isolation suite passes for every org-scoped route; ASVS V4 items pass.
+
+---
+
+## Step 6 — Account lifecycle & email
+
+**Goal:** the account flows every product needs.
+
+- [ ] `EmailSender` protocol; `console` and `smtp` backends; simple templates
+- [ ] One-time tokens (hashed, single use, short expiry) for email verification and password reset
+- [ ] `POST /auth/verify-email`, `POST /auth/verify-email/resend`
+- [ ] `POST /auth/password-reset/request` (same response whether or not the email exists), `POST /auth/password-reset/confirm` (revokes all sessions)
+- [ ] Invitations: create, list, revoke, accept (existing user or sign up through invite)
+- [ ] Setting `REQUIRE_VERIFIED_EMAIL` to block login until verified
+- [ ] Tests for expiry, reuse, enumeration resistance
+
+**Exit criteria:** every flow works end to end with the console backend in Docker Compose.
+
+---
+
+## Step 7 — Platform admin, audit log & events
+
+**Goal:** operators can manage everything, and every sensitive action is recorded.
+
+- [ ] Event dispatcher (`app/events`) with typed events; subscribers registered at startup
+- [ ] Audit-log subscriber for auth, membership, role, invitation and admin events
+- [ ] `GET /orgs/{id}/audit` (`audit:read`) and `GET /admin/audit` — filtered, paginated
+- [ ] `/admin/users` and `/admin/organizations`: list, search, disable, enable, delete (soft)
+- [ ] Every admin action audited with actor, target, IP
+
+**Exit criteria:** every state-changing endpoint produces exactly one audit entry (tested).
+
+---
+
+## Step 8 — API polish, performance & operations
+
+**Goal:** production-ready behaviour under load.
+
+- [ ] Every endpoint has typed `response_model`, examples and documented error codes
+- [ ] Prometheus `/metrics`
+- [ ] Cleanup command for expired sessions/tokens/invitations, documented for cron / k8s CronJob
+- [ ] DB pool sizing from settings; uvicorn proxy headers; graceful shutdown
+- [ ] Load test (k6 or Locust) in `tests/load/`; record results in `docs/PERFORMANCE.md`
+- [ ] Meet the performance targets in `docs/VISION.md` §5
+
+**Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
+120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
+tokens never cleaned.
+
+**Exit criteria:** performance targets met and documented.
+
+---
+
+## Step 9 — Security hardening & review
+
+**Goal:** prove the security claims.
+
+- [ ] `docs/SECURITY.md`: threat model, data classification, reporting process
+- [ ] ASVS L2 V2/V3/V4 checklist in `docs/security/asvs.md`, each item linked to code or test
+- [ ] Security headers reviewed; CORS allow-list only
+- [ ] `pip-audit` and `bandit` in CI; Dependabot enabled
+- [ ] Independent review pass (a fresh reviewer that did not write the code)
+
+**Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
+
+---
+
+## Step 10 — Template release (v1.0.0)
+
+**Goal:** others can build on it.
+
+- [ ] `docs/EXTENDING.md` with worked examples (new permission, new endpoint, profile table, event subscriber, email provider)
+- [ ] New `README.md`: what it is, quick start, configuration, links to docs
+- [ ] `docs/API_MIGRATION.md`: every legacy endpoint → new endpoint, for `user_management_UI`
+- [ ] Delete `legacy/`
+- [ ] Mark the GitHub repo as a template; tag `v1.0.0`; `CHANGELOG.md`
+- [ ] Re-score the backend against `docs/VISION.md` §5 and record the result
+
+**Exit criteria:** every row of the 10/10 table in `docs/VISION.md` is met.
+
+---
+
+## Backlog (version 2)
+
+- [ ] TOTP two-factor auth with recovery codes
+- [ ] API keys / personal access tokens
+- [ ] Webhooks for domain events
+- [ ] Optional Postgres row-level security as a second tenant-isolation layer
