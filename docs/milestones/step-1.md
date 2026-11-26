@@ -1,7 +1,7 @@
 # Milestone 1: Project skeleton & tooling
 
 - PR: https://github.com/Husky1711/fastapi-user-management/pull/2
-- Latest CI run (automatic report): RUN_LINK
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45882257652 (54 tests + 5 user scenarios passed, coverage 97.2 %; open "Summary" for every result)
 - Verdict: **IN PROGRESS**. All sections ✅; gate checks 1–4 PASS; check 5 (independent review
   and scorecard) not run yet.
 
