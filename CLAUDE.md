@@ -18,9 +18,8 @@ measurable "10/10" table in `docs/VISION.md` §5.
 
 ## Current state
 
-- The code at the repo root (`main.py`, `routes/`, `services/`, `models/`, `utils/`, …) is the
-  **legacy** implementation. From roadmap step 1 it lives in `legacy/` and is reference only:
-  do not import it, run it, or fix bugs in it.
+- `legacy/` holds the old implementation. It is reference only: do not import it, run it, or
+  fix bugs in it. Lint, type checks and tests ignore it.
 - The new application is built in `app/`, step by step, following `docs/ROADMAP.md`.
 - The current `README.md` describes the legacy code and overstates some features; it is
   rewritten in step 10.
@@ -87,7 +86,7 @@ change per commit.
 | Errors | `raise NotFound(...)`, `raise Forbidden(...)` (from `app/core/errors.py`) | `HTTPException` in services; returning error dicts |
 | Response shape | Pydantic `*Out` schema with `from_attributes=True` | Hand-built dicts |
 | Lists | `Page[T]` + `PaginationParams` | Unbounded `.all()` |
-| Settings | `from app.core.config import settings` | Copying settings into module constants; `os.getenv` |
+| Settings | `get_settings()` (or `request.app.state.settings`) from `app/core/config.py` | Copying settings into module constants; `os.getenv` |
 | Time | `app.core.clock.now()` (UTC, aware) | `datetime.utcnow()` |
 | Passwords | `security.hash_password` / `verify_password` (Argon2id) | Any other hashing |
 | Logging | `get_logger()` from `app/core/logging.py`, with structured fields | f-strings with secrets; `print` |
@@ -131,16 +130,19 @@ If you are about to write the same 3+ lines a second time, extract them.
 
 ## Commands
 
-Available from roadmap step 1:
-
 ```bash
-make install     # uv sync
-make run         # docker compose up (app + postgres + redis)
+make install     # uv sync (creates uv.lock; commit it)
+make run         # docker compose up (app + postgres + redis) → http://localhost:8000/docs
 make lint        # ruff check + ruff format --check
 make typecheck   # mypy --strict
 make test        # pytest with coverage
-make migrate     # alembic upgrade head
+make migrate     # alembic upgrade head (from step 2)
+make check       # lint + typecheck + test, exactly what CI runs
 ```
+
+Tests that need real PostgreSQL and Redis are marked `services` and run when
+`RUN_SERVICE_TESTS=1` (CI sets it). Locally: `make run` in one terminal, then
+`RUN_SERVICE_TESTS=1 DATABASE__URL=... REDIS__URL=... make test`.
 
 ## Things to ask the owner about (don't guess)
 

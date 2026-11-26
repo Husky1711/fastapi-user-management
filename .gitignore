@@ -23,12 +23,14 @@ MANIFEST
 
 # Virtual Environment
 venv/
+.venv/
 env/
 ENV/
 env.bak/
 venv.bak/
 
-# Environment Variables
+# Environment Variables (never commit real secrets; .env.example is the template)
+.env
 .env.local
 .env.*.local
 
@@ -77,3 +79,7 @@ coverage.xml
 # Backup files
 *.backup
 *.bak
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/

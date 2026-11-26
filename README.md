@@ -1,5 +1,12 @@
 # 🚀 FastAPI User Management System
 
+> **Branch `v2`: rebuild in progress.** This branch is being rebuilt into a reusable,
+> production-grade user-management base. The new app lives in `app/`; the old code below is
+> kept in `legacy/` for reference. Start with [`CLAUDE.md`](CLAUDE.md),
+> [`docs/VISION.md`](docs/VISION.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Quick start: `cp .env.example .env && make run`, then open http://localhost:8000/docs.
+> The rest of this README describes the legacy code and is rewritten in roadmap step 10.
+
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.119+-green.svg)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
