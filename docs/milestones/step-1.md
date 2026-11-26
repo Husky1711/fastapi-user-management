@@ -1,221 +1,283 @@
 # Milestone 1: Project skeleton & tooling
 
 - PR: https://github.com/Husky1711/fastapi-user-management/pull/2
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45882257652 (54 tests + 5 user scenarios passed, coverage 97.2 %; open "Summary" for every result)
-- Verdict: **IN PROGRESS**. All sections ✅; gate checks 1–4 PASS; check 5 (independent review
-  and scorecard) not run yet.
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45884857593
+  (110 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
+  scenarios passed on the real stack; coverage 97.0 %; open "Summary" for every result)
+- Verdict: **IN PROGRESS**. All sections ✅; gate checks 1–4 PASS; check 5 round 1 FAILED
+  (`reviews/step-1-round-1.md`), all its findings addressed below; round 2 pending.
 
-> Process note: the testing process was introduced partway through this step, so these
-> scenario plans were written after the first version of the code, not before it. From step 2
-> on, each section's plan is written first.
+> Process note: the testing process was introduced partway through this step, so the first
+> scenario plans were written after the first version of the code. The round 1 review found
+> the gaps this caused; the plans below are the corrected ones. From step 2 on, each
+> section's plan is written before its code.
 
 ## Section log
 
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Clean branch and tooling (`pyproject`, `Makefile`, `.env.example`, `.gitignore`) | ✅ | 4 / 4 | Old code removed from `v2`; stays on `main` |
-| 1.2 | Settings and production safety | ✅ | 15 / 15 | |
-| 1.3 | Logging and request middleware | ✅ | 16 / 16 | |
-| 1.4 | Error format (RFC 9457) | ✅ | 8 / 8 | |
-| 1.5 | Health probes and infrastructure clients | ✅ | 9 / 9 | |
-| 1.6 | Docker, Compose, CI and automatic test report | ✅ | 9 / 9 | |
-| | **Total** | **✅** | **61 / 61** | Automated tests + CI-scripted operator scenarios |
+| 1.1 | Clean branch and tooling | ✅ | 5 / 5 | Old code removed from `v2`; stays on `main` |
+| 1.2 | Settings and safety checks for strict environments | ✅ | 23 / 23 | Staging now strict as well |
+| 1.3 | Logging and request middleware | ✅ | 28 / 28 | |
+| 1.4 | Error format (RFC 9457) | ✅ | 15 / 15 | Error boundary moved inside CORS |
+| 1.5 | Health probes, readiness cache, infrastructure clients | ✅ | 15 / 15 | |
+| 1.6 | Docker, Compose, CI and automatic test report | ✅ | 8 / 8 | |
+| | **Total** | **✅** | **94 / 94** | |
 
 ## Scenario plan and results
 
-Result column: ✅ = passing in the CI run linked above. Test names are in parentheses.
-C4 (authentication) and C5 (authorization) are N/A for the whole step: no endpoint in step 1
-needs a user. They start in step 3.
+- **Id** = scenario id. Automated tests carry it in their name: `test_s1_<section>_<nn>_...`.
+- **Evidence**: *test* = pytest (unit / integration / e2e), visible in the CI run's automatic
+  report; *CI step* = a named step in the Compose job of the same run.
+- ✅ = passing in the CI run linked above.
+- **C4 (authentication) and C5 (authorization) are N/A for the whole step**: no endpoint in
+  step 1 needs a user. They start in step 3.
 
 ### Section 1.1: Clean branch and tooling
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.1-1 | C1 | Fresh clone installs and every quality gate runs (`uv sync`, ruff, mypy, pytest) | All succeed | ✅ (CI jobs Lint, Type check, Test) |
-| 1.1-2 | C10 | `.env` with real secrets can't be committed | `.env` git-ignored; `.env.example` committed | ✅ (`.gitignore`) |
-| 1.1-3 | C11 | A new developer follows the README quick start | `cp .env.example .env && make run` serves the app | ✅ (Compose job) |
-| 1.1-4 | C12 | Nothing from the old code is imported or required | App and tests pass with no old files present | ✅ (CI) |
-| — | C2, C3, C6–C9 | N/A: configuration files only, no runtime input | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.1-01 | C1 | Fresh checkout installs; lint, type check and tests run | All succeed | CI jobs Lint, Type check, Test | ✅ |
+| 1.1-02 | C6, C10 | `.env`, `.env.production`, `.env.staging`, `.env.local` can't be committed; `.env.example` is committed | Ignored / tracked | test `s1_1_02` (git check-ignore) | ✅ |
+| 1.1-03 | C11 | New developer follows the README quick start (`cp .env.example .env`, compose up) | Stack starts healthy | CI step "1.1-3 Quick start exactly as the README says" | ✅ |
+| 1.1-04 | C10 | No old code left on the branch | None present | test `s1_1_04` | ✅ |
+| 1.1-05 | C12 | Every test still passes on every push | CI green | CI run | ✅ |
+| — | C2, C3 | N/A: configuration files only; no runtime input | | | |
+| — | C7, C8, C9 | N/A: static repository files; no concurrent use, repeat effect or dependency | | | |
 
-### Section 1.2: Settings and production safety
+### Section 1.2: Settings and safety checks for strict environments
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.2-1 | C1 | Development defaults load | Accepted, docs enabled (`test_development_defaults_are_accepted`) | ✅ |
-| 1.2-2 | C1 | Safe production settings | Accepted, docs disabled (`test_safe_production_settings_pass`) | ✅ |
-| 1.2-3 | C6 | Production with the default JWT secret | Rejected (`test_production_rejects_default_jwt_secret`) | ✅ |
-| 1.2-4 | C3 | Production with a secret shorter than 32 characters | Rejected with the exact reason (`test_production_rejects_short_jwt_secret`) | ✅ |
-| 1.2-5 | C6 | Production with `DEBUG=true` | Rejected (`test_production_rejects_debug`) | ✅ |
-| 1.2-6 | C6 | Production with default DB credentials | Rejected (`test_production_rejects_default_database_credentials`) | ✅ |
-| 1.2-7 | C6 | Several problems at once | All reported together (`test_production_reports_every_problem_at_once`) | ✅ |
-| 1.2-8 | C6 | `CORS *` with credentials, any environment | Rejected (`test_cors_wildcard_with_credentials_is_rejected_everywhere`) | ✅ |
-| 1.2-9 | C3 | `CORS *` without credentials | Allowed (`test_cors_wildcard_without_credentials_is_allowed`) | ✅ |
-| 1.2-10 | C2 | Nested values and JSON lists from env vars | Parsed correctly (`test_nested_settings_load_from_environment`) | ✅ |
-| 1.2-11 | C6 | Settings printed or logged | Secret not visible (`test_secret_is_not_shown_in_repr`) | ✅ |
-| 1.2-12 | C6 | Production set only through real env vars | Detected as unsafe (`test_t1_production_from_environment_variables_is_unsafe`) | ✅ |
-| 1.2-13 | C2 | Unrelated `VERSION` env var (set by many CI systems) | App version unchanged (`test_t10_version_is_not_overridable_from_environment`) | ✅ |
-| 1.2-14 | C11 | App started with unsafe production config | Refuses to start (`test_unsafe_production_settings_stop_startup`) | ✅ |
-| 1.2-15 | C11 | Real container started with `ENVIRONMENT=production` and defaults | Exits non-zero with "Unsafe production configuration" (Compose job, operator step) | ✅ |
-| — | C7–C10 | N/A: settings are read once at startup and are immutable (`frozen=True`) | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.2-01 | C1 | Development defaults | Accepted; docs on | test `s1_2_01` | ✅ |
+| 1.2-02 | C1 | Safe staging and production settings | Accepted; docs off | test `s1_2_02` (×2) | ✅ |
+| 1.2-03 | C6 | Default JWT secret in staging / production | Rejected | test `s1_2_03` (×2) | ✅ |
+| 1.2-04 | C3 | JWT secret of 31 / 32 / 33 characters | 31 rejected; 32 and 33 accepted | test `s1_2_04` (×3) | ✅ |
+| 1.2-05 | C6 | `DEBUG=true` in a strict environment | Rejected | test `s1_2_05` | ✅ |
+| 1.2-06 | C6 | Default DB credentials in a strict environment | Rejected | test `s1_2_06` | ✅ |
+| 1.2-07 | C6 | Several problems at once | All reported together | test `s1_2_07` | ✅ |
+| 1.2-08 | C3 | Development and test with unsafe values | Allowed (checks apply only to strict environments) | test `s1_2_08` (×2) | ✅ |
+| 1.2-09 | C6 | `CORS *` with credentials | Rejected in every environment | test `s1_2_09` | ✅ |
+| 1.2-10 | C3 | Edge of the CORS rule: `*` with credentials off | Allowed | test `s1_2_10` | ✅ |
+| 1.2-11 | C2 | Nested values and JSON lists from env vars | Parsed | test `s1_2_11` | ✅ |
+| 1.2-12 | C2, C6 | Invalid env values: `ENVIRONMENT=prod`, pool 0 / 101 / "five", `LOG__LEVEL=verbose`, malformed CORS JSON, `JWT__ALGORITHM=none` / `RS256`, timeout 0, unknown nested key | Startup stops with a validation error | test `s1_2_12` (×10) | ✅ |
+| 1.2-13 | C3 | Pool size at its limits 1 and 100 | Accepted | test `s1_2_13` (×2) | ✅ |
+| 1.2-14 | C6 | Settings printed or dumped | Secret not visible | test `s1_2_14` | ✅ |
+| 1.2-15 | C6 | Production set only through real env vars | Detected as unsafe | test `s1_2_15` | ✅ |
+| 1.2-16 | C2 | Unrelated `VERSION` env var (set by many CI systems) | App and API-schema version unchanged | tests `s1_2_16` (×2) | ✅ |
+| 1.2-17 | C6 | JWT algorithm limited to HMAC | HS512 accepted (none / RS256 rejected in 1.2-12) | test `s1_2_17` | ✅ |
+| 1.2-18 | C6, C10 | Changing settings after the safety check (nested field, top level, origin list) | Refused | test `s1_2_18` | ✅ |
+| 1.2-19 | C11 | App built with unsafe staging / production settings | Refuses to start | test `s1_2_19` (×2) | ✅ |
+| 1.2-20 | C11 | Real container started as production with unsafe defaults | Exits non-zero, "Unsafe configuration for production" | CI step "1.2-20" | ✅ |
+| 1.2-21 | C11 | Real container started as production with safe settings | Ready 200; HSTS sent; `/docs` and `/openapi.json` 404 | CI step "1.2-21" | ✅ |
+| 1.2-22 | C8 | Settings requested repeatedly | Loaded once, same object | test `s1_2_22` | ✅ |
+| 1.2-23 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| — | C7 | N/A: loaded once at startup before any request, then immutable (1.2-18); no shared mutable state | | | |
+| — | C9 | N/A: loading reads only env vars and a local file; no network dependency | | | |
 
 ### Section 1.3: Logging and request middleware
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.3-1 | C1 | Structured fields and request id in a log line (`test_structured_fields_and_request_id_are_included`) | Both present | ✅ |
-| 1.3-2 | C3 | Logging outside any request (`test_request_id_is_omitted_outside_a_request`) | No request id key | ✅ |
-| 1.3-3 | C1 | Exception logging (`test_exception_includes_traceback`) | Traceback included | ✅ |
-| 1.3-4 | C1 | Every level works (`test_every_level_is_available`, 3 cases) | debug, warning, error | ✅ |
-| 1.3-5 | C1 | Output is JSON on stdout; uvicorn's duplicate access log off (`test_configure_logging_writes_json_to_stdout`) | As described | ✅ |
-| 1.3-6 | C1 | Request id generated when absent (`test_request_id_is_generated`) | 32-character id | ✅ |
-| 1.3-7 | C1 | Valid incoming request id kept (`test_valid_incoming_request_id_is_kept`) | Same id | ✅ |
-| 1.3-8 | C2, C6 | Malformed ids: space, 65 chars, `<script>` (`test_malformed_incoming_request_id_is_replaced`, 3 cases) | Replaced | ✅ |
-| 1.3-9 | C2 | Lower-case header name (`test_t4_...`) | Honoured | ✅ |
-| 1.3-10 | C7 | 25 concurrent requests with different ids (`test_t5_...`) | No id leaks between requests | ✅ |
-| 1.3-11 | C6 | Request with `Authorization: Bearer <secret>` (`test_t3_...`) | One log line per request; secret not logged | ✅ |
-| 1.3-12 | C1 | Security headers on every response (`test_security_headers`) | nosniff, DENY, no-referrer | ✅ |
-| 1.3-13 | C6 | Content-Security-Policy (`test_t9_content_security_policy`) | Strict on API; docs exempt | ✅ |
-| 1.3-14 | C1 | Production adds HSTS and hides docs (`test_production_adds_hsts_and_hides_docs`) | As described | ✅ |
-| 1.3-15 | C6 | CORS only for configured origins, incl. preflight (`test_cors_allows_only_configured_origins`, `test_t2_...`) | Allowed vs not allowed | ✅ |
-| 1.3-16 | C3 | Non-HTTP traffic (lifespan) passes through (`test_t8_...`) | Untouched | ✅ |
-| — | C8 | `configure_logging` called repeatedly (once per app in tests) keeps one handler | Covered by every test creating an app | ✅ |
-| — | C9, C10 | N/A: no external dependency or stored data | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.3-01 | C1 | Structured fields and request id in a log line | Present | test `s1_3_01` | ✅ |
+| 1.3-02 | C3 | Logging outside any request | No request id key | test `s1_3_02` | ✅ |
+| 1.3-03 | C1 | Exception logging | Traceback included | test `s1_3_03` | ✅ |
+| 1.3-04 | C1 | Every level | debug, warning, error | test `s1_3_04` (×3) | ✅ |
+| 1.3-05 | C1 | JSON on stdout; uvicorn duplicate access log off | As described | test `s1_3_05` | ✅ |
+| 1.3-06 | C8 | Logging configured twice | Exactly one app handler; other handlers kept | test `s1_3_06` | ✅ |
+| 1.3-07 | C6 | Fields named `message`, `level`, `request_id`, `timestamp` | Can't overwrite; stored as `field_*`; no crash | test `s1_3_07` | ✅ |
+| 1.3-08 | C1 | No incoming request id | 32-char id generated | test `s1_3_08` | ✅ |
+| 1.3-09 | C1 | Valid incoming request id | Kept | test `s1_3_09` | ✅ |
+| 1.3-10 | C2, C6 | Empty, spaces, 65 chars, `<script>`, `a/b` | Replaced | test `s1_3_10` (×5) | ✅ |
+| 1.3-11 | C3 | Request id of exactly 1 and 64 chars | Kept | test `s1_3_11` (×2) | ✅ |
+| 1.3-12 | C2 | Lower-case header name | Honoured | test `s1_3_12` | ✅ |
+| 1.3-13 | C2 | Two `X-Request-ID` headers | First one used | test `s1_3_13` | ✅ |
+| 1.3-14 | C2 | Non-ASCII header bytes | Replaced with an ASCII id | test `s1_3_14` | ✅ |
+| 1.3-15 | C7 | 25 concurrent requests with different ids (error path) | No id leaks between requests | test `s1_3_15` | ✅ |
+| 1.3-16 | C6 | Secrets in `Authorization` and query string; very long user agent | One access line per request; no secrets; user agent logged, cut at 256 chars | tests `s1_3_16` (×2) | ✅ |
+| 1.3-17 | C1 | Security headers on success | nosniff, DENY, no-referrer, CSP; no HSTS outside strict envs | test `s1_3_17` | ✅ |
+| 1.3-18 | C6 | Security headers on 404 and 500 | Present | test `s1_3_18` | ✅ |
+| 1.3-19 | C6 | Docs page | Exempt from the API CSP | test `s1_3_19` | ✅ |
+| 1.3-20 | C6 | Staging and production | HSTS sent; docs and schema 404 | test `s1_3_20` (×2) | ✅ |
+| 1.3-21 | C6 | CORS for allowed vs other origin | Allowed one only; `X-Request-ID` exposed | test `s1_3_21` | ✅ |
+| 1.3-22 | C6 | CORS preflight | Request id and security headers present | test `s1_3_22` | ✅ |
+| 1.3-23 | C3 | Non-HTTP traffic (lifespan) | Passed through untouched | test `s1_3_23` | ✅ |
+| 1.3-24 | C9 | Client disconnects mid-request | Logged as 499, not 500; cancellation propagates | test `s1_3_24` | ✅ |
+| 1.3-25 | C11 | Client traces its own request id on the real server | Same id back | e2e `s1_3_25` | ✅ |
+| 1.3-26 | C11 | Real server's security headers | Present, incl. CSP | e2e `s1_3_26` | ✅ |
+| 1.3-27 | C1 | Clock | Timezone-aware UTC | test `s1_3_27` | ✅ |
+| 1.3-28 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| — | C10 | N/A: logging and middleware store no data | | | |
 
-### Section 1.4: Error format
+### Section 1.4: Error format (RFC 9457)
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.4-1 | C1 | `AppError` raised by code (`test_app_error_becomes_problem_json`) | `application/problem+json` with code, detail, request id | ✅ |
-| 1.4-2 | C1 | Defaults and custom headers (`test_app_error_defaults_and_headers`) | 409 + header kept | ✅ |
-| 1.4-3 | C2, C6 | Invalid body containing a password (`test_validation_error_lists_fields_without_echoing_input`) | Field errors; password never echoed | ✅ |
-| 1.4-4 | C2 | Unknown route (`test_unknown_route_is_problem_json`) | 404 `http.not_found` | ✅ |
-| 1.4-5 | C2 | Wrong HTTP method (`test_wrong_method_is_problem_json`) | 405 `http.method_not_allowed` | ✅ |
-| 1.4-6 | C6, C9 | Unhandled exception whose message holds a secret (`test_unhandled_exception_is_generic_500`) | Generic 500 with request id; secret not leaked | ✅ |
-| 1.4-7 | C6 | `HTTPException` with an internal dict detail (`test_t7_...`) | Standard text; internal detail hidden | ✅ |
-| 1.4-8 | C9 | Exception after a streaming response started (`test_t6_...`) | Surfaces instead of a fake clean 500 | ✅ |
-| — | C7, C8, C10 | N/A: error handling holds no state | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.4-01 | C1 | `AppError` raised by code | Problem JSON with code, detail, request id | test `s1_4_01` | ✅ |
+| 1.4-02 | C1 | Defaults and custom headers | 409, header kept | test `s1_4_02` | ✅ |
+| 1.4-03 | C2, C6 | Missing field in a body that contains a password | Field error; password never echoed | test `s1_4_03` | ✅ |
+| 1.4-04 | C2, C6 | Malformed JSON body | 422 `json_invalid`; body not echoed | test `s1_4_04` | ✅ |
+| 1.4-05 | C2 | Query parameter 0 / 101 / "abc" | 422 pointing at `["query","limit"]` | test `s1_4_05` (×3) | ✅ |
+| 1.4-06 | C2 | Unknown route | 404 `http.not_found` | test `s1_4_06` | ✅ |
+| 1.4-07 | C2 | Wrong method | 405 `http.method_not_allowed` | test `s1_4_07` | ✅ |
+| 1.4-08 | C6, C9 | Unhandled exception with a secret in its message | Generic 500 with request id; secret not leaked | test `s1_4_08` | ✅ |
+| 1.4-09 | C6 | `HTTPException` with an internal dict detail | Standard text; detail hidden | test `s1_4_09` | ✅ |
+| 1.4-10 | C3 | Non-standard status code 499 | Problem JSON, code `http.499`, generic title | test `s1_4_10` | ✅ |
+| 1.4-11 | C9 | Error after streaming started | Surfaces; not disguised as a clean 500 | test `s1_4_11` | ✅ |
+| 1.4-12 | C6 | 500 for a browser on an allowed origin | CORS header present; request id readable | test `s1_4_12` | ✅ |
+| 1.4-13 | C11 | Client calls a wrong URL on the real server | 404 problem JSON with request id | e2e `s1_4_13` | ✅ |
+| 1.4-14 | C11 | Browser app on an allowed origin reads an error on the real server | CORS header and exposed `X-Request-ID` | e2e `s1_4_14` | ✅ |
+| 1.4-15 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| — | C7 | Covered by 1.3-15: 25 concurrent requests on the 404 error path, each with its own request id in the body | | | |
+| — | C8 | N/A: error handling holds no state; the same input always gives the same output | | | |
+| — | C10 | N/A: no data stored | | | |
 
-### Section 1.5: Health probes and infrastructure clients
+### Section 1.5: Health probes, readiness cache, infrastructure clients
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.5-1 | C1 | Liveness (`test_liveness`) | 200 `alive` | ✅ |
-| 1.5-2 | C1 | Readiness with all checks passing (`test_readiness_when_all_checks_pass`) | 200 `ready` | ✅ |
-| 1.5-3 | C9, C6 | A check fails with a DSN in the error (`test_readiness_fails_without_leaking_error_details`) | 503; DSN not in body | ✅ |
-| 1.5-4 | C9, C3 | A check hangs beyond the time limit (`test_readiness_times_out_slow_checks`) | 503 `timeout` | ✅ |
-| 1.5-5 | C1 | Readiness against real PostgreSQL and Redis through the real lifespan (`test_readiness_against_real_services`) | 200; both `ok` | ✅ |
-| 1.5-6 | C11 | Operator probes the running stack (`test_u1_...`) | `alive`, `ready` | ✅ |
-| 1.5-7 | C9, C11 | Redis stopped, then restarted (Compose job operator step) | 503, then back to 200 | ✅ |
-| 1.5-8 | C1 | API docs list the health routes (`test_docs_are_served_outside_production`, `test_u2_...`) | Present | ✅ |
-| 1.5-9 | C8 | Probes called repeatedly by load balancers | Stateless; every e2e and Compose call returns the same result | ✅ |
-| — | C7 | Checks within one probe run concurrently (`asyncio.gather`) | Covered by 1.5-2 to 1.5-4 | ✅ |
-| — | C10 | N/A: probes read nothing and write nothing | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.5-01 | C1 | Liveness | 200 `alive` | test `s1_5_01` | ✅ |
+| 1.5-02 | C1 | Readiness, all checks pass | 200 `ready` | test `s1_5_02` | ✅ |
+| 1.5-03 | C9, C6 | A check fails with a DSN in its error; then recovers | 503 `error`, DSN not in body; ready again after the cache window | tests `s1_5_03` (×2) | ✅ |
+| 1.5-04 | C9, C3 | A check never finishes | Cut off at the limit; 503 `timeout` (no sleeping: waits on an unset event) | tests `s1_5_04` (×2) | ✅ |
+| 1.5-05 | C7 | Checks run in parallel | Two checks that each wait for the other both succeed (impossible if run in sequence) | test `s1_5_05` | ✅ |
+| 1.5-06 | C7 | 20 concurrent probes (unit); 30 concurrent requests (integration) | One check run (single flight); all answer 200 | tests `s1_5_06` (×2) | ✅ |
+| 1.5-07 | C8, C3 | Repeated probes | Cached result at 0.999 s; refreshed at exactly 1.000 s; cache 0 = always fresh | tests `s1_5_07` (×2) | ✅ |
+| 1.5-08 | C1 | API docs list the health routes | Present | test + e2e `s1_5_08` | ✅ |
+| 1.5-09 | C1 | Lifespan | Builds database and Redis checks; closes engine and Redis on shutdown | test `s1_5_09` | ✅ |
+| 1.5-10 | C8 | Lifespan started a second time | Checks rebound to the new engine and client | test `s1_5_09` (second half) | ✅ |
+| 1.5-11 | C1 | Readiness against real PostgreSQL and Redis | 200, both `ok` | test `s1_5_11` (services) | ✅ |
+| 1.5-12 | C11 | Operator probes the running stack | `alive`, `ready` | e2e `s1_5_12` | ✅ |
+| 1.5-13 | C9, C11 | Redis stopped, then restarted | 503 while down, live still 200; back to 200 | CI step "1.5-13" | ✅ |
+| 1.5-14 | C9, C11 | PostgreSQL stopped, then restarted | 503 while down, live still 200; back to 200 | CI step "1.5-14" | ✅ |
+| 1.5-15 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| — | C2 | N/A: probes take no input; wrong method on a probe is covered by 1.4-07 | | | |
+| — | C10 | N/A: probes neither read nor write application data | | | |
 
 ### Section 1.6: Docker, Compose, CI and automatic test report
 
-| Id | Category | Scenario | Expected | Result |
-| --- | --- | --- | --- | --- |
-| 1.6-1 | C1 | Image builds and the stack starts healthy (`docker compose up --wait`) | All services healthy | ✅ |
-| 1.6-2 | C6 | Container runs as a non-root user | `USER app` (uid 10001) | ✅ (`Dockerfile`) |
-| 1.6-3 | C11 | Client gets problem JSON on a wrong URL (`test_u3_...`) | 404 problem JSON with request id | ✅ |
-| 1.6-4 | C11 | Client request id round trip (`test_u4_...`) | Same id back | ✅ |
-| 1.6-5 | C11 | Security headers from the real server (`test_u5_...`) | Present | ✅ |
-| 1.6-6 | C1 | Test report reads passed, failed, error and skipped tests (`test_reads_every_outcome`) | Correct outcomes and messages | ✅ |
-| 1.6-7 | C2 | Report escapes pipes so tables stay intact (`test_render_shows_totals_failures_and_all_tests`) | Escaped | ✅ |
-| 1.6-8 | C3 | Report with no failures; missing file; bad usage (`test_render_without_failures_...`, `test_main_handles_...`) | Handled | ✅ |
-| 1.6-9 | C12 | Every earlier test passes on every push | CI green | ✅ |
-| — | C7, C8, C10 | N/A: build and CI configuration | | |
+| Id | Cat. | Scenario | Expected | Evidence | Result |
+| --- | --- | --- | --- | --- | --- |
+| 1.6-01 | C1 | Image builds; stack starts healthy | All services healthy | CI step "1.1-3" (`compose up --wait`) | ✅ |
+| 1.6-02 | C6 | Container user | Non-root (uid 10001 in the run) | CI step "1.6-02" | ✅ |
+| 1.6-03 | C6 | Image contents | No tests, docs, `.env` or `.git` | CI step "1.6-03" | ✅ |
+| 1.6-04 | C1 | Report reads passed, failed, error, skipped | Correct outcomes and messages | test `s1_6_04` | ✅ |
+| 1.6-05 | C2 | Report with `|` in a message | Escaped; tables stay intact | test `s1_6_05` | ✅ |
+| 1.6-06 | C3 | Report with no failures; missing results file; bad usage | Handled | tests `s1_6_06` (×2) | ✅ |
+| 1.6-07 | C9 | Tests fail or produce no file | Report and artifacts still published (`if: always()`); missing file handled (1.6-06) | `ci.yml` + test `s1_6_06` | ✅ |
+| 1.6-08 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| — | C7, C8 | N/A: each CI run starts from a clean machine; no shared state between runs | | | |
+| — | C10 | N/A: no application data | | | |
+| — | C11 | Covered by 1.1-03 (README quick start on the real stack) | | | |
 
 ## Failure log
 
-Every failure found while building and testing this step, including small ones.
+Every failure found while building, testing and reviewing this step.
 
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
-| F1 | CI: type check | `problem_response()` rejected the headers of an `HTTPException` | Parameter typed `dict`; Starlette passes a `Mapping` | Parameter widened to `Mapping[str, str]` | Fixed |
-| F2 | CI: tests | Log line missing `request_id` when formatted after the request ended | Request id read at format time, not when the line was logged | Captured when the log call is made | Fixed |
-| F3 | Author while testing | Creating an app removed every other log handler (tests couldn't capture logs; other handlers would be lost) | `configure_logging()` replaced all root handlers | Replaces only its own handler | Fixed |
-| F4 | CI: type check | Test passed a dict detail to Starlette's `HTTPException` (typed as text only) | Wrong class for the scenario | Test uses FastAPI's `HTTPException`, which allows structured details | Fixed |
-| F5 | Lint | `timeout` parameter on async functions; HTTP-style error names; long lines | Lint rules | Used `asyncio.timeout`; names kept (rule disabled with a reason); lines wrapped | Fixed |
-| F6 | Gate check 4 (vs old code) | No Content-Security-Policy header; the old code had one | Missed when rewriting | Strict CSP on API responses, docs exempt (1.3-13) | Fixed |
-| F7 | Gate check 5 (author's critical pass) | A generic `VERSION` env var could change the reported version | Version was a setting | Version comes from code only (1.2-13) | Fixed |
-| F8 | Process | Scenario plans written after the code | Testing process introduced mid-step | Plans come first from step 2 on | Process fixed |
+| F1 | CI: type check | `problem_response()` rejected an `HTTPException`'s headers | Typed `dict`; Starlette passes a `Mapping` | Widened to `Mapping[str, str]` | Fixed |
+| F2 | CI: tests | Log line missing `request_id` when formatted after the request | Read at format time | Captured when logged | Fixed |
+| F3 | Author while testing | Creating an app removed all other log handlers | Replaced every root handler | Replaces only its own (regression test 1.3-06) | Fixed |
+| F4 | CI: type check | Dict detail passed to Starlette's `HTTPException` | Wrong class | FastAPI's `HTTPException` | Fixed |
+| F5 | Lint | `timeout` parameter on async functions; long lines; HTTP-style error names | Lint rules | `asyncio.timeout`; wrapped lines; rule N818 disabled with a reason | Fixed (one rule waived) |
+| F6 | Gate check 4 | No Content-Security-Policy (the old code had one) | Missed in the rewrite | Strict CSP on API responses (1.3-17/18) | Fixed |
+| F7 | Author's critical pass | `VERSION` env var could change the version | Version was a setting | Code-only version (1.2-16) | Fixed |
+| F8 | Process | Scenario plans written after the code | Process introduced mid-step | Plans first from step 2 on | Process change |
+| F9 | CI: type check | Raw header bytes passed in a `str`-keyed mapping | httpx typing | `bytes` keys (1.3-14) | Fixed |
+| R1-01 | Review round 1 (High) | Categories missing without N/A reasons | Incomplete plans | Every section lists C1–C12 or a reason | Fixed |
+| R1-02 | Review round 1 (High) | Rows claimed coverage their tests didn't prove | Weak tests | Real tests: 1.2-04, 1.3-06, 1.5-05/06/07 | Fixed |
+| R1-03 | Review round 1 (High) | Tests not named by scenario id | Rule not followed | All tests renamed `test_s1_<section>_<nn>_...` | Fixed |
+| R1-04 | Review round 1 (High) | `Any` without a reason | Rule not followed | Removed from `app/`; commented where kept in test helpers | Fixed |
+| R1-05 | Review round 1 | Rows marked CI-verified that no CI step checked | Inspection presented as CI | CI steps 1.1-3, 1.6-02, 1.6-03; test 1.1-02 | Fixed |
+| R1-06 | Review round 1 | Nested settings were mutable after the safety check | Only top level frozen | All sections frozen, origins a tuple (1.2-18) | Fixed |
+| R1-07 | Review round 1 | Staging had no safety checks and served docs | Production-only check | Staging is strict; docs only in development/test (1.2-02/03, 1.3-20) | Fixed |
+| R1-08 | Review round 1 | `JWT__ALGORITHM` accepted any string, incl. `none` | Unconstrained | HMAC-only `Literal` (1.2-12, 1.2-17); kept because step 3 uses it | Fixed |
+| R1-09 | Review round 1 | Browsers couldn't read 500s (no CORS header) | 500s produced outside CORS | Error boundary moved inside CORS (1.4-12) | Fixed |
+| R1-10 | Review round 1 | Readiness unthrottled; floods could exhaust the DB pool | No policy | 1 s cache, single flight, policy documented in `app/services/health.py` (1.5-06/07) | Fixed |
+| R1-11 | Review round 1 | Cross-check table incomplete, one row wrong | Missed old middleware details | Rows corrected and added (gate check 4) | Fixed |
+| R1-12 | Review round 1 | Coverage blind to code after SQLAlchemy awaits | No greenlet tracing | `concurrency = ["greenlet", "thread"]` | Fixed |
+| R1-13 | Review round 1 | `.env.production` could be committed | Narrow ignore rule | `.env.*` ignored except `.env.example` (1.1-02) | Fixed |
+| R1-14 | Review round 1 | Non-standard status codes crashed the error handler | `HTTPStatus()` raised | Generic fallback (1.4-10) | Fixed |
+| R1-15 | Review round 1 | Log fields could overwrite reserved keys | No guard | Stored as `field_*` (1.3-07) | Fixed |
+| R1-16 | Review round 1 | Health checks bound to the first lifespan's resources | Built once | Rebuilt on every start (1.5-10) | Fixed |
+| R1-17 | Review round 1 | Test setup copy-pasted | No helpers | `app_with`, `client_for`, `strict_settings`, `check_ok` in `tests/helpers.py` | Fixed |
+| R1-18 | Review round 1 | Architecture layout out of date | Docs drift | `docs/ARCHITECTURE.md` §3 updated | Fixed |
+| R1-19 | Review round 1 | Builds not reproducible | No `uv.lock`; tag pinning | Owner to commit `uv.lock`; pinning in step 9 | Carried forward |
+| R1-20 | Review round 1 | Timeout test relied on a real sleep | Timing-based | Never-finishing check waits on an unset event (1.5-04) | Fixed |
 
-**Totals for this step:** 61 scenarios, 61 passing. 8 failures found, 8 fixed, 0 open.
+**Totals:** 94 scenarios, 94 passing. 29 failures found: 26 fixed, 1 fixed with a documented rule
+waiver (F5), 1 process change (F8), 1 carried forward (R1-19).
 
 ## Gate
 
 ### 1. Automated: PASS
-Lint, `mypy --strict`, unit and integration tests against real PostgreSQL 16 and Redis 7 with
-coverage ≥ 90 %, and the Docker Compose job with user and operator scenarios: all green in the
-linked run. Totals and every test result are in the run's automatic report.
+Lint, `mypy --strict` (38 files), 110 tests against real PostgreSQL 16 and Redis 7 with 97.0 %
+coverage, and the Compose job (README quick start, 6 user scenarios, non-root and image checks,
+Redis and PostgreSQL outages, safe and unsafe production containers): all green in the linked run.
 
 ### 2. Tester: PASS
-All six sections cover every checklist category or mark it N/A with a reason (tables above).
+Every section covers each category C1–C12 or gives an N/A reason (tables above). Every row
+names its evidence.
 
 ### 3. User: PASS
-Scenarios 1.5-6, 1.5-7, 1.6-3 to 1.6-5 and 1.2-15 run against the real stack in CI.
+Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.5-08, 1.5-12,
+1.5-13, 1.5-14, 1.6-02, 1.6-03.
 
 ### 4. Cross-check vs old code (`main` @ `209a9bd`): PASS
 
 | Old | New | Decision | Reason |
 | --- | --- | --- | --- |
-| `config/settings.py`: known default JWT secret and DB password, no production checks | Nested, frozen settings; production refuses unsafe values | Improved | Old app ran in production with public default secrets |
-| `Settings.is_production()` reads a missing attribute | `Settings.is_production` property, tested | Fixed | Crashed with `AttributeError` |
-| Settings for sessions, rate limits, lockout | Not yet present | Moved | Added with their features in steps 3–4, so no setting exists without code using it |
+| `config/settings.py`: known default JWT secret and DB password, no safety checks | Frozen settings; staging and production refuse unsafe values | Improved | Old app ran with public default secrets |
+| `Settings.is_production()` reads a missing attribute | `is_production` / `is_strict` properties, tested | Fixed | Crashed with `AttributeError` |
+| Settings for sessions, rate limits, lockout | Not yet present | Moved | Added with their features in steps 3–4 |
 | `app.host/port/reload`, `workers=4` hard-coded | uvicorn CLI / orchestrator | Dropped | Process settings belong to the runtime |
 | `config_manager.py` copies `config/env_*.txt` (files don't exist) | `.env.example` + `.env` | Replaced | The old script could never work |
 | `requirement.txt` missing `pydantic-settings`; unused `passlib`, `bcrypt`, `PyJWT`, `requests` | `pyproject.toml` with only what is used | Fixed | Fresh install crashed |
+| Redis `password` and `retry_on_timeout` settings | Password inside `REDIS__URL` (`redis://:pw@host`); connect / socket timeouts set in the client | Replaced | One URL is the standard form; retries belong to the client |
 | 4 log modules writing rotating files under `logs/` | One JSON logger to stdout | Improved | Containers lose local files |
 | Correlation id generated in each route | Request id set once; in every log line, error body and response header | Improved | Was duplicated and missing from errors |
-| 5 stacked `BaseHTTPMiddleware` layers + a logging middleware | One pure ASGI middleware | Improved | Less overhead; one log line per request |
-| Headers: `nosniff`, `DENY`, `strict-origin-when-cross-origin`, `Permissions-Policy`, `X-XSS-Protection`, CSP `default-src 'self'` | `nosniff`, `DENY`, `no-referrer`, CSP `default-src 'none'; frame-ancestors 'none'`, HSTS in production | Improved | Stricter, API-appropriate. `X-XSS-Protection` is deprecated and can introduce XSS; `Permissions-Policy` has no effect on JSON |
-| HSTS only if `enable_https_redirect` | HSTS whenever environment is production | Improved | TLS ends at the load balancer |
+| 3 `BaseHTTPMiddleware` classes + one `@app.middleware("http")` (an `AutoRefreshMiddleware` existed but was never added) | 2 pure ASGI middlewares (request context; error boundary) + CORS | Improved | Less overhead; one access-log line per request |
+| `user_agent` in request logs | Kept, truncated to 256 characters | Kept | Useful for support; bounded size |
+| `SecurityLoggingMiddleware`: warnings for responses ≥ 400 and "suspicious" paths | Every request logged with its status, so ≥ 400 is filterable; path heuristics dropped | Replaced / dropped | Status-based alerting belongs in log tooling; path pattern matching is a WAF job (step 9 review) |
+| `X-Process-Time` response header | Duration in the access log; metrics in step 8 | Dropped | Timing data is for operators, not clients |
+| `HTTPSRedirectMiddleware` when enabled | Not in the app; HSTS in strict environments | Dropped | TLS ends at the load balancer, which does the redirect |
+| Headers: `nosniff`, `DENY`, `strict-origin-when-cross-origin`, `Permissions-Policy`, `X-XSS-Protection`, CSP `default-src 'self'` | `nosniff`, `DENY`, `no-referrer`, CSP `default-src 'none'; frame-ancestors 'none'` on every response incl. errors, HSTS in strict environments | Improved | Stricter. `X-XSS-Protection` is deprecated and can introduce XSS; `Permissions-Policy` has no effect on JSON |
+| HSTS only if `enable_https_redirect` | HSTS in staging and production | Improved | TLS ends at the load balancer |
 | CORS `*` with credentials by default | Allow-list; `*` + credentials rejected | Fixed | Any website could make credentialed calls |
-| Errors `{"detail", "status_code"}`; validation errors echo input | RFC 9457 with stable `code` and `request_id`; input never echoed | Improved | Old format leaked submitted passwords |
+| Errors `{"detail", "status_code"}`; validation errors echo input | RFC 9457 with stable `code` and `request_id`; input never echoed; readable by browsers on allowed origins | Improved | Old format leaked submitted passwords |
 | 7 health/info endpoints incl. duplicates, `/hello`, `/` | `/health/live`, `/health/ready` | Consolidated | `/health/detailed` returned raw exception text; `/` exposed environment info |
-| Readiness pinged DB then Redis, no timeout | Parallel checks with a timeout | Improved | One hung dependency stalled the probe |
+| Startup failed hard if the DB was unreachable | App starts; `/health/ready` returns 503 until the DB is reachable (1.5-14) | Changed | Orchestrators route traffic by readiness; a crash loop hides the cause and slows recovery |
+| Readiness pinged DB then Redis, no timeout, no cache | Parallel checks with a time limit; 1 s single-flight cache | Improved | One hung dependency stalled the probe; probe floods could exhaust the pool |
 | Sync engine, pool 10 + 20, `pool_recycle=3600` | Async engine, pool 5 + 5, `pool_pre_ping` | Improved | Non-blocking; smaller default pool |
 | Sync Redis singleton, `PING` before every request | Async client from lifespan, closed on shutdown | Improved | No blocking calls, no per-request ping |
 | `@app.on_event` hooks alongside `lifespan` | `lifespan` only | Fixed | Deprecated API removed |
-| Docs disabled in production | Same | Kept | Correct in the old code |
-| `.env` not git-ignored | Ignored; `.env.example` committed | Fixed | Risk of committing secrets |
+| Docs disabled in production | Docs only in development and test | Improved | Staging is internet-facing too |
+| `.env` not git-ignored | `.env` and `.env.*` ignored; `.env.example` committed | Fixed | Risk of committing secrets |
 
-### 5. Independent review: NOT RUN
+### 5. Independent review
 
-Needs a reviewer who didn't write this code: the owner, another developer, or a fresh AI
-reviewer session given only the PR, `CLAUDE.md`, `docs/milestones/README.md` and this report.
-The reviewer records findings here and fills in the scorecard.
-
-The author's critical pass before handover (input for the reviewer, not a substitute):
-
-| # | Finding | Severity | Resolution |
+| Round | Commit | Verdict | Record |
 | --- | --- | --- | --- |
-| A1 | No Content-Security-Policy | Medium | Fixed (F6) |
-| A2 | Generic `VERSION` env var could override the app version | Low | Fixed (F7) |
-| A3 | `uv.lock` not committed; builds not fully reproducible | Medium | Carried forward (owner, needs internet) |
-| A4 | Base images and GitHub Actions pinned by tag, not digest / SHA | Low | Carried to step 9 |
-| A5 | Unhandled-exception logs include the exception message | Low | Accepted: logs are internal |
-| A6 | `/health/ready` is public and names the failing dependency | Low | Accepted: standard probe behaviour, no details |
-| A7 | Compose exposes Postgres and Redis on the host with default credentials | Low | Accepted for local development only |
-| A8 | An exception after streaming started is logged twice (middleware and uvicorn) | Low | Accepted; rare |
+| 1 | `919dbc7` | **FAIL**: 4 High, 9 Medium, 7 Low | [`reviews/step-1-round-1.md`](reviews/step-1-round-1.md); every finding addressed (R1-01 to R1-20) |
+| 2 | pending | | |
 
-## Scorecard (to be filled by the independent reviewer)
+## Scorecard (independent reviewer)
 
-| Area | Old code | After step 1 | Evidence |
-| --- | --- | --- | --- |
-| Folder structure & architecture | 6 | | |
-| API design | 5 | | |
-| Database schema | 5 | not built yet | |
-| Scalability & load balancing | 4 | | |
-| DSA / algorithms | 4 | | |
-| Code quality & correctness | 3 | | |
-| Duplication & reuse | 3 | | |
-| Maintainability | 3 | | |
-| Security | 2 | | |
+| Area | Old code | Round 1 | Round 2 | Evidence |
+| --- | --- | --- | --- | --- |
+| Folder structure & architecture | 6 | 8 | | |
+| API design | 5 | 7 | | |
+| Database schema | 5 | not built yet | | |
+| Scalability & load balancing | 4 | 7 | | |
+| DSA / algorithms | 4 | not built yet | | |
+| Code quality & correctness | 3 | 7 | | |
+| Duplication & reuse | 3 | 8 | | |
+| Maintainability | 3 | 7 | | |
+| Security | 2 | 6 | | |
+| **Overall** | **4** | **7** | | |
 
 ## Carried forward
 
 - Commit `uv.lock`, then switch CI and Docker to `uv sync --locked` (owner action, needs internet).
 - Pin images by digest and actions by SHA (step 9).
-- Independent review and scorecard before this PR is merged.
