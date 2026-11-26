@@ -101,7 +101,7 @@ The report can't drift from reality because it is generated from the actual run.
 
 ---
 
-## 4. Step gate: five checks
+## 4. Step gate: five checks (six for security-relevant steps)
 
 | # | Check | Question | Evidence |
 | --- | --- | --- | --- |
@@ -110,6 +110,7 @@ The report can't drift from reality because it is generated from the actual run.
 | 3 | User | Full journeys work on the real stack? | `tests/e2e/` + operator scenarios in the Compose CI job |
 | 4 | Cross-check vs old code | Kept what was right, fixed what was wrong, dropped nothing by accident? | Table vs `main` @ `209a9bd` |
 | 5 | Independent review | Would a doubtful senior engineer sign it off? | Output of the `milestone-reviewer` agent (`.claude/agents/milestone-reviewer.md`): findings, verdict, scorecard |
+| 6 | Security audit (steps 3, 4, 5, 6, 7, 9) | Can an attacker break it? | `security-audit` skill (`.claude/skills/security-audit/`) in full audit mode: no confirmed Critical/High; needs-validation items resolved. Only fixed or rejected findings are recorded (public repo) |
 
 - Every check is **PASS** or **FAIL**; no "mostly".
 - Any *high* or *critical* finding is an automatic FAIL.

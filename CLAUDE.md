@@ -73,8 +73,8 @@ code is broken and try to prove it. Passing tests you wrote for the happy path p
 4. Then update the section log (✅, scenario counts), commit and push.
 
 **Level 2: every step.** When all sections are ✅, retest the whole step together on the real
-stack and run the five-check gate: automated, tester, user, cross-check vs the old code on
-`main`, independent review. PASS plus the owner's approval is required before merge, and the
+stack and run the gate: automated, tester, user, cross-check vs the old code on `main`,
+independent review, plus a security audit for security-relevant steps. PASS plus the owner's approval is required before merge, and the
 next step starts only after that.
 
 **Session rule.** Before any session ends, every finished section is tested, committed, pushed
@@ -94,6 +94,16 @@ session starts by reading the section log and continues from the first section t
 (`.claude/agents/milestone-reviewer.md`): a fresh, read-only reviewer that verifies the report
 against the code and CI. Its output goes into the step report unchanged. Fix its Critical and
 High findings, then run it again until it returns PASS. Never edit its verdict.
+
+**Security audit (security-relevant steps).** At the end of steps 3, 4, 5, 6, 7 and 9, run the
+vendored `security-audit` skill (`.claude/skills/security-audit/`, Cloudflare, pinned) in full
+audit mode on the step's code, with audit output written outside the repository (its default).
+- Any **confirmed Critical or High** finding fails the gate; fix it and re-run the audit.
+- "Needs validation" findings must be validated or explained before merge.
+- This repository is public: record only findings that are **fixed or rejected** in
+  `docs/milestones/step-<n>.md` (summary, severity, fix, test). Never commit details of an
+  open vulnerability.
+- Never edit the vendored skill; update it only as `VENDORED.md` describes.
 
 **Scoring.** After each step, the **independent reviewer** (never the author) scores the nine
 review areas against the old code's baseline, one line of evidence per score, and updates
