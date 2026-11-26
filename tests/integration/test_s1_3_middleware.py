@@ -74,7 +74,7 @@ async def test_s1_3_13_first_of_several_request_id_headers_is_used(client: Async
 
 async def test_s1_3_14_non_ascii_request_id_is_replaced(client: AsyncClient) -> None:
     response = await client.get(
-        "/health/live", headers={"X-Request-ID": "caf\xe9-id".encode("latin-1")}
+        "/health/live", headers={b"X-Request-ID": "caf\xe9-id".encode("latin-1")}
     )
     assert response.headers["X-Request-ID"] != "caf\xe9-id"
     assert response.headers["X-Request-ID"].isascii()
