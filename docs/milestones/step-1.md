@@ -4,8 +4,9 @@
 - Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45887647468
   (120 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
   scenarios passed on the real stack; coverage 97.8 %; open "Summary" for every result)
-- Verdict: **IN PROGRESS**. All sections ✅; gate checks 1–4 PASS; check 5 rounds 1 and 2 FAILED
-  (`reviews/`), all their findings addressed or carried below; round 3 pending.
+- Verdict: **PASS, awaiting the owner's decision.** All sections ✅; gate checks 1–4 PASS; check 5
+  PASS in round 3 (rounds 1 and 2 failed; see `reviews/`). Four areas score 8, below the ≥ 9
+  bar: the owner either accepts them or asks for the round-3 fixes before merge.
 
 > Process note: the testing process was introduced partway through this step, so the first
 > scenario plans were written after the first version of the code. The round 1 review found
@@ -286,22 +287,22 @@ Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.
 | --- | --- | --- | --- |
 | 1 | `919dbc7` | **FAIL**: 4 High, 9 Medium, 7 Low | [`reviews/step-1-round-1.md`](reviews/step-1-round-1.md); every finding addressed (R1-01 to R1-20) |
 | 2 | `180a554` | **FAIL**: 1 High, 3 Medium, 8 Low; 18 of 20 round-1 findings confirmed resolved | [`reviews/step-1-round-2.md`](reviews/step-1-round-2.md); every finding addressed (R2-01 to R2-12) |
-| 3 | pending | | |
+| 3 | `e90cc09` | **PASS**: 0 Critical/High, 2 Medium, 9 Low; all round-2 findings resolved or carried | [`reviews/step-1-round-3.md`](reviews/step-1-round-3.md) |
 
 ## Scorecard (independent reviewer)
 
 | Area | Old code | Round 1 | Round 2 | Round 3 |
 | --- | --- | --- | --- | --- |
-| Folder structure & architecture | 6 | 8 | 8 | |
-| API design | 5 | 7 | 7 | |
-| Database schema | 5 | not built yet | not built yet | |
-| Scalability & load balancing | 4 | 7 | 8 | |
-| DSA / algorithms | 4 | not built yet | not built yet | |
-| Code quality & correctness | 3 | 7 | 8 | |
-| Duplication & reuse | 3 | 8 | 8 | |
-| Maintainability | 3 | 7 | 7 | |
-| Security | 2 | 6 | 7 | |
-| **Overall** | **4** | **7** | **8** | |
+| Folder structure & architecture | 6 | 8 | 8 | 9 |
+| API design | 5 | 7 | 7 | 8 |
+| Database schema | 5 | not built yet | not built yet | not built yet |
+| Scalability & load balancing | 4 | 7 | 8 | 8 |
+| DSA / algorithms | 4 | not built yet | not built yet | not built yet |
+| Code quality & correctness | 3 | 7 | 8 | 9 |
+| Duplication & reuse | 3 | 8 | 8 | 9 |
+| Maintainability | 3 | 7 | 7 | 8 |
+| Security | 2 | 6 | 7 | 8 |
+| **Overall** | **4** | **7** | **8** | **8** (8.4 average) |
 
 Evidence for each score is in the review records.
 
