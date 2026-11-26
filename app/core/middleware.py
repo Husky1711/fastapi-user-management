@@ -27,6 +27,10 @@ SECURITY_HEADERS: dict[str, str] = {
     "Referrer-Policy": "no-referrer",
 }
 HSTS_HEADER = ("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+# JSON responses never need to load scripts, styles or frames. The interactive docs pages
+# (development only) load Swagger UI from a CDN, so they are exempt.
+API_CSP_HEADER = ("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+DOCS_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc"})
 
 log = get_logger(__name__)
 
@@ -66,6 +70,8 @@ class RequestContextMiddleware:
                     headers.setdefault(name, value)
                 if self.enable_hsts:
                     headers.setdefault(*HSTS_HEADER)
+                if scope["path"] not in DOCS_PATHS:
+                    headers.setdefault(*API_CSP_HEADER)
             await send(message)
 
         try:

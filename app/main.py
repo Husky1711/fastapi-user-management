@@ -10,6 +10,7 @@ from functools import partial
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import __version__
 from app.api import health
 from app.api.v1 import api_router
 from app.core.config import Settings, get_settings
@@ -34,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "database": partial(ping_database, engine),
             "redis": partial(ping_redis, redis),
         }
-    log.info("startup", environment=settings.environment, version=settings.version)
+    log.info("startup", environment=settings.environment, version=__version__)
     try:
         yield
     finally:
@@ -58,7 +59,7 @@ def create_app(
 
     app = FastAPI(
         title=settings.app_name,
-        version=settings.version,
+        version=__version__,
         debug=settings.debug,
         lifespan=lifespan,
         docs_url="/docs" if settings.docs_enabled else None,

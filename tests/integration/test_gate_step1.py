@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from starlette.types import Message, Receive, Scope, Send
 
+from app import __version__
 from app.core.config import CorsSettings, Environment, Settings
 from app.core.logging import JsonFormatter
 from app.core.middleware import RequestContextMiddleware
@@ -139,3 +140,23 @@ async def test_t8_non_http_scopes_pass_through() -> None:
     middleware = RequestContextMiddleware(inner)
     await middleware({"type": "lifespan"}, receive, send)
     assert seen == ["lifespan"]
+
+
+# T9 — API responses forbid loading any content; the dev-only docs page still works
+async def test_t9_content_security_policy(client: AsyncClient) -> None:
+    api = await client.get("/health/live")
+    docs = await client.get("/docs")
+    assert api.headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'"
+    assert docs.status_code == 200
+    assert "Content-Security-Policy" not in docs.headers
+
+
+# T10 — an unrelated VERSION variable (set by many CI systems) cannot change the app's version
+async def test_t10_version_is_not_overridable_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VERSION", "9.9.9")
+    app = create_app(make_settings(), health_checks={})
+    async with _client(app) as client:
+        info = (await client.get("/openapi.json")).json()["info"]
+    assert info["version"] == __version__

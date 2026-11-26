@@ -13,8 +13,6 @@ from typing import Self
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app import __version__
-
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
 DEFAULT_DATABASE_CREDENTIALS = "postgres:postgres@"
@@ -90,7 +88,6 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "User Management API"
-    version: str = __version__
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = False
 
