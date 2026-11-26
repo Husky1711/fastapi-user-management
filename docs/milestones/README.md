@@ -109,7 +109,7 @@ The report can't drift from reality because it is generated from the actual run.
 | 2 | Tester | Every section's scenario checklist complete and passing? | Scenario tables in the report |
 | 3 | User | Full journeys work on the real stack? | `tests/e2e/` + operator scenarios in the Compose CI job |
 | 4 | Cross-check vs old code | Kept what was right, fixed what was wrong, dropped nothing by accident? | Table vs `main` @ `209a9bd` |
-| 5 | Independent review | Would a doubtful senior engineer sign it off? | Findings + scorecard by a reviewer who didn't write the code |
+| 5 | Independent review | Would a doubtful senior engineer sign it off? | Output of the `milestone-reviewer` agent (`.claude/agents/milestone-reviewer.md`): findings, verdict, scorecard |
 
 - Every check is **PASS** or **FAIL**; no "mostly".
 - Any *high* or *critical* finding is an automatic FAIL.

@@ -90,6 +90,11 @@ session starts by reading the section log and continues from the first section t
   silently fix a failure; record it.
 - *Scenario ids* in test names (`test_s<step>_<section>_<n>_<what>`) link plan, test and report.
 
+**Independent review.** Gate check 5 is always done by the `milestone-reviewer` agent
+(`.claude/agents/milestone-reviewer.md`): a fresh, read-only reviewer that verifies the report
+against the code and CI. Its output goes into the step report unchanged. Fix its Critical and
+High findings, then run it again until it returns PASS. Never edit its verdict.
+
 **Scoring.** After each step, the **independent reviewer** (never the author) scores the nine
 review areas against the old code's baseline, one line of evidence per score, and updates
 `docs/milestones/SCORECARD.md`. Areas not built yet are marked "not built yet", not given a
