@@ -47,6 +47,14 @@ flowchart TD
 | `repositories/` | Build and run queries | Commit transactions, apply business rules |
 | `infra/` | Talk to external systems | Import from `services/` or `api/` |
 
+**Transactions.** One request has one database session (`get_db`), shared by its dependencies
+and its one service call. Dependencies only read. The service method writes inside
+`async with transaction(session):` (`app/infra/database.py`), which continues the transaction
+the dependencies' reads began, commits before the response is built, and rolls back on any
+error. It is called once per service method (not reentrant). A rollback expires every object
+loaded in the session, so code that handles a failed unit of work must not read attributes of
+objects loaded before it. Error handlers only use the exception, never ORM objects.
+
 ## 3. Folder layout
 
 ```

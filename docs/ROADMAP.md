@@ -103,7 +103,7 @@ reported.
 
 **Goal:** the full v1 schema in PostgreSQL, managed by Alembic, with tested repositories.
 
-- [x] Async engine + session factory; `get_db` dependency (one session per request; the service opens its one transaction)
+- [x] Async engine + session factory; `get_db` dependency (one session per request) and `transaction(session)`, the one unit of work per service call
 - [x] Models per `docs/ARCHITECTURE.md` §4: users, organizations, memberships, roles, permissions, role_permissions, sessions, one_time_tokens, invitations, audit_logs
 - [x] `citext` extension, enums / CHECK constraints, `ON DELETE` rules, unique and supporting indexes
 - [x] Alembic configured for async; initial migration; `downgrade` works
@@ -128,6 +128,8 @@ delete; no migrations; lockout columns unused.
 
 - [ ] `core/security.py`: PyJWT encode/decode with `iss`, `aud`, `jti`, `sid` (Argon2id hash/verify and `password_needs_rehash` already built in step 2)
 - [ ] Record `last_login_at` on users (new migration; the old code's `last_login`, deferred from step 2) and rehash on login when `password_needs_rehash`
+- [ ] Bound concurrent Argon2 work (a settings-sized semaphore around hash/verify, 64 MiB each), with a test (from step 2 review, R1-08)
+- [ ] Decide internationalised (IDN) email domains: IDNA-encode or keep refusing, and record it (from step 2 review, R1-18)
 - [ ] Dummy Argon2 verify for unknown emails (no timing leak)
 - [ ] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
 - [ ] `client_info` dependency — IP (trusted proxy aware) and user agent
@@ -241,6 +243,7 @@ missing CRUD.
 - [ ] Load test (k6 or Locust) in `tests/load/`; record results in `docs/PERFORMANCE.md`
 - [ ] Meet the performance targets in `docs/VISION.md` §5
 - [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
+- [ ] Readiness reports not ready until the database is at the code's migration head (or a documented migration job runs first) (from step 2 review, R1-09)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
@@ -263,6 +266,7 @@ tokens never cleaned.
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
+- [ ] Enforce append-only `audit_logs` in the database (trigger or revoked UPDATE/DELETE) (from step 2 review, R1-17)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
 

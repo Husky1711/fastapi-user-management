@@ -77,7 +77,8 @@ def utc_now() -> datetime:
 
 
 def _same_as_created_at(context: DefaultExecutionContext) -> datetime:
-    value: datetime = context.get_current_parameters()["created_at"]
+    # SQLAlchemy ships this method without type hints.
+    value: datetime = context.get_current_parameters()["created_at"]  # type: ignore[no-untyped-call]
     return value
 
 
