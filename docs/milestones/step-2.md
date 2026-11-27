@@ -197,11 +197,12 @@ C10 data integrity; enforcement starts in step 5.
 | F7 | CI type check / test (run 45929425304) | Hasher spy failed (`PasswordHasher` attributes are read-only); `mypy` on `cli.getpass`; service test hit "transaction already begun" | Spy patched a slotted object; test reused a session mid-transaction | Spy subclass swapped in; `getpass.getpass` patched by path; test commits its setup first. That treated the symptom: the design itself was wrong (review R1-01), replaced by `transaction(session)` | Fixed (run 45929858848; design fixed after review) |
 | F8 | CI test (runs 45929858848, 45930272706) | 2.6-09 read attributes of an object the expected rollback had expired | The service's rolled-back transaction expires every object in the session (SQLAlchemy behaviour) | Ids read before the call; rule documented in ARCHITECTURE §2 and the `transaction` docstring (R1-01) | Fixed (run 45930672394) |
 | F9 | CI type check (run 45932585174) | `mypy --strict`: untyped SQLAlchemy `get_current_parameters` call | Library method without type hints | Targeted ignore with the reason | Fixed |
+| F10 | CI test (run 45932943098) | Step 1 test 1.3-33 failed (`dropped 16 >= 40`), then 5 later tests failed with `queue.Full` | Flaky test: it assumed the writer thread had taken its first record before the burst; on a slow runner the dropped counter was reset by the "records dropped" notice mid-burst. No cleanup, so the full queue leaked into later tests (step 1 review R5-05) | The test waits until the writer is stuck, then expects exactly 45 dropped and one notice; cleanup in `finally` | Fixed |
 
 Review round 1 findings (R1-01 to R1-18) and what was done: see "Independent review" below.
 
-**Totals:** 81 scenarios, 81 passed, 0 failing. Failures found and fixed: 9 by CI or
-self-review (F1–F9) and 18 by the independent review (R1-xx), of which 14 were fixed in this
+**Totals:** 81 scenarios, 81 passed, 0 failing. Failures found and fixed: 10 by CI or
+self-review (F1–F10) and 18 by the independent review (R1-xx), of which 14 were fixed in this
 step and 4 carried to named steps.
 
 ## Gate
