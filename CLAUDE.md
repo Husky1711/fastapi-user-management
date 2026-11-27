@@ -186,7 +186,8 @@ If you are about to write the same 3+ lines a second time, extract them.
 ## Commands
 
 ```bash
-make install     # uv sync (creates uv.lock; commit it)
+make install     # uv sync --locked (exactly the committed uv.lock)
+make lock        # uv lock, after changing dependencies (commit uv.lock)
 make run         # docker compose up (app + postgres + redis) → http://localhost:8000/docs
 make lint        # ruff check + ruff format --check
 make typecheck   # mypy --strict

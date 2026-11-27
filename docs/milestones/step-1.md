@@ -4,8 +4,8 @@
 - Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45923959839
   (145 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
   scenarios passed on the real stack; coverage 98.0 %; open "Summary" for every result)
-- Verdict: **IN PROGRESS**. Rounds 3 and 4 passed but left areas at 8, below the ≥ 9 bar, so
-  their findings were fixed (R3-xx, R4-xx) and review round 5 is pending. Under the owner's standing
+- Verdict: **PASS.** Independent review round 5 scored every touched area ≥ 9 (overall 9.0)
+  with no Critical or High findings. Merged into `v2` under the owner's standing instruction. Under the owner's standing
   instruction the step merges automatically once every touched area is ≥ 9.
 
 > Process note: the testing process was introduced partway through this step, so the first
@@ -269,10 +269,19 @@ Every failure found while building, testing and reviewing this step.
 | R4-09 | Review round 4 | Security-audit gate check undefined on this branch | It's added by PR #3 | Stated below: applies from step 3 | Fixed |
 | R4-10 | Review round 4 | Host-run app couldn't reach the password-protected dev Redis; `make install` unlocked | Defaults drifted | Default Redis URL carries the dev password; `make install` uses `--locked`, `make lock` for updates | Fixed |
 | R4-11 | Review round 4 | Carried items (R3-03, R3-04, pinning) | — | Verified as recorded | Carried |
+| R5-01 | Review round 5 (Medium) | Stopping the log writer raises or hangs when the queue is full or stdout is stuck | Stdlib `QueueListener.stop` uses `put_nowait` and an unbounded join | Step 8 (operations), ROADMAP item | Carried to step 8 |
+| R5-02 | Review round 5 | `prepare` changes the shared record, so later handlers lose `exc_info` | No copy | Step 8, same item | Carried to step 8 |
+| R5-03 | Review round 5 | Redaction misses secret-named fields, non-string values, `key: value` forms | Regex covers values only | Step 3 (first real credentials), ROADMAP item | Carried to step 3 |
+| R5-04 | Review round 5 | Well-known-password check bypassed by percent-encoding or case | Raw comparison | Step 9 (security hardening), ROADMAP item | Carried to step 9 |
+| R5-05 | Review round 5 | Stuck-writer test doesn't clean up on failure | No `finally` | Step 8, same item as R5-01 | Carried to step 8 |
+| R5-06 | Review round 5 | Stale `make install` comment; SCORECARD not updated | Not updated | Corrected | Fixed |
+| R5-07 | Review round 5 | `api_routers` hook on the app factory exists for tests | Test seam | Accepted; revisit when step 3 adds real routers | Accepted |
+| R5-08 | Review round 5 | Carried items | — | Verified | Carried |
 
-**Totals:** 120 scenarios, 120 passing. 67 failures found: 62 fixed, 1 fixed with a documented
-rule waiver (F5), 1 process change (F8), 1 accepted with a reason (R3-04), 1 carried to step 3
-(R3-03), 1 carried-items check (R4-11). Image digest and action SHA pinning stays in step 9.
+**Totals:** 120 scenarios, 120 passing. 75 failures found: 63 fixed, 1 fixed with a documented
+rule waiver (F5), 1 process change (F8), 2 accepted with a reason (R3-04, R5-07), 7 carried to
+named later steps (R3-03, R5-01..05), 1 carried-items check (R4-11, R5-08 counted once more).
+Image digest and action SHA pinning stays in step 9.
 
 **Security audit (gate check 6):** not applicable to step 1. It applies to steps 3, 4, 5, 6, 7
 and 9 (vendored skill and rule in PR #3), the steps that handle accounts, sessions and access.
@@ -335,26 +344,29 @@ Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.
 | 2 | `180a554` | **FAIL**: 1 High, 3 Medium, 8 Low; 18 of 20 round-1 findings confirmed resolved | [`reviews/step-1-round-2.md`](reviews/step-1-round-2.md); every finding addressed (R2-01 to R2-12) |
 | 3 | `e90cc09` | **PASS**: 0 Critical/High, 2 Medium, 9 Low; all round-2 findings resolved or carried | [`reviews/step-1-round-3.md`](reviews/step-1-round-3.md); findings addressed (R3-01 to R3-11) |
 | 4 | `ccea397` | **PASS**: 0 Critical/High, 3 Medium, 8 Low; Security and Scalability at 8 | [`reviews/step-1-round-4.md`](reviews/step-1-round-4.md); findings addressed (R4-01 to R4-11) |
-| 5 | pending | | |
+| 5 | `c82fd40` | **PASS**: 0 Critical/High, 1 Medium, 7 Low; every touched area ≥ 9 | [`reviews/step-1-round-5.md`](reviews/step-1-round-5.md); findings carried to named steps (R5-xx) |
 
 ## Scorecard (independent reviewer)
 
-| Area | Old code | Round 1 | Round 2 | Round 3 | Round 4 |
-| --- | --- | --- | --- | --- | --- |
-| Folder structure & architecture | 6 | 8 | 8 | 9 | 9 |
-| API design | 5 | 7 | 7 | 8 | 9 |
-| Database schema | 5 | not built yet | not built yet | not built yet | not built yet |
-| Scalability & load balancing | 4 | 7 | 8 | 8 | 8 |
-| DSA / algorithms | 4 | not built yet | not built yet | not built yet | not built yet |
-| Code quality & correctness | 3 | 7 | 8 | 9 | 9 |
-| Duplication & reuse | 3 | 8 | 8 | 9 | 9 |
-| Maintainability | 3 | 7 | 7 | 8 | 9 |
-| Security | 2 | 6 | 7 | 8 | 8 |
-| **Overall** | **4** | **7** | **8** | **8** (8.4) | **9** (8.7) |
+| Area | Old code | Round 1 | Round 2 | Round 3 | Round 4 | **Round 5 (final)** |
+| --- | --- | --- | --- | --- | --- | --- |
+| Folder structure & architecture | 6 | 8 | 8 | 9 | 9 | **9** |
+| API design | 5 | 7 | 7 | 8 | 9 | **9** |
+| Database schema | 5 | not built yet | not built yet | not built yet | not built yet | not built yet |
+| Scalability & load balancing | 4 | 7 | 8 | 8 | 8 | **9** |
+| DSA / algorithms | 4 | not built yet | not built yet | not built yet | not built yet | not built yet |
+| Code quality & correctness | 3 | 7 | 8 | 9 | 9 | **9** |
+| Duplication & reuse | 3 | 8 | 8 | 9 | 9 | **9** |
+| Maintainability | 3 | 7 | 7 | 8 | 9 | **9** |
+| Security | 2 | 6 | 7 | 8 | 8 | **9** |
+| **Overall** | **4** | **7** | **8** | **8** (8.4) | **9** (8.7) | **9** (9.0) |
 
 Evidence for each score is in the review records.
 
 ## Carried forward
 
-- Pin images by digest and actions by SHA (step 9).
-- Disconnect on a Pydantic-body route logged as 499 (step 3, R3-03).
+- Step 3: disconnect on a Pydantic-body route logged as 499 (R3-03); broader log redaction (R5-03).
+- Step 8: log-writer shutdown/reconfigure with a full queue or stuck stdout; copy records in
+  `prepare`; stuck-writer test cleanup (R5-01, R5-02, R5-05).
+- Step 9: image digest and action SHA pinning; percent-decoded, case-insensitive
+  well-known-password check (R5-04).

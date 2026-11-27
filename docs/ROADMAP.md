@@ -21,8 +21,8 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 
 | Step | Title | Status |
 | --- | --- | --- |
-| 0 | Foundation docs | 🔄 In review |
-| 1 | Project skeleton & tooling | 🔄 In review |
+| 0 | Foundation docs | ✅ Done |
+| 1 | Project skeleton & tooling | ✅ Done (review round 5: 9.0/10) |
 | 2 | Database foundation | ⬜ Not started |
 | 3 | Authentication core | ⬜ Not started |
 | 4 | Rate limiting | ⬜ Not started |
@@ -137,6 +137,7 @@ delete; no migrations; lockout columns unused.
 - [ ] `POST /me/password` (change password; revokes other sessions)
 - [ ] Tests for every path, including reuse detection, lockout and expiry
 - [ ] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)
+- [ ] Log redaction also masks fields named like secrets (`password`, `token`, …), non-string values and `key: value` / `Authorization:` forms (from step 1 review, R5-03)
 
 **Fixes from review:** unsalted SHA-256 passwords; `/debug-login` and `/debug-refresh`
 (not recreated); revocation that hashed the hash and revoked nothing; revoke-others killing the
@@ -227,6 +228,7 @@ missing CRUD.
 - [ ] DB pool sizing from settings; uvicorn proxy headers; graceful shutdown
 - [ ] Load test (k6 or Locust) in `tests/load/`; record results in `docs/PERFORMANCE.md`
 - [ ] Meet the performance targets in `docs/VISION.md` §5
+- [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
@@ -246,6 +248,7 @@ tokens never cleaned.
 - [ ] `pip-audit` and `bandit` in CI; Dependabot enabled
 - [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
+- [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
 
