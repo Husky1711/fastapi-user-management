@@ -122,13 +122,21 @@ jobs:
                    '00000000-0000-4000-8000-0000000000f1', sha256(v::bytea),
                    now() - (v || ' hours')::interval, now() + interval '1 day',
                    CASE WHEN v = 'x' THEN now() END
-            FROM unnest(ARRAY['3', '2', '1']) v"
+            FROM unnest(ARRAY['3', '2', '1']) v;
+            -- 3.2-01b: two active rows of one family written in the same instant
+            INSERT INTO sessions (id, user_id, family_id, token_hash, created_at, expires_at)
+            SELECT gen_random_uuid(), '00000000-0000-4000-8000-000000000001',
+                   '00000000-0000-4000-8000-0000000000f2', sha256(('tie' || v)::bytea),
+                   timestamptz '2026-01-01 00:00:00+00', now() + interval '1 day'
+            FROM unnest(ARRAY['a', 'b']) v"
           uv run alembic upgrade head
           psql "$PSQL_URL" -tAc "
-            SELECT count(*) FILTER (WHERE revoked_at IS NULL) = 1
-               AND count(*) FILTER (WHERE revoked_reason = 'rotated') = 2
-               AND bool_and(family_started_at = (SELECT min(created_at) FROM sessions))
-            FROM sessions" | tee /dev/stderr | grep -qx t
+            SELECT bool_and(active = 1 AND first_ok) AND sum(rotated) = 3 FROM (
+              SELECT count(*) FILTER (WHERE revoked_at IS NULL) AS active,
+                     count(*) FILTER (WHERE revoked_reason = 'rotated') AS rotated,
+                     bool_and(family_started_at = (SELECT min(created_at) FROM sessions m
+                                                   WHERE m.family_id = s.family_id)) AS first_ok
+              FROM sessions s GROUP BY family_id) f" | tee /dev/stderr | grep -qx t
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users"
           uv run alembic upgrade head 2>&1 | tee second-run.log
           if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
