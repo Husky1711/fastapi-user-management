@@ -1,7 +1,12 @@
-"""PostgreSQL engine. Sessions, models and repositories arrive in roadmap step 2."""
+"""PostgreSQL engine and session factory."""
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import DatabaseSettings
 
@@ -15,6 +20,12 @@ def create_engine(settings: DatabaseSettings) -> AsyncEngine:
         pool_pre_ping=True,
         echo=settings.echo,
     )
+
+
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    # expire_on_commit=False: objects stay readable after commit (no lazy reload in async code).
+    # autoflush=False: queries never write half-built objects behind the service's back.
+    return async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
 
 async def ping_database(engine: AsyncEngine) -> None:

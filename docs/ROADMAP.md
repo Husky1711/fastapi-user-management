@@ -103,7 +103,7 @@ reported.
 
 **Goal:** the full v1 schema in PostgreSQL, managed by Alembic, with tested repositories.
 
-- [ ] Async engine + session factory; `get_db` dependency with one transaction per request
+- [ ] Async engine + session factory; `get_db` dependency (one session per request; the service opens its one transaction)
 - [ ] Models per `docs/ARCHITECTURE.md` §4: users, organizations, memberships, roles, permissions, role_permissions, sessions, one_time_tokens, invitations, audit_logs
 - [ ] `citext` extension, enums / CHECK constraints, `ON DELETE` rules, unique and supporting indexes
 - [ ] Alembic configured for async; initial migration; `downgrade` works

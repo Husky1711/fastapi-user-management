@@ -1,0 +1,22 @@
+"""Helpers for tests that need the real PostgreSQL (CI service or `make run`)."""
+
+import os
+
+import pytest
+from pydantic import SecretStr
+
+from app.core.config import DatabaseSettings
+
+# Read at import time: the autouse fixture in conftest clears app settings from the environment.
+SERVICE_DATABASE_URL = os.getenv("DATABASE__URL", "")
+SERVICE_REDIS_URL = os.getenv("REDIS__URL", "")
+
+# Apply with `pytestmark = SERVICES` (module) or `@pytest.mark.usefixtures` style per test.
+SERVICES = [
+    pytest.mark.services,
+    pytest.mark.skipif(not os.getenv("RUN_SERVICE_TESTS"), reason="needs PostgreSQL and Redis"),
+]
+
+
+def service_database_settings(**overrides: int | float) -> DatabaseSettings:
+    return DatabaseSettings(url=SecretStr(SERVICE_DATABASE_URL), **overrides)

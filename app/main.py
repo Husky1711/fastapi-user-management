@@ -21,7 +21,7 @@ from app.core.middleware import (
     ProblemCORSMiddleware,
     RequestContextMiddleware,
 )
-from app.infra.database import create_engine, ping_database
+from app.infra.database import create_engine, create_session_factory, ping_database
 from app.infra.redis import create_redis, ping_redis
 from app.schemas.errors import COMMON_ERROR_RESPONSES, PROBLEM_SCHEMAS
 from app.services.health import HealthCheck, ReadinessProbe
@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = create_engine(settings.database)
     redis = create_redis(settings.redis)
     app.state.engine = engine
+    app.state.session_factory = create_session_factory(engine)
     app.state.redis = redis
     # Rebuilt on every start, so the checks always point at this lifespan's live resources.
     injected: Mapping[str, HealthCheck] | None = app.state.injected_health_checks

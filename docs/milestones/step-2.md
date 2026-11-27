@@ -26,6 +26,10 @@ C10 data integrity; enforcement starts in step 5.
 
 ## Design decisions for this step
 
+- **`get_db` gives one session per request; the service opens the one transaction**
+  (`async with session.begin():`). Committing inside the dependency's teardown would run after
+  FastAPI has built the response, so a failed commit could still return 200. Uncommitted work is
+  rolled back when the session closes. (Matches ARCHITECTURE §2: services own transactions.)
 - **Enum-like columns are `text` + `CHECK`** (SQLAlchemy `Enum(native_enum=False)`), not native
   Postgres enums: adding a value later is a one-line constraint change instead of an
   `ALTER TYPE` that can't run inside a transaction.
@@ -46,7 +50,7 @@ C10 data integrity; enforcement starts in step 5.
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.1-01 | C1 | A request that writes through `get_db` and succeeds | Change committed once, at the end | test | ⬜ |
+| 2.1-01 | C1 | A request that writes through `get_db` and succeeds | Change committed before the response | test | ⬜ |
 | 2.1-02 | C9, C10 | A request that writes and then fails | Nothing is committed (rolled back) | test | ⬜ |
 | 2.1-03 | C10 | Two writes in one request, the second fails a constraint | Neither is kept | test | ⬜ |
 | 2.1-04 | C7 | Concurrent requests | Each gets its own session; no shared state | test | ⬜ |
