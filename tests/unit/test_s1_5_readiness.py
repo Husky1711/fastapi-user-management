@@ -4,7 +4,8 @@ import asyncio
 
 import pytest
 
-from app.services.health import ReadinessProbe, redact, run_checks
+from app.core.redaction import redact
+from app.services.health import ReadinessProbe, run_checks
 from tests.helpers import check_never_finishes, check_ok
 
 
@@ -109,7 +110,7 @@ def test_s1_5_03_redaction_removes_url_credentials_and_caps_length() -> None:
     assert (
         redact(message) == "connect postgresql+asyncpg://***@db:5432/x and redis://***@cache:6379"
     )
-    assert len(redact("x" * 1000)) == 200
+    assert len(redact("x" * 1000, limit=200)) == 200
 
 
 @pytest.mark.parametrize(

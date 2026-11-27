@@ -47,7 +47,8 @@ async def test_s1_5_03_failed_check_gives_503_without_leaking_details(
     assert "secret" not in response.text
     failures = [r for r in caplog.records if r.getMessage() == "readiness check failed"]
     assert len(failures) == 1
-    assert not failures[0].exc_info  # no traceback in the logs
+    assert not failures[0].exc_info  # no traceback in the logs...
+    assert not failures[0].exc_text  # ...not even pre-rendered
     # Check the JSON lines exactly as they are written in production, fields included.
     written = "\n".join(JsonFormatter().format(r) for r in caplog.records)
     assert '"error_type": "ConnectionError"' in written

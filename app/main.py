@@ -3,15 +3,16 @@
 Run with:  uvicorn app.main:create_app --factory
 """
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
 from app import __version__
 from app.api import health
-from app.api.v1 import api_router
+from app.api.v1 import build_api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
@@ -22,7 +23,7 @@ from app.core.middleware import (
 )
 from app.infra.database import create_engine, ping_database
 from app.infra.redis import create_redis, ping_redis
-from app.schemas.errors import COMMON_ERROR_RESPONSES
+from app.schemas.errors import COMMON_ERROR_RESPONSES, PROBLEM_SCHEMAS
 from app.services.health import HealthCheck, ReadinessProbe
 
 log = get_logger(__name__)
@@ -60,18 +61,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("shutdown")
 
 
+def _add_problem_schemas(app: FastAPI) -> None:
+    """Register the error schemas that the routes' error responses refer to."""
+    generate = app.openapi
+
+    # Any: an OpenAPI document is arbitrary JSON.
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is None:
+            schema = generate()  # also caches it on app.openapi_schema
+            schema.setdefault("components", {}).setdefault("schemas", {}).update(PROBLEM_SCHEMAS)
+        return app.openapi_schema or {}
+
+    # FastAPI's documented way to customise the schema is to replace this method.
+    app.openapi = openapi  # type: ignore[method-assign]
+
+
 def create_app(
     settings: Settings | None = None,
     *,
     health_checks: Mapping[str, HealthCheck] | None = None,
+    api_routers: Sequence[APIRouter] = (),
 ) -> FastAPI:
     """Build the app. Fails fast if settings are unsafe for a staging or production environment.
 
-    `health_checks` replaces the default database/Redis readiness checks (used by tests).
+    `health_checks` replaces the default database/Redis readiness checks, and `api_routers`
+    adds routers under `/api/v1` (both used by tests).
     """
     settings = settings or get_settings()
     settings.ensure_safe()
-    configure_logging(settings.log.level)
+    configure_logging(settings.log.level, queue_size=settings.log.queue_size)
 
     app = FastAPI(
         title=settings.app_name,
@@ -106,5 +124,6 @@ def create_app(
     app.add_middleware(RequestContextMiddleware, enable_hsts=settings.is_strict)
 
     app.include_router(health.router)
-    app.include_router(api_router)
+    app.include_router(build_api_router(*api_routers))
+    _add_problem_schemas(app)
     return app

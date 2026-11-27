@@ -6,6 +6,7 @@ The bodies themselves are built by `app/core/errors.py`; these models describe t
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import models_json_schema
 
 
 class ProblemOut(BaseModel):
@@ -33,17 +34,23 @@ class ValidationProblemOut(ProblemOut):
     errors: list[FieldError]
 
 
+_REF = "#/components/schemas/{model}"
+
+# The error models' JSON schemas, added to the OpenAPI components by `app/main.py`. They are
+# registered by hand because FastAPI would otherwise also advertise every error response as
+# `application/json`, which the API never sends.
+_, _all_schemas = models_json_schema(
+    [(m, "serialization") for m in (ProblemOut, ValidationProblemOut, FieldError)],
+    ref_template=_REF,
+)
+# Any: JSON schema fragments are arbitrary JSON.
+PROBLEM_SCHEMAS: dict[str, Any] = _all_schemas["$defs"]
+
+
 def _problem(model: type[BaseModel], description: str) -> dict[str, Any]:
     # Any: FastAPI's `responses` mapping is untyped.
-    return {
-        "model": model,
-        "description": description,
-        "content": {
-            "application/problem+json": {
-                "schema": {"$ref": f"#/components/schemas/{model.__name__}"}
-            }
-        },
-    }
+    schema = {"$ref": _REF.format(model=model.__name__)}
+    return {"description": description, "content": {"application/problem+json": {"schema": schema}}}
 
 
 # Documented on every route.

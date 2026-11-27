@@ -6,14 +6,13 @@ Test-only routes are added to a fresh app inside the test; they never exist in t
 from collections.abc import AsyncIterator, Mapping
 
 import pytest
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from httpx import AsyncClient
 from pydantic import BaseModel
 
-from app.api.v1 import api_router
 from app.core.config import CorsSettings
 from app.core.errors import Conflict, NotFound
-from app.schemas.errors import ValidationProblemOut
+from app.main import create_app
 from tests.helpers import (
     ALLOWED_ORIGIN,
     CRASH_PATH,
@@ -191,24 +190,38 @@ async def test_s1_4_16_client_chosen_keys_in_error_paths_are_cut_short(http: Asy
     assert long_key not in response.text
 
 
-async def test_s1_4_17_error_format_is_documented_in_the_api_schema(http: AsyncClient) -> None:
+async def test_s1_4_17_error_responses_are_documented_as_problem_json_only(
+    http: AsyncClient,
+) -> None:
     schema = (await http.get("/openapi.json")).json()
     components = schema["components"]["schemas"]
-    assert "ProblemOut" in components
-    assert set(components["ProblemOut"]["properties"]) >= {
-        "type",
-        "title",
-        "status",
-        "detail",
-        "code",
-        "request_id",
-    }
+    assert {"ProblemOut", "ValidationProblemOut", "FieldError"} <= set(components)
+    expected = {"type", "title", "status", "detail", "code", "request_id"}
+    assert set(components["ProblemOut"]["properties"]) >= expected
     ready = schema["paths"]["/health/ready"]["get"]["responses"]
-    assert "application/problem+json" in ready["500"]["content"]
+    assert set(ready["500"]["content"]) == {"application/problem+json"}
     assert "503" in ready
 
 
-def test_s1_4_18_versioned_api_documents_validation_errors_in_the_problem_format() -> None:
-    assert {422, 500} <= set(api_router.responses)
-    assert api_router.responses[422]["model"] is ValidationProblemOut
-    assert "application/problem+json" in api_router.responses[422]["content"]
+class EchoIn(BaseModel):
+    name: str
+
+
+async def test_s1_4_18_versioned_api_routes_document_422_and_500_as_problem_json() -> None:
+    feature = APIRouter()
+
+    @feature.post("/_test/echo")
+    async def echo(body: EchoIn) -> EchoIn:
+        return body
+
+    async with client_for(create_app(make_settings(), api_routers=[feature])) as client:
+        schema = (await client.get("/openapi.json")).json()
+        invalid = await client.post("/api/v1/_test/echo", json={})
+    responses = schema["paths"]["/api/v1/_test/echo"]["post"]["responses"]
+    assert set(responses["422"]["content"]) == {"application/problem+json"}
+    assert responses["422"]["content"]["application/problem+json"]["schema"] == {
+        "$ref": "#/components/schemas/ValidationProblemOut"
+    }
+    assert set(responses["500"]["content"]) == {"application/problem+json"}
+    assert invalid.status_code == 422
+    assert invalid.headers["content-type"] == "application/problem+json"

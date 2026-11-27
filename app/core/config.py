@@ -19,7 +19,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
 MIN_JWT_SECRET_DISTINCT_CHARS = 10  # rejects "aaaa…" or "abababab…" style secrets
-DEFAULT_DATABASE_CREDENTIALS = "postgres:postgres@"
+DEV_REDIS_PASSWORD = "redis-dev-password"  # noqa: S105 - published in .env.example and Compose
+# Passwords published in this repository or used as image defaults. Never allowed in strict
+# environments.
+WELL_KNOWN_PASSWORDS = frozenset({"postgres", DEV_REDIS_PASSWORD, "password", "changeme"})
 
 
 class Environment(StrEnum):
@@ -47,7 +50,9 @@ class _Section(BaseModel):
 
 
 class DatabaseSettings(_Section):
-    url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt"
+    # SecretStr: the URL carries the password, so it must not appear in repr, dumps or logs.
+    # Unwrapped only in app/infra/.
+    url: SecretStr = SecretStr("postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt")
     pool_size: int = Field(default=5, ge=1, le=100)
     max_overflow: int = Field(default=5, ge=0, le=100)
     pool_timeout_seconds: float = Field(default=10.0, gt=0)
@@ -55,7 +60,7 @@ class DatabaseSettings(_Section):
 
 
 class RedisSettings(_Section):
-    url: str = "redis://localhost:6379/0"
+    url: SecretStr = SecretStr(f"redis://:{DEV_REDIS_PASSWORD}@localhost:6379/0")
 
 
 class JwtSettings(_Section):
@@ -79,6 +84,9 @@ class CorsSettings(_Section):
 
 class LogSettings(_Section):
     level: LogLevel = LogLevel.INFO
+    # Records waiting to be written. When full (stdout stuck), new records are dropped and
+    # counted instead of using unbounded memory.
+    queue_size: int = Field(default=10_000, ge=100, le=1_000_000)
 
 
 class HealthSettings(_Section):
@@ -133,12 +141,8 @@ class Settings(BaseSettings):
         problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value())
         if self.debug:
             problems.append("DEBUG must be false")
-        if DEFAULT_DATABASE_CREDENTIALS in self.database.url:
-            problems.append("DATABASE__URL uses the default postgres:postgres credentials")
-        elif not _has_password(self.database.url):
-            problems.append("DATABASE__URL must include a password")
-        if not _has_password(self.redis.url):
-            problems.append("REDIS__URL must include a password")
+        problems += _url_password_problems("DATABASE__URL", self.database.url)
+        problems += _url_password_problems("REDIS__URL", self.redis.url)
         return problems
 
     def ensure_safe(self) -> None:
@@ -157,11 +161,16 @@ def _jwt_secret_problems(secret: str) -> list[str]:
     return []
 
 
-def _has_password(url: str) -> bool:
+def _url_password_problems(name: str, url: SecretStr) -> list[str]:
     try:
-        return bool(urlsplit(url).password)
-    except ValueError:  # malformed URL: the connection itself will fail loudly
-        return False
+        password = urlsplit(url.get_secret_value()).password
+    except ValueError:  # malformed URL: we can't prove it carries a real password
+        password = None
+    if not password:
+        return [f"{name} must include a password"]
+    if password in WELL_KNOWN_PASSWORDS:
+        return [f"{name} uses a well-known default password"]
+    return []
 
 
 @lru_cache

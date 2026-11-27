@@ -159,7 +159,7 @@ jobs:
           $WAIT http://localhost:8000/health/live 200 5
           docker compose start db
           $WAIT http://localhost:8000/health/ready 200 60
-      - name: "1.5-19 Outage logs from 1.5-13/14 contain no credentials and no tracebacks"
+      - name: "1.5-19 Outage logs from 1.5-13/14: one line per failing dependency, no traceback"
         run: |
           logs=$(docker compose logs app)
           echo "$logs" | grep '"readiness check failed"' | head -5
@@ -189,16 +189,18 @@ jobs:
       - name: "1.2-21 Production with safe settings starts, sends HSTS, hides docs"
         run: |
           docker compose exec -T db psql -U postgres -c "CREATE ROLE app_ci LOGIN PASSWORD 'ci-strong-password'"
+          docker compose exec -T redis redis-cli ACL SETUSER app_ci on '>ci-strong-redis-password' '~*' '&*' '+@all'
           secret=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
           docker compose run --detach --no-deps --name app-prod --publish 8001:8000 \
             -e ENVIRONMENT=production -e JWT__SECRET_KEY="$secret" \
-            -e DATABASE__URL="postgresql+asyncpg://app_ci:ci-strong-password@db:5432/usermgmt" app
+            -e DATABASE__URL="postgresql+asyncpg://app_ci:ci-strong-password@db:5432/usermgmt" \
+            -e REDIS__URL="redis://app_ci:ci-strong-redis-password@redis:6379/0" app
           $WAIT http://localhost:8001/health/ready 200 30
           curl -s -D - -o /dev/null http://localhost:8001/health/live | grep -qi "^strict-transport-security: max-age"
           $WAIT http://localhost:8001/docs 404 5
           $WAIT http://localhost:8001/openapi.json 404 5
           docker rm -f app-prod
-      - name: "1.2-20 Production refuses to start with the default secret and default DB credentials"
+      - name: "1.2-20 Production refuses to start with the published default secret and passwords"
         run: |
           set +e
           output=$(docker compose run --rm --no-deps -e ENVIRONMENT=production app 2>&1)
@@ -208,7 +210,8 @@ jobs:
           test "$status" -ne 0
           echo "$output" | grep -q "Unsafe configuration for production"
           echo "$output" | grep -q "JWT__SECRET_KEY is the development default"
-          echo "$output" | grep -q "DATABASE__URL uses the default postgres:postgres credentials"
+          echo "$output" | grep -q "DATABASE__URL uses a well-known default password"
+          echo "$output" | grep -q "REDIS__URL uses a well-known default password"
       - name: Container logs
         if: always()
         run: docker compose logs app

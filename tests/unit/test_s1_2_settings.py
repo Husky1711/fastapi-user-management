@@ -64,8 +64,7 @@ def test_s1_2_05_debug_is_rejected() -> None:
 
 def test_s1_2_06_default_database_credentials_are_rejected() -> None:
     problems = strict_settings(database=DatabaseSettings()).safety_problems()
-    assert len(problems) == 1
-    assert "postgres:postgres" in problems[0]
+    assert problems == ["DATABASE__URL uses a well-known default password"]
 
 
 def test_s1_2_07_every_problem_is_reported_at_once() -> None:
@@ -128,11 +127,17 @@ def test_s1_2_13_pool_size_limits_are_inclusive(size: int) -> None:
     assert DatabaseSettings(pool_size=size).pool_size == size
 
 
-def test_s1_2_14_secret_is_not_shown_when_settings_are_printed() -> None:
-    secret = "super-secret-value-that-must-not-leak-0001"
-    settings = make_settings(jwt=JwtSettings(secret_key=SecretStr(secret)))
-    assert secret not in repr(settings)
-    assert secret not in str(settings.model_dump())
+def test_s1_2_14_no_secret_is_shown_when_settings_are_printed() -> None:
+    secrets = ["super-secret-value-that-must-not-leak-0001", "db-secret-p4ss", "redis-secret-p4ss"]
+    settings = make_settings(
+        jwt=JwtSettings(secret_key=SecretStr(secrets[0])),
+        database=DatabaseSettings(url=f"postgresql+asyncpg://app:{secrets[1]}@db:5432/app"),
+        redis=RedisSettings(url=f"redis://:{secrets[2]}@cache:6379/0"),
+    )
+    shown = " ".join([repr(settings), str(settings), str(settings.model_dump())])
+    for secret in secrets:
+        assert secret not in shown
+    assert secrets[1] in settings.database.url.get_secret_value()  # still usable by infra
 
 
 def test_s1_2_15_production_from_real_env_vars_is_detected(
@@ -213,3 +218,24 @@ def test_s1_2_26_database_url_without_password_is_rejected(url: str) -> None:
 def test_s1_2_27_redis_url_must_carry_a_password(url: str, accepted: bool) -> None:
     problems = strict_settings(redis=RedisSettings(url=url)).safety_problems()
     assert problems == ([] if accepted else ["REDIS__URL must include a password"])
+
+
+@pytest.mark.parametrize(
+    ("name", "overrides"),
+    [
+        ("REDIS__URL", {"redis": RedisSettings(url="redis://:redis-dev-password@cache:6379/0")}),
+        ("REDIS__URL", {"redis": RedisSettings(url="redis://default:changeme@cache:6379/0")}),
+        (
+            "DATABASE__URL",
+            {"database": DatabaseSettings(url="postgresql+asyncpg://app:password@db/x")},
+        ),
+        (
+            "DATABASE__URL",
+            {"database": DatabaseSettings(url="postgresql+asyncpg://app:postgres@db/x")},
+        ),
+    ],
+)
+def test_s1_2_28_well_known_passwords_are_rejected(name: str, overrides: dict[str, object]) -> None:
+    assert strict_settings(**overrides).safety_problems() == [
+        f"{name} uses a well-known default password"
+    ]

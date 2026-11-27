@@ -9,7 +9,7 @@ from app.core.config import RedisSettings
 
 def create_redis(settings: RedisSettings) -> Redis:
     return Redis.from_url(
-        settings.url,
+        settings.url.get_secret_value(),
         decode_responses=True,
         socket_connect_timeout=5,
         socket_timeout=5,
