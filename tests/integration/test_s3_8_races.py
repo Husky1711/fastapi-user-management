@@ -15,15 +15,16 @@ import pytest
 from argon2 import PasswordHasher
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from app.core import security
+from app.core import clock, security
+from app.core.client import ClientInfo
 from app.core.config import AuthSettings, SessionStrategy
 from app.main import create_app
 from app.models import AuditLog, User, UserSession, UserStatus
 from app.services import auth
-from tests.api import api_client
+from tests.api import api_client, signed_in
 from tests.db import SERVICES, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
 
@@ -511,37 +512,44 @@ async def test_s3_8_13_a_stale_reentry_cannot_end_sessions_after_a_password_chan
     assert (await _actions(db, user.id))["auth.reauth_refused"] == 1
 
 
-@pytest.mark.parametrize("change", ["disabled_before_reserving", "removed_while_verifying"])
-async def test_s3_8_14_reentry_on_an_account_that_changes_underneath_is_refused(
-    db: AsyncSession, db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch, change: str
+async def test_s3_8_14_a_user_removed_while_verifying_a_reentry_gets_401(
+    db: AsyncSession, db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reservation re-reads the account under the lock (disabled meanwhile: refused and
-    audited); a user removed while Argon2 runs gets a plain 401, never a 500."""
+    """A user removed while Argon2 runs gets a plain 401, never a 500."""
     async with api_client(db_connection) as http:
         email, (tokens,) = await _account(http, devices=1)
         gate = Gate()
-        if change == "disabled_before_reserving":
-            # Paused before the reservation's transaction opens (the test shares its connection).
-            monkeypatch.setattr(
-                auth, "_reserve_reauth", gate.wrap(auth._reserve_reauth, after=False)
-            )
-            body = {"current_password": PASSWORD}
-        else:
-            verify = gate.wrap(security.verify_password, after=True)
-            monkeypatch.setattr("app.services.auth.verify_password", verify)
-            body = {"current_password": "Wrong-Guess-Number-1"}
+        verify = gate.wrap(security.verify_password, after=True)
+        monkeypatch.setattr("app.services.auth.verify_password", verify)
+        body = {"current_password": "Wrong-Guess-Number-1"}
         request = http.post(LOGOUT_ALL, json=body, headers=_bearer(tokens))
         async with paused_request(gate, request) as attempt:
-            if change == "disabled_before_reserving":
-                user = await _user(db, email)
-                user.status = UserStatus.DISABLED
-                await db.flush()
-            else:
-                await db.execute(delete(User).where(User.email == email))
-                await db.flush()
+            await db.execute(delete(User).where(User.email == email))
+            await db.flush()
     assert (attempt.result().status_code, attempt.result().json()["code"]) == (
         401,
         "auth.invalid_credentials",
     )
+
+
+async def test_s3_8_14_an_account_disabled_before_reserving_is_refused(db: AsyncSession) -> None:
+    """The reservation re-reads the account under the lock: one disabled after the request
+    authenticated is refused (and audited) before any password is checked. Service level:
+    over HTTP the request's read transaction is still open at that point on the test's
+    shared connection."""
+    signed = await signed_in(db)
+    current = auth.CurrentUser(user=signed.user, session_id=signed.session.family_id)
+    await db.execute(
+        update(User).where(User.id == signed.user.id).values(status=UserStatus.DISABLED)
+    )
+    with pytest.raises(auth.InvalidCredentials):
+        await auth.verify_current_password(
+            db,
+            make_settings(),
+            current,
+            PASSWORD,
+            client=ClientInfo(ip=None, user_agent=None),
+            now=clock.now(),
+        )
     refused = await db.execute(select(AuditLog).where(AuditLog.action == "auth.reauth_refused"))
-    assert len(refused.scalars().all()) == (1 if change == "disabled_before_reserving" else 0)
+    assert [row.actor_user_id for row in refused.scalars()] == [signed.user.id]
