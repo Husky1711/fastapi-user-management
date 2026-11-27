@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
-- PR: (opened with the first section)
-- Latest CI run (automatic report): pending
+- PR: #5
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46044586029
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -11,14 +11,14 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
-| 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ⬜ | 0 / 14 | |
+| 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ⬜ | 0 / 9 | |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ⬜ | 0 / 13 | |
 | 3.4 | Signup and login: lockout, rehash, session strategies | ⬜ | 0 / 18 | |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ⬜ | 0 / 14 | |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **0 / 89** | |
+| | **Total** | | **14 / 89** | |
 
 ## Design decisions for this step
 
@@ -52,20 +52,20 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.1-01 | C1 | Encode then decode an access token | Claims `sub`, `sid`, `iat`, `exp`, `iss`, `aud`, `jti`, `typ=access` round-trip | test | ⬜ |
-| 3.1-02 | C6 | Token signed with another key; `alg: none`; another HMAC algorithm than configured | Rejected | test | ⬜ |
-| 3.1-03 | C6 | Wrong `iss`, wrong `aud`, wrong `typ`, missing `sub`/`sid`/`exp`/`jti` | Rejected | test | ⬜ |
-| 3.1-04 | C3 | Expired by 1 s past the leeway; not yet valid (`iat` in the future beyond leeway) | Rejected; within leeway accepted | test | ⬜ |
-| 3.1-05 | C2 | Garbage, empty, truncated, non-ASCII token | Rejected with one error type, no exception leaks | test | ⬜ |
-| 3.1-06 | C1 | Opaque token | 256 bits of randomness, URL-safe; stored hash is SHA-256 (32 bytes); same token → same hash | test | ⬜ |
-| 3.1-07 | C6 | 10 000 generated tokens | All distinct | test | ⬜ |
-| 3.1-08 | C7 | 20 concurrent hashes with 4 workers | Never more than 4 at once; all verify | test | ⬜ |
-| 3.1-09 | C9 | Hash pool shut down and restarted (lifespan) | New pool works; old one is closed | test | ⬜ |
-| 3.1-10 | C6 | Dummy verify for an unknown user | Runs a real Argon2 verify (same cost as a real one) and returns False | test | ⬜ |
-| 3.1-11 | C2 | IDN domain email | Refused with `user.email_invalid` (ADR-0009) | test | ⬜ |
-| 3.1-12 | C10 | JWT settings: issuer, audience, TTL bounds; secret shorter than the HMAC output (32/48/64 bytes for HS256/384/512) | Invalid values refused; short secret is a production safety problem | test | ⬜ |
-| 3.1-13 | C8 | Decoding the same token twice | Same claims; nothing cached that could go stale | test | ⬜ |
-| 3.1-14 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.1-01 | C1 | Encode then decode an access token | Claims `sub`, `sid`, `iat`, `exp`, `iss`, `aud`, `jti`, `typ=access` round-trip | test | ✅ |
+| 3.1-02 | C6 | Token signed with another key; `alg: none`; another HMAC algorithm than configured | Rejected | test | ✅ |
+| 3.1-03 | C6 | Wrong `iss`, wrong `aud`, wrong `typ`, missing `sub`/`sid`/`exp`/`jti` | Rejected | test | ✅ |
+| 3.1-04 | C3 | Expired by 1 s past the leeway; not yet valid (`iat` in the future beyond leeway) | Rejected; within leeway accepted | test | ✅ |
+| 3.1-05 | C2 | Garbage, empty, truncated, non-ASCII token | Rejected with one error type, no exception leaks | test | ✅ |
+| 3.1-06 | C1 | Opaque token | 256 bits of randomness, URL-safe; stored hash is SHA-256 (32 bytes); same token → same hash | test | ✅ |
+| 3.1-07 | C6 | 10 000 generated tokens | All distinct | test | ✅ |
+| 3.1-08 | C7 | 20 concurrent hashes with 4 workers | Never more than 4 at once; all verify | test | ✅ |
+| 3.1-09 | C9 | Hash pool shut down and restarted (lifespan) | New pool works; old one is closed | test | ✅ |
+| 3.1-10 | C6 | Dummy verify for an unknown user | Runs a real Argon2 verify (same cost as a real one) and returns False | test | ✅ |
+| 3.1-11 | C2 | IDN domain email | Refused with `user.email_invalid` (ADR-0009) | test | ✅ |
+| 3.1-12 | C10 | JWT settings: issuer, audience, TTL bounds; secret shorter than the HMAC output (32/48/64 bytes for HS256/384/512) | Invalid values refused; short secret is a production safety problem | test | ✅ |
+| 3.1-13 | C8 | Decoding the same token twice | Same claims; nothing cached that could go stale | test | ✅ |
+| 3.1-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C4, C5 | Covered in 3.3 (the primitives are used by `get_current_user`) | | | |
 | — | C11 | Covered by 3.4–3.6 end-to-end flows | | | |
 
@@ -189,7 +189,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
-| F1 | CI test (run 46043542631) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12; the step 1 test 1.2-04 expects the new message (run 46044092198 caught it) | Fixed |
+| F1 | CI test (runs 46043542631, 46044092198) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12; the step 1 test 1.2-04 expects the new message (run 46044092198 caught it) | Fixed (run 46044586029) |
 
 ## Gate (when all sections are ✅)
 
