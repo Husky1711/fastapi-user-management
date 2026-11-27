@@ -58,6 +58,14 @@ expired and must not be read afterwards. Before slow work (password hashing) a s
 entered once per service call; a nested call raises `NestedUnitOfWork` instead of committing
 half-done work.
 
+**Per-user lock order.** Every write that creates or ends sessions or changes credentials
+(login, refresh, logout, logout-all, ending sessions, password change) first locks the user
+row (`UserRepository.get_for_update`, or `auth.lock_user`), then touches session rows. These
+flows therefore run one after another per user, so a revocation can't miss a token a
+concurrent refresh just issued, and the fixed order prevents deadlocks. Anything checked before
+`end_read` and slow hashing (the verified password hash, a live session, the lockout) is
+checked again under that lock before the write.
+
 ## 3. Folder layout
 
 ```
@@ -259,7 +267,9 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 - **Reuse detection**: each rotation stays in the same `family_id`. If an already-rotated
   refresh token is presented, the whole family is revoked (it was stolen).
 - **Lockout**: after N failed logins (default 5) the account is locked for M minutes
-  (default 15), with an audit entry. Unknown emails still run a dummy Argon2 verify so
+  (default 15), with an audit entry. Wrong current passwords on password change count too,
+  and a locked account can't change its password (no guessing past the lock with a stolen
+  access token). Unknown emails still run a dummy Argon2 verify so
   response time does not reveal which emails exist.
 - **Session strategies** (`allow_multiple`, `replace_all`, `limit_sessions`, …) are a
   config setting, not a query parameter clients can choose.
