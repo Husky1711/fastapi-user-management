@@ -23,7 +23,11 @@ def record(
     target: tuple[str, UUID] | None = None,
     details: Mapping[str, object] | None = None,
 ) -> AuditLog:
-    """Add an entry to the caller's unit of work (it commits with the change it describes)."""
+    """Add an entry to the caller's unit of work (it commits with the change it describes).
+
+    The unit of work orders inserts only by `relationship()`s, not by foreign keys: flush a
+    new row before recording an entry that refers to it.
+    """
     entry = AuditLog(
         action=action,
         actor_user_id=actor_user_id,

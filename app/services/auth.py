@@ -25,7 +25,7 @@ from app.core.security import (
     verify_dummy_password,
     verify_password,
 )
-from app.infra.database import end_read, transaction
+from app.infra.database import end_read, is_unique_violation, transaction
 from app.models import RevokeReason, User, UserSession, UserStatus
 from app.repositories import SessionRepository, UserRepository
 from app.services import audit
@@ -96,9 +96,12 @@ async def signup(
                 id=uuid.uuid4(), email=email, password_hash=password_hash, full_name=full_name
             )
             users.add(user)
+            await session.flush()  # the audit row refers to the user: insert the user first
             audit.record(session, action="auth.signed_up", client=client, actor_user_id=user.id)
-    except IntegrityError:  # the same email signed up concurrently (or a deleted account has it)
-        return
+    except IntegrityError as error:
+        if not is_unique_violation(error, "uq_users_email"):
+            raise  # any other integrity problem is a bug, never "email taken"
+        # The same email signed up concurrently, or a deleted account still holds it.
 
 
 async def login(

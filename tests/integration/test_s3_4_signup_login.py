@@ -10,11 +10,13 @@ import pytest
 from argon2 import PasswordHasher
 from httpx import AsyncClient, Response
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
 from app.core.config import AuthSettings, SessionStrategy
 from app.core.logging import JsonFormatter
+from app.infra.database import is_unique_violation
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from tests.api import api_client
@@ -406,3 +408,14 @@ async def test_s3_4_16_database_down_at_login_is_a_generic_500_without_secrets(
     for secret in (PASSWORD, email, "secret.person"):
         assert secret not in logged
         assert secret not in response.text
+
+
+def test_s3_4_03_only_the_email_constraint_means_taken() -> None:
+    def violation(message: str) -> IntegrityError:
+        return IntegrityError("INSERT", {}, Exception(message))
+
+    assert is_unique_violation(
+        violation('duplicate key violates "uq_users_email"'), "uq_users_email"
+    )
+    for other in ('violates foreign key constraint "fk_audit_logs_actor_user_id_users"', ""):
+        assert not is_unique_violation(violation(other), "uq_users_email")

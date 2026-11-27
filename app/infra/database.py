@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -65,6 +66,12 @@ async def transaction(session: AsyncSession) -> AsyncIterator[None]:
                 yield
     finally:
         session.info.pop(_IN_UNIT_OF_WORK, None)
+
+
+def is_unique_violation(error: IntegrityError, constraint: str) -> bool:
+    """True only for a violation of this unique constraint; every other integrity error is a
+    bug and must not be mistaken for "already exists"."""
+    return constraint in str(error.orig)
 
 
 async def end_read(session: AsyncSession) -> None:
