@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46047567713
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46049595954
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -14,11 +14,11 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
-| 3.4 | Signup and login: lockout, rehash, session strategies | ⬜ | 0 / 18 | |
+| 3.4 | Signup and login: lockout, rehash, session strategies | 🔄 | 17 / 18 | CI run 46049595954; 3.4-17 (real stack, needs `/me`) runs with 3.6-12 |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ⬜ | 0 / 14 | |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **36 / 89** | |
+| | **Total** | | **53 / 89** | |
 
 ## Design decisions for this step
 
@@ -108,24 +108,24 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.4-01 | C1 | Signup with a new email | 202; user created (not verified, not admin) | test | ⬜ |
-| 3.4-02 | C6 | Signup with an existing email (any case) | Same 202 and body; no change to the existing user | test | ⬜ |
-| 3.4-03 | C2 | Signup with a weak password, invalid email, extra fields, missing fields | 422 with stable codes; nothing created | test | ⬜ |
-| 3.4-04 | C1 | Signup disabled (`AUTH__SIGNUP_ENABLED=false`) | 404 (the route behaves as absent) | test | ⬜ |
-| 3.4-05 | C1 | Login with the right password | 200; access + refresh token, `token_type`, `expires_in` from settings; `last_login_at` set; counter reset | test | ⬜ |
-| 3.4-06 | C4 | Wrong password; unknown email; disabled or deleted user | Same 401 `auth.invalid_credentials` | test | ⬜ |
-| 3.4-07 | C6 | Timing: unknown email vs wrong password | Both run one Argon2 verify (spy count) | test | ⬜ |
-| 3.4-08 | C6 | 5 wrong passwords | Locked for 15 min; the right password is then refused with the same 401; audited | test | ⬜ |
-| 3.4-09 | C3 | 4 failures then success; lock expiry exactly at `locked_until` | Counter reset on success; login allowed once the lock has passed (injected clock) | test | ⬜ |
-| 3.4-10 | C7 | 10 concurrent wrong-password logins | Counter counts all 10 (row lock), lock applied once | test | ⬜ |
-| 3.4-11 | C1 | Login with a hash using old Argon2 parameters | Succeeds; hash upgraded | test | ⬜ |
-| 3.4-12 | C1 | Session strategy `allow_multiple` | Each login adds a family | test | ⬜ |
-| 3.4-13 | C1 | Session strategy `replace_all` | Earlier families revoked (`replaced`) | test | ⬜ |
-| 3.4-14 | C3 | Session strategy `limit_sessions` with limit 3, 4th login | Oldest family revoked; 3 remain | test | ⬜ |
-| 3.4-15 | C1 | Session strategy `replace_same_device` | Earlier family with the same user agent revoked; others kept | test | ⬜ |
-| 3.4-16 | C9 | Database down at login | Generic 500; password and email not logged | test | ⬜ |
+| 3.4-01 | C1 | Signup with a new email | 202; user created (not verified, not admin) | test | ✅ |
+| 3.4-02 | C6 | Signup with an existing email (any case) | Same 202 and body; no change to the existing user | test | ✅ |
+| 3.4-03 | C2 | Signup with a weak password, invalid email, extra fields, missing fields | 422 with stable codes; nothing created | test | ✅ |
+| 3.4-04 | C1 | Signup disabled (`AUTH__SIGNUP_ENABLED=false`) | 404 (the route behaves as absent) | test | ✅ |
+| 3.4-05 | C1 | Login with the right password | 200; access + refresh token, `token_type`, `expires_in` from settings; `last_login_at` set; counter reset | test | ✅ |
+| 3.4-06 | C4 | Wrong password; unknown email; disabled or deleted user | Same 401 `auth.invalid_credentials` | test | ✅ |
+| 3.4-07 | C6 | Timing: unknown email vs wrong password | Both run one Argon2 verify (spy count) | test | ✅ |
+| 3.4-08 | C6 | 5 wrong passwords | Locked for 15 min; the right password is then refused with the same 401; audited | test | ✅ |
+| 3.4-09 | C3 | 4 failures then success; lock expiry exactly at `locked_until` | Counter reset on success; login allowed once the lock has passed (injected clock) | test | ✅ |
+| 3.4-10 | C7 | 10 concurrent wrong-password logins | Counter counts all 10 (row lock), lock applied once | test | ✅ |
+| 3.4-11 | C1 | Login with a hash using old Argon2 parameters | Succeeds; hash upgraded | test | ✅ |
+| 3.4-12 | C1 | Session strategy `allow_multiple` | Each login adds a family | test | ✅ |
+| 3.4-13 | C1 | Session strategy `replace_all` | Earlier families revoked (`replaced`) | test | ✅ |
+| 3.4-14 | C3 | Session strategy `limit_sessions` with limit 3, 4th login | Oldest family revoked; 3 remain | test | ✅ |
+| 3.4-15 | C1 | Session strategy `replace_same_device` | Earlier family with the same user agent revoked; others kept | test | ✅ |
+| 3.4-16 | C9 | Database down at login | Generic 500; password and email not logged | test | ✅ |
 | 3.4-17 | C11 | User signs up, logs in, calls `/me` (real stack) | Works end to end | CI step (Compose) | ⬜ |
-| 3.4-18 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.4-18 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A: signup and login are public | | | |
 | — | C8 | Covered by 3.4-02 (repeat signup) and 3.4-12 (repeat login) | | | |
 | — | C10 | Covered by 3.4-03 (nothing created) and 3.4-10 (counter exact) | | | |
@@ -193,7 +193,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | F2 | CI test (run 46045405514) | 3.2-04 failed: `SADeprecationWarning` for `Result.tuples()` (warnings are errors) | SQLAlchemy 2.1 deprecates it; rows unpack directly | Rows unpacked directly (and a lint fix, run 46045889238) | Fixed (run 46046371009) |
 | F3 | CI test (run 46047067623) | 3.3-04 `[expired]` violated `ck_sessions_family_started_first` | Test computed `created_at` and `family_started_at` from two `clock.now()` calls microseconds apart | One shared value | Fixed (run 46047567713) |
 | F4 | CI test (run 46048430388) | Signup answered 202 but stored nothing; every login after it failed (11 tests) | Two bugs: (1) the unit of work orders inserts by `relationship()` only, so the audit row (foreign key to the new user) was inserted first and refused; (2) `except IntegrityError` treated *every* integrity error as "email taken" and hid (1). The step 2 admin service had the same broad catch | User flushed before its audit row (rule written in `audit.record`); only `uq_users_email` means taken (`is_unique_violation`, shared, tested), anything else is re-raised; the admin service also releases its connection before hashing (R2-03) | Fixed (run 46049028389) |
-| F5 | CI test (run 46049028389) | Step 2 test 2.6-09 regressed: reading a loaded object after a failed unit of work raised `MissingGreenlet` | Ending the read transaction first (`end_read`, R2-03) made the next unit of work a fresh transaction; its failure rolled back the whole transaction and expired every loaded object (re-opening R2-02) | `transaction()` always runs the block in a SAVEPOINT; on failure it rolls back the savepoint and commits the empty outer transaction, so nothing loaded earlier is expired | Fixed |
+| F5 | CI test (run 46049028389) | Step 2 test 2.6-09 regressed: reading a loaded object after a failed unit of work raised `MissingGreenlet` | Ending the read transaction first (`end_read`, R2-03) made the next unit of work a fresh transaction; its failure rolled back the whole transaction and expired every loaded object (re-opening R2-02) | `transaction()` always runs the block in a SAVEPOINT; on failure it rolls back the savepoint and commits the empty outer transaction, so nothing loaded earlier is expired | Fixed (run 46049595954) |
 
 ## Gate (when all sections are ✅)
 
