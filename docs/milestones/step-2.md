@@ -1,7 +1,7 @@
 # Milestone 2: Database foundation
 
 - PR: #4
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45933396263 (commit 99ae3c2; later commits change docs only)
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45934502590 (commit 79f2cba; later commits change docs only)
 - Verdict: **GATE IN PROGRESS** (all sections ✅)
 
 Scenario plans below were written **before** the code (process rule). Results are filled in as
