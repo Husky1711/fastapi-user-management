@@ -66,6 +66,7 @@ class Membership(UUIDPrimaryKey, Timestamps, Base):
     role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id", ondelete="RESTRICT"))
 
     user: Mapped[User] = relationship(lazy="raise")
+    organization: Mapped[Organization] = relationship(lazy="raise")
     role: Mapped[Role] = relationship(lazy="raise")
 
 
