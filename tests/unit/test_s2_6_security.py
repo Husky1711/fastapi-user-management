@@ -2,8 +2,11 @@
 
 import threading
 import unicodedata
+from typing import Literal
 
 import pytest
+from argon2 import PasswordHasher
+from argon2.profiles import RFC_9106_LOW_MEMORY
 
 from app.core import security
 from app.core.emails import EMAIL_MAX_LENGTH, InvalidEmail, normalize_email
@@ -100,18 +103,17 @@ async def test_s2_6_06_hashing_and_verifying_run_off_the_event_loop_thread(
 ) -> None:
     loop_thread = threading.get_ident()
     threads: list[int] = []
-    real_hash, real_verify = security._hasher.hash, security._hasher.verify
 
-    def spy_hash(password: str) -> str:
-        threads.append(threading.get_ident())
-        return real_hash(password)
+    class SpyHasher(PasswordHasher):
+        def hash(self, password: str | bytes, *, salt: bytes | None = None) -> str:
+            threads.append(threading.get_ident())
+            return super().hash(password, salt=salt)
 
-    def spy_verify(password_hash: str, password: str) -> bool:
-        threads.append(threading.get_ident())
-        return real_verify(password_hash, password)
+        def verify(self, hash: str | bytes, password: str | bytes) -> Literal[True]:
+            threads.append(threading.get_ident())
+            return super().verify(hash, password)
 
-    monkeypatch.setattr(security._hasher, "hash", spy_hash)
-    monkeypatch.setattr(security._hasher, "verify", spy_verify)
+    monkeypatch.setattr(security, "_hasher", SpyHasher.from_parameters(RFC_9106_LOW_MEMORY))
     assert await verify_password(await hash_password(PASSWORD), PASSWORD)
     assert len(threads) == 2
     assert loop_thread not in threads

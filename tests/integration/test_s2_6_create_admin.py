@@ -86,6 +86,7 @@ async def test_s2_6_09_existing_email_changes_nothing(db_engine: AsyncEngine, em
 async def test_s2_6_09_email_of_a_deleted_user_is_still_taken(db: AsyncSession) -> None:
     gone = new_user(status=UserStatus.DELETED, deleted_at=clock.now())
     await add(db, gone)
+    await db.commit()  # like a fresh request: the service opens its own transaction
     with pytest.raises(Conflict):
         await create_platform_admin(db, email=gone.email, password=PASSWORD)
     assert (await db.execute(select(User).where(User.email == gone.email))).scalar_one() is gone
@@ -114,7 +115,7 @@ async def test_s2_6_10_on_a_terminal_the_password_is_prompted_without_echo(
         prompts.append(prompt)
         return PASSWORD
 
-    monkeypatch.setattr(cli.getpass, "getpass", fake_getpass)
+    monkeypatch.setattr("getpass.getpass", fake_getpass)
     out, err = io.StringIO(), io.StringIO()
     settings = make_settings(database=service_database_settings())
     code = await cli.run(
