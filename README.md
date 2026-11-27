@@ -31,6 +31,14 @@ make check               # lint + type check + tests (what CI runs)
 make help                # all commands
 ```
 
+## Notes for API clients
+
+- **Refresh is single-flight per session.** Every refresh token works once. Sending the same
+  refresh token twice (a retry after a lost response, or two tabs refreshing at the same
+  time) is treated as theft: the whole session is ended and the user must log in again. Keep
+  one refresh in flight per session and share its result.
+- Responses under `/api/v1` carry `Cache-Control: no-store`; don't cache them.
+
 ## Documentation
 
 | Document | What it covers |

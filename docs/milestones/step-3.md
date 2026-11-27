@@ -1,8 +1,8 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46079219114
-- Verdict: **GATE IN PROGRESS** (all sections ✅; review round 1 FAIL, fixes below, round 2 pending)
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46080870382
+- Verdict: **GATE IN PROGRESS** (all sections ✅; review rounds 1 and 2 FAIL, fixes below, round 3 pending)
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
 `test_s3_<section>_<nn>_...`; *CI step* means a named step in the CI workflow.
@@ -13,15 +13,15 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | --- | --- | --- | --- | --- |
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 10 / 10 | CI run 46046371009; 3.2-10 in run 46056180851 |
-| 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
-| 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 21 / 21 | CI run 46049595954; 3.4-17 in run 46051473324; 3.4-20/21 in run 46079219114 |
-| 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 15 / 15 | CI run 46050265813; 3.5-13 in run 46051473324; 3.5-15 in run 46079219114 |
-| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 14 / 14 | CI run 46051473324; 3.6-14 in run 46079219114 |
-| 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 8 / 8 | CI run 46052631869 |
-| 3.8 | Security audit fixes: per-user lock order, re-checks under the lock | ✅ | 11 / 11 | Failing first in run 46055289113; passing in 46055748820; extended after review round 1, run 46079219114 |
-| | **Total** | | **106 / 106** | 89 planned + 17 added during the step: 3.4-19 (step 2 carry-over); 3.2-10 and 3.8-01..11 (security audit); 3.4-20, 3.4-21, 3.5-15, 3.6-14 (review round 1) |
+| 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 14 / 14 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12); 3.3-14 in run 46080870382 |
+| 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 23 / 24 | CI run 46049595954; 3.4-17 in run 46051473324; 3.4-20/21 in run 46079219114; 3.4-22/23 in run 46080870382; 3.4-24 is a pinned known gap (step 6) |
+| 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 16 / 16 | CI run 46050265813; 3.5-13 in run 46051473324; 3.5-15 in run 46079219114; 3.5-16 in run 46080870382 |
+| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 16 / 16 | CI run 46051473324; 3.6-14 in run 46079219114; 3.6-15/16 in run 46080870382 |
+| 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 9 / 9 | CI run 46052631869; 3.7-09 in run 46080870382 |
+| 3.8 | Security audit fixes: per-user lock order, re-checks under the lock | ✅ | 12 / 12 | Failing first in run 46055289113; passing in 46055748820; extended after review round 1, run 46079219114; 3.8-12 in run 46080870382 |
+| | **Total** | | **114 / 115** | 89 planned + 26 added during the step: 3.4-19 (step 2 carry-over); 3.2-10 and 3.8-01..11 (security audit); 3.4-20, 3.4-21, 3.5-15, 3.6-14 (review round 1); 3.3-14, 3.4-22..24, 3.5-16, 3.6-15, 3.6-16, 3.7-09, 3.8-12 (review round 2) |
 
-**Totals:** 106 scenarios, 106 passing, 0 failing. Failures found and fixed during the step: 11 (F1–F11 below).
+**Totals:** 115 scenarios: 114 passing, 0 failing, 1 known gap pinned as a strict expected failure (3.4-24, closed in step 6). Failures found and fixed during the step: 13 (F1–F13 below), plus one expected red run (F12).
 
 ## Design decisions for this step
 
@@ -33,8 +33,11 @@ Scenario plans below were written **before** the code (process rule). Ids map to
   `revoked`, `replaced`, `password_changed`, `reuse_detected`). A presented refresh token
   whose row was `rotated` is reuse: the whole family is revoked and audited. Other revoked
   tokens are just invalid.
-- **Signup never reveals whether an email exists**: same status (202), body and work
-  (a password hash) either way. It returns no tokens; the client logs in next.
+- **Signup's answer never reveals whether an email exists**: same status (202), body and work
+  (a password hash) either way. It returns no tokens; the client logs in next. Across the
+  flow it still can: signing up and then logging in with that password succeeds only if the
+  email was free. That known gap is pinned by 3.4-24 (strict expected failure) and closed in
+  step 6 (verified email before login); step 4's per-IP limits slow the probe meanwhile.
 - **Lockout without enumeration**: a locked account gets the same 401 as a wrong password
   (and the same Argon2 work); the lock and every failure are audited.
 - **Failed-login counting commits before the error is raised**, so the counter survives the
@@ -105,6 +108,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.3-11 | C1 | The lookup is one query (user + session check) | Query counter | test | ✅ |
 | 3.3-12 | C6 | Token never logged | Not in access logs or error logs | test | ✅ |
 | 3.3-13 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| 3.3-14 | C2 | (added, review round 2) Client host is IPv4, IPv6, IPv6 with a zone id, a name, empty or missing | Addresses recorded (zone id dropped: `inet` refuses it); names and blanks recorded as none | test | ✅ |
 | — | C5 | N/A here: authorization (permissions) is step 5 | | | |
 | — | C7, C8 | Covered by 3.5 (concurrent refresh / repeated logout) | | | |
 
@@ -133,6 +137,9 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.4-19 | C7 | Two concurrent signups with one email (different case) over HTTP | Both 202, same body; exactly one user (added: step 2 carry-over) | test | ✅ |
 | 3.4-20 | C3 | (added, review round 1) Login with a 129-character password: over the 128 rule, under the 1024 input cap | Just a wrong password: 401 `auth.invalid_credentials`, counted toward lockout (never 422, which would reveal the rule applies) | test | ✅ |
 | 3.4-21 | C3 | (added, review round 1) Signup `full_name` of 200 and 201 characters | 202 and stored; 422 and nothing stored | test | ✅ |
+| 3.4-22 | C6 | (added, review round 2) Signup, login, refresh, `/me`, `/me/sessions` and logout answers | `Cache-Control: no-store`, `Pragma: no-cache` (RFC 6749 §5.1) on every `/api/v1` answer | test | ✅ |
+| 3.4-23 | C1 | (added, review round 2) Signup switched off | Left out of the OpenAPI document; shown when on | test | ✅ |
+| 3.4-24 | C6 | (added, review round 2) Sign up, then log in with that password | Known gap: today the login succeeds only when the email was free. Pinned as a strict expected failure; it must start passing (login refused until the email is verified) in step 6 | test (strict xfail) | ⏳ step 6 |
 | — | C5 | N/A: signup and login are public | | | |
 | — | C8 | Covered by 3.4-02 (repeat signup) and 3.4-12 (repeat login) | | | |
 | — | C10 | Covered by 3.4-03 (nothing created) and 3.4-10 (counter exact) | | | |
@@ -156,7 +163,8 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.5-13 | C11 | Real stack: login, refresh twice, replay the first refresh token, everything revoked | As stated | CI step (Compose) | ✅ |
 | 3.5-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A: a user acts only on their own sessions (3.2-05 covers cross-user) | | | |
-| 3.5-15 | C9 | (added, review round 1) Database down at refresh, logout and logout-all (a validly signed token, so the lookup runs) | Generic 500; neither token in logs or body | test | ✅ |
+| 3.5-15 | C9 | (added, review round 1) Database down at refresh | Generic 500; the token not in logs or body | test | ✅ |
+| 3.5-16 | C9 | (added, review round 2) The database fails inside the logout / logout-all write (after authentication) | Generic 500; nothing changed (the session still works); token not logged | test | ✅ |
 
 ### Section 3.6: `/me`
 
@@ -177,7 +185,8 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.6-13 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 3.6-14 | C1, C4 | (added, review round 1) Ending your own current session by id | 204; that access token and its refresh token stop working at once; the other device stays | test | ✅ |
 | — | C7 | Covered by 3.5-05 (session races) | | | |
-| — | C9, C10 | Covered by 3.4-16 and the unit-of-work tests of step 2 | | | |
+| 3.6-15 | C9, C10 | (added, review round 2) The database fails inside the password-change write | Generic 500; the whole change rolled back: old password and other devices still work | test | ✅ |
+| 3.6-16 | C8 | (added, review round 2) Ending the same session twice | 204, then 404 `session.not_found`; one audit entry | test | ✅ |
 
 ### Section 3.7: Carried from step 1
 
@@ -187,10 +196,11 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.7-02 | C1 | Normal JSON request | Unchanged (200/422 as before) | test | ✅ |
 | 3.7-03 | C6 | Log fields named like secrets (`password`, `token`, `secret`, `authorization`, `api_key`, …), any case | Value replaced by `[REDACTED]` | test | ✅ |
 | 3.7-04 | C6 | Secret values that aren't strings (numbers, lists, nested dicts) | Redacted | test | ✅ |
-| 3.7-05 | C6 | `key: value`, `key=value` and `Authorization: Bearer …` inside messages | Value redacted | test | ✅ |
+| 3.7-05 | C6 | `key: value`, `key=value` and `Authorization: Bearer …` inside messages, incl. prefixed keys (`new_password`), quoted multi-word values and values with `;`, `,`, `}`, `&` or an escaped quote (cases added in review round 2) | Whole value redacted | test | ✅ |
 | 3.7-06 | C2 | Messages that only mention the words ("password reset sent") | Not mangled | test | ✅ |
 | 3.7-07 | C1 | Login and refresh logs | Never contain the password or a token (whole flow) | test | ✅ |
 | 3.7-08 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| 3.7-09 | C2 | (added, review round 2) Field names that only contain a secret word (`compass`, `bypass_cache`, `token_type`, `passive`, `keyboard`) | Kept (names are matched by whole words) | test | ✅ |
 | — | C3, C4, C5, C7, C8, C10, C11 | N/A: logging behaviour, no auth, state or flow of its own | | | |
 
 ### Section 3.8: Security audit fixes (added after gate check 6 found the candidates)
@@ -210,9 +220,10 @@ function `test_s3_8_<nn>_...`; variants are its parameters.
 | 3.8-06 | C7, C6 | (review M1) The account gets locked by failed logins while a password change is hashing | Change refused under the lock (the after-hashing check); password unchanged; refusal audited | test | ✅ |
 | 3.8-07 | C7, C4 | (review M2) The account is disabled while a password change is hashing | Change refused (status re-checked under the lock); password unchanged | test | ✅ |
 | 3.8-08 | C7, C10 | Six concurrent logins under `replace_all` and under `limit_sessions` (limit 2) | All 200; exactly 1 / 2 active sessions remain (count-then-insert serialized by the user lock) | test (real pool), 2 variants | ✅ |
-| 3.8-09 | C9, C10 | The user row is removed while a login (right or wrong password) is verifying | 401 `auth.invalid_credentials`, never 500 (refusal audited without an actor; failure count skipped) | test, 2 variants | ✅ |
+| 3.8-09 | C9, C10 | The user row is removed while a login (right or wrong password) is verifying | 401 `auth.invalid_credentials`, never 500; right password: one `auth.login_refused` with no actor; wrong password: nothing audited (no row to count) | test, 2 variants | ✅ |
 | 3.8-10 | C11 | Real stack: a stolen access token guesses 5 times, then the right password is refused; a refreshed stolen token dies at the owner's logout-all; no active session left in the database | As stated | CI step (Compose) | ✅ |
 | 3.8-11 | C12 | Earlier tests still pass (incl. refresh race 3.5-05, password change 3.6-06, lockout 3.4-08/10) | CI green | CI run | ✅ |
+| 3.8-12 | C7 | (added, review round 2) A login under `replace_all` while a refresh is mid-rotation | The login waits for the rotation, then ends the successor too: only the new login's session remains | test (real pool) | ✅ |
 | — | C2, C3, C5 | N/A: no new input, boundary or permission; routes and schemas unchanged (input caps are 3.4-20/21) | | | |
 
 ## Failure log
@@ -230,6 +241,8 @@ function `test_s3_8_<nn>_...`; variants are its parameters.
 | F9 | Security audit coverage critic, CI check first (run 46055991972) | Migration 0003 aborted (`could not create unique index`) when two active legacy rows of one family had the same `created_at` | "Keep the newest" compared `created_at` only, so ties both stayed active | Ties broken by `(created_at, id)`; CI step 3.2-01b (migration not yet merged, so edited in place) | Fixed (run 46056180851) |
 | F10 | CI type check (runs 46055289113, 46055530031) | `mypy --strict` failed on the 3.8 tests: `Module "app.services.auth" does not explicitly export attribute "verify_password"` (and the same for `me.hash_password`) | The tests patched the services' imported names through module attributes, which the strict "no implicit re-export" rule refuses | Patched by import path (`monkeypatch.setattr("app.services.auth.verify_password", ...)`) wrapping the real `security` functions | Fixed (run 46055748820) |
 | F11 | CI test (run 46077451738 hung 13 min, cancelled; run 46078967397 failed) | 3.8-01 never saw the revocation wait, and on that failure the test hung | (1) The new wait filter matched the statement text, which didn't hold (column order; PostgreSQL also truncates `query` at 1024 bytes); (2) on any failure the paused refresh was never released, kept the user lock, and the cleanup waited forever | (1) Waiter found by its blocker's lock on `users` (`pg_locks`, `pg_blocking_pids`), no text; (2) `paused_request` always releases and collects the paused request; (3) every CI job now has `timeout-minutes: 20` | Fixed (run 46079219114) |
+| F12 | CI, all jobs (run 46043074202, at 3b7232d) | Lint, type check, tests and Compose all failed: `uv sync --locked` refused | Expected: PyJWT was added to `pyproject.toml` before `uv.lock` could be regenerated (the sandbox has no network); a temporary CI job produced the lockfile, checked by sha256 | Lockfile committed next | Expected red run, resolved in the next run |
+| F13 | CI test (run 46080669546) | 3.4-19 errored (fixture `race_email` not found); 3.4-23 failed (disabled signup still in the OpenAPI document) | (1) Rewriting 3.4-03 deleted the fixture that sat between the two tests; (2) setting `include_in_schema` on the route after inclusion didn't reach the generated document | (1) Fixture restored; (2) the schema generator leaves switched-off paths out | Fixed (run 46080870382) |
 
 ## Gate
 
@@ -285,7 +298,9 @@ refused, new accepted).
 
 - Round 1 (commit 1c09104): **FAIL**, 8.6/10, four High findings. Verbatim:
   [reviews/step-3-round-1.md](reviews/step-3-round-1.md). Resolution below.
-- Round 2: pending.
+- Round 2 (commit 763a29a): **FAIL**, 8.9/10, one High finding. Verbatim:
+  [reviews/step-3-round-2.md](reviews/step-3-round-2.md). Resolution below.
+- Round 3: pending.
 
 **Round 1 resolution**
 
@@ -312,6 +327,28 @@ refused, new accepted).
 | L10 | Dummy hash made when the hashing pool starts |
 | Missing scenarios | Added: 3.8-01 variants (end session, revoke-others), 3.8-06, 3.8-07, 3.8-08, 3.8-09, 3.8-10, 3.5-15, 3.6-14, 3.4-20, 3.4-21. Hard delete through an API: step 7 |
 
+**Round 2 resolution**
+
+| # | Resolution |
+| --- | --- |
+| H1 | V2.4.5 added: carried to step 9 with the reason (rotation and loss); V2.2.2 has its own N/A row; closing sentence lists all five carried items |
+| M1 | `no_store` dependency on the `/api/v1` router; 3.4-22 checks every route kind; ASVS V8.2.1 row |
+| M2 | Quoted values redacted to their closing quote (escapes handled); prefixed keys (`new_password`); 3.7-05 cases |
+| M3 | ROADMAP step 4: per-IP limits on signup and login against the signup-then-login probe; step 6: login refused until verified (or "account exists" mail) so 3.4-24 passes; step 7: hard-delete re-test (3.8-09) and audit of unknown-email failures. Design decision reworded |
+| L1 | Comment on the `Any` |
+| L2 | Hashing pool (and dummy hash) started with `asyncio.to_thread` in the lifespan and the CLI |
+| L3 | Zone id dropped; 3.3-14 covers names and blanks (deps.py `ValueError` branch now run) |
+| L4 | F12 (expected red run) |
+| L5 | 3.5-15 is refresh only; 3.5-16 and 3.6-15 fail the database inside the writes |
+| L6 | SQLSTATE 23505 plus exact `constraint_name` from the driver; unit cases (a longer name, wrong SQLSTATE) and a real CHECK violation through signup (re-raise branch run) |
+| L7 | Docs say `AUTH__SIGNUP_ENABLED`; a switched-off signup is left out of OpenAPI (3.4-23) |
+| L8 | 3.8-09 asserts the audit rows |
+| L9 | README: refresh is single-flight per session; a retried or parallel refresh with the same token ends the session |
+| L10 | Names split into words; last word or last pair decides; 3.7-03 and 3.7-09 cases |
+| L11 | Recorded as an accepted exception in `docs/milestones/README.md` (testing rules) |
+| L12 | Carried to step 7 (ROADMAP) |
+| Missing scenarios | 3.3-14, 3.4-22..24, 3.5-16, 3.6-15, 3.6-16, 3.7-05/09 cases, 3.8-09 assertion, 3.8-12 |
+
 ### ASVS 4.0.3 (roadmap exit criterion), level 2, for these flows
 
 | Item | Requirement (short) | Status | Evidence |
@@ -324,9 +361,12 @@ refused, new accepted).
 | V2.1.8, 2.1.11, 2.1.12 | Strength meter, paste, show password | N/A | Client UI concerns; the API accepts any allowed password |
 | V2.1.9 / 2.1.10 | No composition rules; no forced rotation | Pass | Length-only rules; no expiry |
 | V2.2.1 | Anti-automation against credential stuffing and brute force | **Partial; rate limits carried to step 4** | Lockout 3.4-08/10, also on password change 3.8-03; per-IP/email limits are step 4 |
-| V2.2.2 / 2.2.3 | No weak authenticators; notify after credential change | **2.2.3 carried to step 6** (email) | Password-change audit entry exists now |
+| V2.2.2 | Weak authenticators (SMS, email OTP) not used as a primary factor | N/A | Passwords only; no SMS or email authenticators exist |
+| V2.2.3 | Notify after a credential change | **Carried to step 6** (email) | Password-change audit entry exists now |
 | V2.2.4–2.2.7, V2.7, V2.8 | MFA, phishing resistance, OTP | Out of scope | VISION backlog (version 2) |
 | V2.4.1 / 2.4.4 | Salted, approved, memory-hard hash with tuned cost | Pass | Argon2id, RFC 9106 low-memory profile; rehash on login 3.4-11 |
+| V2.4.5 | An extra iteration with a secret salt ("pepper") kept apart from the hashes | **Carried to step 9** (decision) | Not done in step 3, on purpose: a pepper without key versioning can never be rotated, and losing it makes every password unrecoverable. Step 9 adds it with a key id in the stored hash, rotation through rehash-on-login, and an ADR |
+| V8.2.1 | Anti-caching headers on sensitive responses | Pass | `Cache-Control: no-store` on every `/api/v1` answer (3.4-22) |
 | V2.5.1 / 2.5.6 | Recovery never sends the password; secure reset | **Carried to step 6** | Reset is step 6 |
 | V2.5.2 / 2.5.4 | No secret questions; no default or shared accounts | Pass | None exist; `create-admin` requires a password (step 2) |
 | V2.10.4 | Secrets not in source | Pass | JWT secret from settings, safety check per algorithm (3.1-12) |
@@ -340,8 +380,8 @@ refused, new accepted).
 | V3.5.2 / 3.5.3 | Session tokens not static keys; signed and tamper-checked stateless tokens | Pass | Rotation; HS* with algorithm pinned, all claims required (3.1-02/03) |
 | V3.7.1 | Re-authentication before sensitive changes | Pass | Current password required for password change |
 
-The exit criterion is met for everything this step owns; the four carried items each have a
-named step.
+The exit criterion is met for every item this step owns; the five items it doesn't
+(V2.1.7, V2.2.1 rate limits, V2.2.3, V2.4.5, V2.5) each have a named step in the ROADMAP.
 
 ### 6. Security audit: PASS (after fixes)
 
@@ -386,4 +426,6 @@ redaction of prefixed keys such as `new_password` (step 8, observability).
 - To step 7: a hard-deleted user between read and lock (review L3) is handled (3.8-09) but
   re-tested once admin deletion exists.
 - To step 8: engine `hide_parameters=True`; redaction of prefixed keys (audit hardening notes).
-- To step 9: ASVS V2.1.7 (breached-password check).
+- To step 9: ASVS V2.1.7 (breached-password check) and V2.4.5 (versioned pepper, with an ADR).
+- To steps 4 and 6: the signup-then-login account probe (3.4-24, strict expected failure).
+- To step 7: audit (or count) failed logins for unknown emails, with a masked email.

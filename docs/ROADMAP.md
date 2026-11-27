@@ -134,7 +134,7 @@ delete; no migrations; lockout columns unused.
 - [x] Dummy Argon2 verify for unknown emails (no timing leak)
 - [x] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
 - [x] `client_info` dependency — IP (trusted proxy aware) and user agent
-- [x] `POST /auth/signup` (behind `FEATURE_SIGNUP`), `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`
+- [x] `POST /auth/signup` (behind `AUTH__SIGNUP_ENABLED`), `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`
 - [x] Refresh rotation with `family_id` and reuse detection (reuse ⇒ revoke family + audit event)
 - [x] Account lockout: failed counter, `locked_until`, reset on success
 - [x] Session strategy from settings (`allow_multiple`, `replace_all`, `limit_sessions`, `replace_same_device`)
@@ -167,6 +167,7 @@ current session; `settings` NameError; role/org trusted from JWT claims; hard-co
 - [ ] Use `SCAN`/key sets, never `KEYS`
 - [ ] Tests with real Redis: burst, steady rate, reset, concurrency, Redis down
 - [ ] Limits on `POST /me/password` and `POST /auth/refresh` too; lockout can't be used to keep an owner out (per-IP/per-email limits before the counter) (from step 3 audit)
+- [ ] Per-IP limits on signup and login that make the signup-then-login account probe slow (from step 3 review round 2, M3; closed for good in step 6)
 
 **Fixes from review:** same-second requests counted once; rejected requests recorded;
 swallowed per-user 429; O(n) memory per key; up to 8 Redis round trips per request; `KEYS`
@@ -213,6 +214,7 @@ missing CRUD.
 - [ ] Setting `REQUIRE_VERIFIED_EMAIL` to block login until verified
 - [ ] Tests for expiry, reuse, enumeration resistance
 - [ ] Notify the user by email after a password change (ASVS V2.2.3, from step 3)
+- [ ] Close the signup-then-login account probe: login refused until the email is verified (decide the `REQUIRE_VERIFIED_EMAIL` default), or a sign-up for a taken email sends an "account exists" mail and creates nothing; test 3.4-24 then passes and loses its expected-failure mark (from step 3 review round 2, M3)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
@@ -229,6 +231,8 @@ missing CRUD.
 - [ ] `GET /orgs/{id}/audit` (`audit:read`) and `GET /admin/audit` — filtered, paginated
 - [ ] `/admin/users` and `/admin/organizations`: list, search, disable, enable, delete (soft)
 - [ ] Every admin action audited with actor, target, IP
+- [ ] Re-test a user hard-deleted between a login's read and its lock (3.8-09) once admin deletion exists (from step 3 review round 2, M3)
+- [ ] Audit or count failed logins for unknown emails, with the email masked, so credential stuffing is visible (from step 3 review round 2, L12)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
@@ -270,6 +274,7 @@ tokens never cleaned.
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
 - [ ] Refuse breached passwords (ASVS V2.1.7, from step 3): offline list or k-anonymity range query; new dependency needs owner approval
+- [ ] Pepper password hashes (ASVS V2.4.5, from step 3): HMAC key from settings with a key id stored in the hash, rotation through rehash-on-login, documented loss/recovery; ADR first
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 - [ ] Enforce append-only `audit_logs` in the database (trigger or revoked UPDATE/DELETE) (from step 2 review, R1-17)

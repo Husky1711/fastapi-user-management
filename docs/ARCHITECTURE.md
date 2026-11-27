@@ -316,6 +316,6 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 | Add fields to a user or org | A product-owned profile table with a 1:1 FK + its own migration |
 | Add endpoints | A new router in the product's own package, using the same `deps` |
 | Real email provider | Implement `EmailSender` |
-| Turn features off | Settings flags (e.g. `FEATURE_SIGNUP=false` for invite-only products) |
+| Turn features off | Settings flags (e.g. `AUTH__SIGNUP_ENABLED=false` for invite-only products) |
 
 These are documented with examples in `docs/EXTENDING.md` (written in the roadmap).
