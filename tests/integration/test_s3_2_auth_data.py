@@ -109,9 +109,8 @@ async def test_s3_2_04_bulk_revocation_counts_and_keeps_first_reason(db: AsyncSe
         user_id=user.id, reason=RevokeReason.LOGOUT_ALL, now=now, except_family=keep.family_id
     )
     assert revoked == 2  # the first was already revoked
-    reasons = dict(
-        (await db.execute(select(UserSession.id, UserSession.revoked_reason))).tuples().all()
-    )
+    rows = await db.execute(select(UserSession.id, UserSession.revoked_reason))
+    reasons = {session_id: reason for session_id, reason in rows}
     assert reasons[first.id] == RevokeReason.REVOKED
     assert reasons[sessions[1].id] == RevokeReason.LOGOUT_ALL
     assert reasons[keep.id] is None
