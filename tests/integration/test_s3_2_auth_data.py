@@ -172,6 +172,7 @@ async def test_s3_2_06_audit_entry_records_who_what_where(db: AsyncSession) -> N
         await db.flush()
     finally:
         request_id_var.reset(token)
+    db.expunge_all()  # read the stored row back, not the object we built
     stored = (await db.execute(select(AuditLog).where(AuditLog.id == entry.id))).scalar_one()
     assert (stored.action, stored.actor_user_id, stored.target_type) == (
         "auth.login_succeeded",

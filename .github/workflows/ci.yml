@@ -226,7 +226,9 @@ jobs:
           test "$(curl -s -o me.json -w '%{http_code}' "${auth[@]}" $api/me)" = 200
           test "$(jq -r .email me.json)" = "$email"
           ip=$(curl -s "${auth[@]}" $api/me/sessions | jq -r '.items[0].ip')
-          echo "session ip: $ip"; test "$ip" != "198.51.100.66"
+          echo "session ip: $ip"
+          echo "$ip" | grep -Eq '^[0-9a-f.:]+$'   # a real address was recorded...
+          test "$ip" != "198.51.100.66"           # ...and it isn't the spoofed one
           test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 200
           second_refresh=$(jq -r .refresh_token body.json)
           test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 401   # replay

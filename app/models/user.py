@@ -5,12 +5,12 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, LargeBinary, Text, false, func, text
-from sqlalchemy.dialects.postgresql import CITEXT, INET
+from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.client import USER_AGENT_MAX_LENGTH
 from app.core.emails import EMAIL_MAX_LENGTH
-from app.models.base import Base, Timestamps, UUIDPrimaryKey, text_enum, utc_now
+from app.models.base import Base, IPAddress, Timestamps, UUIDPrimaryKey, text_enum, utc_now
 
 TOKEN_HASH_BYTES = 32  # SHA-256 digest; the token itself is never stored
 
@@ -109,7 +109,7 @@ class UserSession(UUIDPrimaryKey, Timestamps, Base):
         text_enum(RevokeReason, "revoked_reason")
     )
     last_used_at: Mapped[datetime | None]
-    ip: Mapped[str | None] = mapped_column(INET)
+    ip: Mapped[str | None] = mapped_column(IPAddress)
     user_agent: Mapped[str | None] = mapped_column(Text)
 
 

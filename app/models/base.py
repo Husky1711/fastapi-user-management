@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from sqlalchemy import DateTime, Dialect, Enum, FetchedValue, MetaData, func
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -55,6 +56,16 @@ def text_enum(enum_class: type[StrEnum], name: str) -> Enum:
         validate_strings=True,
         length=32,
     )
+
+
+class IPAddress(TypeDecorator[str]):
+    """`inet` read back as a plain string (asyncpg returns `ipaddress` objects)."""
+
+    impl = INET
+    cache_ok = True
+
+    def process_result_value(self, value: object, dialect: Dialect) -> str | None:
+        return None if value is None else str(value)
 
 
 class Base(DeclarativeBase):
