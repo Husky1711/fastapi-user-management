@@ -32,26 +32,39 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
     return async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
 
+_IN_UNIT_OF_WORK = "app.unit_of_work"  # marker in `session.info`
+
+
+class NestedUnitOfWork(RuntimeError):
+    """`transaction()` was entered while one is already running on the same session."""
+
+
 @asynccontextmanager
 async def transaction(session: AsyncSession) -> AsyncIterator[None]:
     """The service's unit of work: commit if the block succeeds, roll back if it raises.
 
     Request dependencies (current user, permission checks) read through the same session
-    first, and that read autobegins a transaction; the unit of work then continues it, so the
-    dependency's reads and the service's writes are one consistent transaction. Call this once
-    per service method; it is not reentrant.
+    first, and those reads autobegin a transaction. The unit of work then runs in a SAVEPOINT
+    inside it: on failure only the savepoint is rolled back, which expires only the objects
+    changed in the block, so what the dependencies loaded stays readable. On success the
+    savepoint is released and the whole transaction committed, before the response is built.
 
-    A rollback expires every object loaded in the session (SQLAlchemy behaviour): after a
-    failed unit of work, don't read attributes of objects loaded before it.
+    Not reentrant: one unit of work per service call. A nested call raises instead of
+    committing the outer call's half-done work early.
     """
-    if not session.in_transaction():
-        await session.begin()
+    if session.info.get(_IN_UNIT_OF_WORK):
+        raise NestedUnitOfWork("transaction() is already running on this session")
+    session.info[_IN_UNIT_OF_WORK] = True
     try:
-        yield
-        await session.commit()  # a failed commit is rolled back below too
-    except BaseException:
-        await session.rollback()
-        raise
+        if session.in_transaction():
+            async with session.begin_nested():
+                yield
+            await session.commit()
+        else:
+            async with session.begin():
+                yield
+    finally:
+        session.info.pop(_IN_UNIT_OF_WORK, None)
 
 
 async def ping_database(engine: AsyncEngine) -> None:

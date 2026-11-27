@@ -104,12 +104,11 @@ async def test_s2_6_09_existing_email_changes_nothing(db_engine: AsyncEngine, em
 async def test_s2_6_09_email_of_a_deleted_user_is_still_taken(db: AsyncSession) -> None:
     gone = new_user(status=UserStatus.DELETED, deleted_at=clock.now())
     await add(db, gone)
-    email, gone_id = gone.email, gone.id  # the failed transaction's rollback expires `gone`
-    await db.commit()  # created by an earlier request (else the failed unit of work undoes it)
     with pytest.raises(Conflict):
-        await create_platform_admin(db, email=email, password=PASSWORD)
-    (only,) = (await db.execute(select(User.id).where(User.email == email))).scalars()
-    assert only == gone_id
+        await create_platform_admin(db, email=gone.email, password=PASSWORD)
+    # The failed unit of work was a savepoint: `gone` is still loaded and still stored.
+    (only,) = (await db.execute(select(User.id).where(User.email == gone.email))).scalars()
+    assert only == gone.id
 
 
 async def test_s2_6_10_password_is_only_read_from_stdin_and_never_printed(
@@ -209,9 +208,9 @@ async def test_s2_6_13_unresponsive_database_host_gives_up_after_the_connect_tim
     )
     started = asyncio.get_running_loop().time()
     code, out, err = await _run("create-admin", "--email", email, database=blackhole)
-    assert asyncio.get_running_loop().time() - started < 5  # not asyncpg's 60 s default
+    assert 0.4 < asyncio.get_running_loop().time() - started < 5  # the timeout, not 60 s
     assert (code, out) == (1, "")
-    assert "cannot use the database" in err
+    assert "cannot use the database (TimeoutError)" in err
     assert UNREACHABLE_PASSWORD not in err
 
 

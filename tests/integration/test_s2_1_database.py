@@ -16,10 +16,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core import clock
 from app.core.deps import DbSession
-from app.infra.database import transaction
+from app.core.errors import Conflict
+from app.infra.database import NestedUnitOfWork, transaction
 from app.main import create_app
+from app.models import Organization, User
 from app.models.base import NAMING_CONVENTION, Base, Timestamps, UUIDPrimaryKey
+from app.repositories import UserRepository
 from tests.db import SERVICES, service_database_settings
+from tests.factories import add, new_org, new_user
 from tests.helpers import check_ok, client_for, make_settings
 
 pytestmark = SERVICES
@@ -208,3 +212,58 @@ async def test_s2_1_11_exhausted_pool_fails_fast_with_a_generic_500() -> None:
     assert starved.status_code == 500
     assert starved.json()["code"] == "server.internal_error"
     assert recovered.status_code == 200
+
+
+async def test_s2_1_12_objects_loaded_before_a_failed_unit_of_work_stay_readable(
+    db: AsyncSession,
+) -> None:
+    await add(db, new_user(email="caller-s2-1-12@example.com"))
+    db.expunge_all()
+    caller = await UserRepository(db).get_by_email("caller-s2-1-12@example.com")  # dependency
+    assert caller is not None
+    org = new_org()
+
+    async def service_that_fails() -> None:
+        async with transaction(db):
+            db.add(org)
+            await db.flush()
+            raise Conflict
+
+    with pytest.raises(Conflict):
+        await service_that_fails()
+    assert caller.email == "caller-s2-1-12@example.com"  # not expired: no lazy load, no error
+    assert await db.get(Organization, org.id) is None  # the failed block left nothing behind
+
+
+async def test_s2_1_13_nested_unit_of_work_is_refused(db: AsyncSession) -> None:
+    async with transaction(db):
+        with pytest.raises(NestedUnitOfWork):
+            async with transaction(db):
+                pass
+        await add(db, user := new_user())
+    async with transaction(db):  # the marker is cleared afterwards
+        pass
+    assert await db.get(User, user.id) is user
+
+
+async def test_s2_1_14_cancelled_unit_of_work_rolls_back(db_engine: AsyncEngine) -> None:
+    email = f"cancelled-{uuid.uuid4().hex[:12]}@example.com"
+    inside = asyncio.Event()
+    session = AsyncSession(db_engine)
+
+    async def slow_write() -> None:
+        async with transaction(session):
+            session.add(new_user(email=email))
+            await session.flush()
+            inside.set()
+            await asyncio.Event().wait()  # the client goes away while this waits
+
+    task = asyncio.create_task(slow_write())
+    await inside.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not session.in_transaction()
+    await session.close()
+    async with AsyncSession(db_engine) as reader:
+        assert await UserRepository(reader).get_by_email(email) is None

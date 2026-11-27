@@ -49,11 +49,11 @@ flowchart TD
 
 **Transactions.** One request has one database session (`get_db`), shared by its dependencies
 and its one service call. Dependencies only read. The service method writes inside
-`async with transaction(session):` (`app/infra/database.py`), which continues the transaction
-the dependencies' reads began, commits before the response is built, and rolls back on any
-error. It is called once per service method (not reentrant). A rollback expires every object
-loaded in the session, so code that handles a failed unit of work must not read attributes of
-objects loaded before it. Error handlers only use the exception, never ORM objects.
+`async with transaction(session):` (`app/infra/database.py`). It runs as a SAVEPOINT inside
+the transaction the dependencies' reads began and commits everything before the response is
+built. On error only the savepoint is rolled back, so objects the dependencies loaded (the
+current user) stay readable. It is entered once per service call; a nested call raises
+`NestedUnitOfWork` instead of committing half-done work.
 
 ## 3. Folder layout
 
@@ -198,7 +198,10 @@ erDiagram
 Rules:
 
 - Primary keys are UUIDs (no guessable ids in URLs). Audit log uses `bigint` for write speed.
-- All timestamps are `timestamptz` and written in UTC from code (`datetime.now(UTC)`).
+- All timestamps are `timestamptz`, aware UTC. Inserted values come from the app clock
+  (`app.core.clock.now()`, injectable in tests), so CHECKs comparing two timestamps compare one
+  clock. Later `updated_at` values come from a database trigger (`clock_timestamp()`), so bulk
+  `UPDATE`s can't forget them; app and database clocks are both NTP-synced UTC.
 - Emails are `citext` so `A@x.com` and `a@x.com` are the same account.
 - Enum-like columns are real Postgres enums or CHECK constraints.
 - Every foreign key declares `ON DELETE` behaviour.

@@ -114,7 +114,10 @@ async def test_s2_6_05_unicode_password_typed_two_ways_verifies() -> None:
     assert composed != decomposed
     password_hash = await hash_password(composed)
     assert await verify_password(password_hash, decomposed)
-    # Length is counted after normalization: 11 composed characters is still too short.
+    # Length is counted after normalization, both ways: a ligature expands ("ﬁ" -> "fi")...
+    with pytest.raises(WeakPassword, match="at most"):
+        check_password_rules("ﬁ" * 65)  # 65 characters typed, 130 after NFKC
+    # ...and decomposed characters recombine: 11 composed characters is still too short.
     with pytest.raises(WeakPassword):
         check_password_rules(unicodedata.normalize("NFD", "é" * (PASSWORD_MIN_LENGTH - 1)))
 

@@ -25,6 +25,16 @@ from app.services.admin import create_platform_admin
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_INVALID_INPUT = 2  # same code argparse uses for usage errors
+UNDEFINED_TABLE = "42P01"  # PostgreSQL SQLSTATE: the schema hasn't been migrated
+
+
+def _sqlstate(error: DBAPIError) -> str | None:
+    """SQLSTATE of the driver error (asyncpg keeps it on the original exception)."""
+    for candidate in (error.orig, getattr(error.orig, "__cause__", None)):
+        code = getattr(candidate, "sqlstate", None)
+        if isinstance(code, str):
+            return code
+    return None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,7 +67,10 @@ async def _create_admin(
     except Conflict:
         print("error: a user with this email already exists; nothing was changed.", file=err)
         return EXIT_FAILED
-    except ProgrammingError:  # e.g. the users table doesn't exist yet
+    except ProgrammingError as error:
+        if _sqlstate(error) != UNDEFINED_TABLE:
+            print(f"error: cannot use the database ({type(error).__name__}).", file=err)
+            return EXIT_FAILED
         print(
             "error: the database schema is missing or out of date; run migrations first "
             "(alembic upgrade head).",

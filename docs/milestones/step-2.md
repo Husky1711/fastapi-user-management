@@ -16,20 +16,22 @@ C10 data integrity; enforcement starts in step 5.
 
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Database access: engine, sessions, one unit of work per request, model base | ✅ | 11 / 11 | CI run 45926673123; review fixes: see header run |
+| 2.1 | Database access: engine, sessions, one unit of work per request, model base | ✅ | 14 / 14 | CI run 45926673123; review fixes: see header run |
 | 2.2 | Schema: 10 tables, constraints, indexes, triggers | ✅ | 25 / 25 | CI run 45928196703; review fixes: see header run |
 | 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ✅ | 9 / 9 | CI run 45928196703; review fixes: see header run |
 | 2.4 | Seed data: permissions and system roles | ✅ | 6 / 6 | CI run 45928196703 |
 | 2.5 | Repositories with tenant scoping | ✅ | 14 / 14 | CI run 45928783140; review fixes: see header run |
 | 2.6 | Password hashing, input rules and the `create-admin` command | ✅ | 16 / 16 | CI run 45930672394; review fixes: see header run |
-| | **Total** | | **81 / 81** | 72 planned + 9 added after review round 1 |
+| | **Total** | | **84 / 84** | 72 planned + 9 added after review round 1 + 3 after round 2 |
 
 ## Design decisions for this step
 
 - **One session per request; one unit of work per service call.** `get_db` yields the session;
   dependencies only read; the service writes inside `transaction(session)`
-  (`app/infra/database.py`), which continues the transaction the dependencies' reads began
-  and commits before the response is built (a failed commit is an error, never a 200).
+  (`app/infra/database.py`): a SAVEPOINT inside the transaction the dependencies' reads began,
+  committed before the response is built (a failed commit is an error, never a 200). A failure
+  rolls back only the savepoint, so the dependencies' objects stay readable (R2-02); a nested
+  call is refused (R2-04).
   The first design (the service calling `session.begin()`) failed as soon as a dependency had
   read: review finding R1-01. Rule written in ARCHITECTURE §2.
 - **Timestamps come from the app clock** (`app.core.clock.now()`); server defaults are only a
@@ -76,6 +78,9 @@ C10 data integrity; enforcement starts in step 5.
 | 2.1-09 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 2.1-10 | C7, C10 | A dependency reads, then the unit of work writes and fails | Nothing kept; the next request starts clean (added: R1-01) | test | ✅ |
 | 2.1-11 | C9 | Connection pool exhausted (one connection held) | Waits `pool_timeout`, then a generic 500; recovers when the connection is freed (added) | test | ✅ |
+| 2.1-12 | C10 | An object loaded by a dependency is read after the unit of work failed | Still readable (savepoint rollback); the failed block left nothing (added: R2-02) | test | ✅ |
+| 2.1-13 | C10 | A unit of work entered inside another | Refused with `NestedUnitOfWork`; the outer one still commits (added: R2-04) | test | ✅ |
+| 2.1-14 | C7, C9 | The request is cancelled (client gone) in the middle of a unit of work | Rolled back; nothing stored (added) | test | ✅ |
 | — | C2, C3 | N/A: the access layer takes no user input | | | |
 | — | C6 | Covered by 2.1-07 (no secret leakage on failure) | | | |
 | — | C11 | Covered by 2.3-05 (migrated real stack), 2.6-12 (CLI on the real stack) and 2.6-15 (route → service) | | | |
@@ -169,7 +174,7 @@ C10 data integrity; enforcement starts in step 5.
 | 2.6-01 | C1 | Hash then verify a password | Verifies; hash is Argon2id with the configured parameters | test | ✅ |
 | 2.6-02 | C6 | Same password hashed twice | Different hashes (random salt) | test | ✅ |
 | 2.6-03 | C6 | Wrong password; malformed hash | Not verified; no exception leaks | test | ✅ |
-| 2.6-04 | C2, C3 | Password of 11 / 12 / 128 / 129 characters; control characters; spaces | 11, 129 and control characters rejected (422 `user.password_weak`); 12, 128 and spaces kept | test | ✅ |
+| 2.6-04 | C2, C3 | Password of 11 / 12 / 128 / 129 characters (counted after NFKC, which can shorten or lengthen it); control characters; spaces | 11, 129 and control characters rejected (422 `user.password_weak`); 12, 128 and spaces kept | test | ✅ |
 | 2.6-05 | C2 | Unicode password (normalised NFKC) | Same password typed two ways verifies | test | ✅ |
 | 2.6-06 | C9 | Hashing from async code | Runs in a worker thread (doesn't block the event loop) | test | ✅ |
 | 2.6-07 | C2 | Emails: valid forms; missing `@`, spaces, empty parts, too long | Valid normalised (lower-cased domain); invalid rejected | test | ✅ |
@@ -193,17 +198,17 @@ C10 data integrity; enforcement starts in step 5.
 | F3 | CI test, 2.3-03 name parity (run 45927754158) | Every CHECK in the database was named twice over (`ck_users_ck_users_status`) | Alembic applies the target metadata's naming convention to explicit CHECK names again | Names wrapped in `op.f()` in the migration (not yet merged, so edited in place) | Fixed (run 45928196703) |
 | F4 | CI type check (run 45927754158) | `mypy --strict`: untyped lambda calls in 2.2-15 | Lambdas in an unannotated dict | Dict annotated `dict[str, Callable[[bytes], Base]]` | Fixed (run 45928196703) |
 | F5 | Self-review before tests ran | `sessions.user_id`, `one_time_tokens.user_id` and `invitations.organization_id` had only partial indexes | Indexes designed for the "active rows" query only | Full indexes; 2.2-20 now checks every foreign key | Fixed (run 45928196703) |
-| F6 | CI test (run 45928783140, coverage) | `MembershipRepository.add` and `list_for_user` had no test (exit criterion: every repository method has one) | Missed in the plan | Test 2.5-06 extended | Fixed |
+| F6 | CI test (run 45928783140, coverage) | `MembershipRepository.add` and `list_for_user` had no test (exit criterion: every repository method has one) | Missed in the plan | Test 2.5-06 extended | Fixed (run 45929425304) |
 | F7 | CI type check / test (run 45929425304) | Hasher spy failed (`PasswordHasher` attributes are read-only); `mypy` on `cli.getpass`; service test hit "transaction already begun" | Spy patched a slotted object; test reused a session mid-transaction | Spy subclass swapped in; `getpass.getpass` patched by path; test commits its setup first. That treated the symptom: the design itself was wrong (review R1-01), replaced by `transaction(session)` | Fixed (run 45929858848; design fixed after review) |
 | F8 | CI test (runs 45929858848, 45930272706) | 2.6-09 read attributes of an object the expected rollback had expired | The service's rolled-back transaction expires every object in the session (SQLAlchemy behaviour) | Ids read before the call; rule documented in ARCHITECTURE §2 and the `transaction` docstring (R1-01) | Fixed (run 45930672394) |
-| F9 | CI type check (run 45932585174) | `mypy --strict`: untyped SQLAlchemy `get_current_parameters` call | Library method without type hints | Targeted ignore with the reason | Fixed |
-| F10 | CI test (run 45932943098) | Step 1 test 1.3-33 failed (`dropped 16 >= 40`), then 5 later tests failed with `queue.Full` | Flaky test: it assumed the writer thread had taken its first record before the burst; on a slow runner the dropped counter was reset by the "records dropped" notice mid-burst. No cleanup, so the full queue leaked into later tests (step 1 review R5-05) | The test waits until the writer is stuck, then expects exactly 45 dropped and one notice; cleanup in `finally` | Fixed |
+| F9 | CI type check (run 45932585174) | `mypy --strict`: untyped SQLAlchemy `get_current_parameters` call | Library method without type hints | Targeted ignore with the reason | Fixed (run 45932943098) |
+| F10 | CI test (run 45932943098) | Step 1 test 1.3-33 failed (`dropped 16 >= 40`), then 5 later tests failed with `queue.Full` | Flaky test: it assumed the writer thread had taken its first record before the burst; on a slow runner the dropped counter was reset by the "records dropped" notice mid-burst. No cleanup, so the full queue leaked into later tests (step 1 review R5-05) | The test waits until the writer is stuck, then expects exactly 45 dropped and one notice; cleanup in `finally` | Fixed (run 45933396263) |
 
 Review round 1 findings (R1-01 to R1-18) and what was done: see "Independent review" below.
 
-**Totals:** 81 scenarios, 81 passed, 0 failing. Failures found and fixed: 10 by CI or
-self-review (F1–F10) and 18 by the independent review (R1-xx), of which 14 were fixed in this
-step and 4 carried to named steps.
+**Totals:** 84 scenarios, 84 passed, 0 failing. Failures found and fixed: 10 by CI or
+self-review (F1–F10) and 29 by the independent review (18 in round 1, 11 in round 2), of which
+24 were fixed in this step and 5 carried to named steps.
 
 ## Gate
 
@@ -211,11 +216,12 @@ Security audit (check 6) is not required for step 2 (required at the end of step
 7 and 9); the password-hashing code it touches is audited with step 3.
 
 ### 1. Automated: PASS
-Lint, `mypy --strict` (app, tests, scripts, migrations), the migration round trip
-(upgrade → downgrade to an empty database → upgrade → repeated upgrade is a no-op), 271 tests
-against real PostgreSQL 16 and Redis 7 at 98 % coverage, and the Compose job (migrations and
-`create-admin` on the real stack, wrong-password migration, all step 1 checks): green in the
-linked run.
+In the run linked at the top (counts and coverage are in its automatic report, not typed
+here): lint, `mypy --strict` (app, tests, scripts, migrations), the migration checks
+(upgrade → downgrade to an empty database → two concurrent upgrades that run the migrations
+once → guarded seed downgrade → repeated upgrade is a no-op), every test against real
+PostgreSQL 16 and Redis 7 with coverage above the 90 % gate, and the Compose job (migrations
+and `create-admin` on the real stack, wrong-password migration, all step 1 checks).
 
 ### 2. Tester: PASS
 Every section covers each category C1–C12 or gives an N/A reason (tables above); every row
@@ -228,13 +234,17 @@ reaching output or logs.
 ### 3. User: PASS
 Real-stack scenarios: 2.3-05 (operator runs the migrations in Compose, seed roles present,
 app ready), 2.3-06 (migration with a wrong password fails clearly, password not printed),
-2.6-12 (operator creates the first admin in Compose; a second run exits 1 and changes
-nothing), plus every step 1 real-stack scenario.
+2.6-12 (operator creates the first admin in Compose; a second run exits 1 and the stored
+hash is unchanged), plus every step 1 real-stack scenario.
 
 ### 4. Cross-check vs old code (`main` @ `209a9bd`): PASS
 
 | Old | New | Decision | Reason |
 | --- | --- | --- | --- |
+| MySQL 8 (`mysql+pymysql`) | PostgreSQL 16 (`asyncpg`) | Replaced | ADR / ARCHITECTURE §1: `citext`, partial indexes, `NULLS NOT DISTINCT`, `inet`, `jsonb`, transactional DDL |
+| Synchronous engine and sessions used inside `async` routes | Async engine and sessions (`asyncpg`) | Fixed | Every query blocked the event loop |
+| `get_db` yielding a session; routes and services committing ad hoc | One session per request; one `transaction(session)` unit of work per service call | Improved | Partial commits and forgotten commits were possible |
+| Pool size 10 + overflow 20 | 5 + 5 by default, settable; pool and connect timeouts | Changed | Sized per instance; many replicas × large pools exhaust `max_connections` |
 | Integer primary keys | UUID v4 keys (bigint identity for `audit_logs`) | Improved | No guessable ids in URLs |
 | `users.role` free text (`super_admin` / `admin` / `user`) | `users.is_platform_admin` + `memberships.role_id` → `roles` → `permissions` | Replaced | Roles are data; one user can belong to several orgs |
 | `users.organization_id` nullable, default `1` | `memberships (user_id, organization_id)` unique | Fixed | Every user silently joined org 1 |
@@ -261,6 +271,7 @@ nothing), plus every step 1 real-stack scenario.
 | Round | Commit | Verdict | Record |
 | --- | --- | --- | --- |
 | 1 | `175cee2` | **FAIL**: 4 High, 5 Medium, 9 Low; overall 8.2 | [`reviews/step-2-round-1.md`](reviews/step-2-round-1.md) |
+| 2 | `621b96c` | **PASS**: 0 Critical/High, 5 Medium, 6 Low; overall 8.9 (Scalability 8, carried to step 3) | [`reviews/step-2-round-2.md`](reviews/step-2-round-2.md) |
 
 Round 1 findings and what was done:
 
@@ -285,13 +296,33 @@ Round 1 findings and what was done:
 | R1-17 | Low | Docstring corrected; enforcement carried to step 9 (ROADMAP) | `app/models/audit.py` |
 | R1-18 | Low | Carried to step 3 (decision and record) | — |
 
-Missing scenarios named by the review were added: 2.1-10, 2.1-11, 2.2-23, 2.2-24, 2.2-25,
+Round 2 findings and what was done:
+
+| # | Sev. | Done | Evidence |
+| --- | --- | --- | --- |
+| R2-01 | Medium | Gate check 1 cites the run instead of typed counts | check 1 |
+| R2-02 | Medium | Unit of work runs in a savepoint; the dependency's objects stay readable | 2.1-12, 2.6-09 |
+| R2-03 | Medium | Comment corrected; carried to step 3 with R1-08 (ROADMAP) | — |
+| R2-04 | Medium | `NestedUnitOfWork` guard | 2.1-13 |
+| R2-05 | Medium | Rows for MySQL, sync engine, commit pattern, pool size | check 4 table |
+| R2-06 | Low | ARCHITECTURE §4 states the clock split | — |
+| R2-07 | Low | Downgrade documents the dedicated-database assumption | `migrations/versions/0001_initial_schema.py` |
+| R2-08 | Low | Migrations use the connect timeout; PgBouncer limit noted | `migrations/env.py` |
+| R2-09 | Low | Test asserts the elapsed time and `TimeoutError` | 2.6-13 |
+| R2-10 | Low | Only SQLSTATE 42P01 says "run migrations" | `app/cli.py`, 2.6-13 |
+| R2-11 | Low | Run links; CI counts "Running upgrade" lines and compares the hash; docstring and `WeakPassword` detail | 2.3-07, 2.6-12 |
+
+Missing scenarios named by the reviews were added: 2.1-10, 2.1-11, 2.2-23, 2.2-24, 2.2-25,
 2.3-07, 2.3-08, 2.5-08 (largest page, deepest offset), 2.6-04 (control characters, spaces),
-2.6-13 (not migrated, unresponsive host), 2.6-14 and 2.6-15.
+2.6-13 (not migrated, unresponsive host), 2.6-14 and 2.6-15 (round 1); 2.1-12, 2.1-13,
+2.1-14 and the NFKC-lengthening case in 2.6-04 (round 2). Not added, with reason: the request
+path against an unresponsive host (same engine setting as the CLI case, 2.6-13); downgrade
+with a pre-existing `citext` (unsupported setup, documented); hashing that holds a connection
+(step 3, R2-03).
 
 ## Carried forward
 
 - From step 1: none due in step 2.
-- To step 3: R1-08 (bound Argon2 concurrency), R1-18 (IDN email decision).
+- To step 3: R1-08 + R2-03 (bound Argon2 work; no idle-in-transaction connection while hashing), R1-18 (IDN email decision). Scalability scored 8 for this reason.
 - To step 8: R1-09 (readiness checks the migration head).
 - To step 9: R1-17 (append-only audit log in the database).

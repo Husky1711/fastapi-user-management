@@ -442,4 +442,6 @@ def downgrade() -> None:
         op.drop_table(table)  # drops the table's indexes and triggers with it
     for function in ("set_updated_at", "check_role_scope", "forbid_role_organization_change"):
         op.execute(f"DROP FUNCTION {function}()")
+    # Assumes a database dedicated to this app (the documented setup). On a shared database
+    # where citext was installed beforehand, remove this line before downgrading.
     op.execute("DROP EXTENSION IF EXISTS citext")

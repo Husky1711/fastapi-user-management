@@ -23,6 +23,7 @@ class WeakPassword(Unprocessable):
     """The password breaks a password rule. The message is safe to show to the user."""
 
     default_code = "user.password_weak"
+    default_detail = "Choose a stronger password."
 
 
 def _normalize(password: str) -> str:

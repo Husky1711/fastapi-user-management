@@ -19,6 +19,8 @@ if config.config_file_name is not None:
 
 # Several replicas or init containers may run `upgrade head` at the same deploy. The first
 # takes this lock; the others wait, then find the database already at head and do nothing.
+# The lock belongs to the connection: run migrations directly against PostgreSQL, not
+# through PgBouncer in transaction-pooling mode.
 MIGRATION_LOCK_ID = 727_100_001  # arbitrary, constant for this application
 
 
@@ -44,8 +46,12 @@ def _migrate(connection: Connection) -> None:
 
 
 async def _run_online() -> None:
-    url = get_settings().database.url.get_secret_value()
-    engine = create_async_engine(url, poolclass=NullPool)
+    database = get_settings().database
+    engine = create_async_engine(
+        database.url.get_secret_value(),
+        poolclass=NullPool,
+        connect_args={"timeout": database.connect_timeout_seconds},
+    )
     try:
         async with engine.connect() as connection:
             await connection.run_sync(_run)

@@ -19,7 +19,9 @@ async def create_platform_admin(session: AsyncSession, *, email: str, password: 
     """
     email = normalize_email(email)
     check_password_rules(password)
-    password_hash = await hash_password(password)  # before the transaction: it's slow
+    # Before the unit of work: it's slow (on the CLI path nothing has read yet; for HTTP
+    # callers the connection stays checked out meanwhile, see ROADMAP step 3, R2-03).
+    password_hash = await hash_password(password)
     users = UserRepository(session)
     user = User(
         email=email, password_hash=password_hash, email_verified=True, is_platform_admin=True

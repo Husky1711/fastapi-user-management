@@ -96,9 +96,11 @@ jobs:
           uv run alembic downgrade base
           left=$(leftovers); echo "left after downgrade: [$left]"; test -z "$left"
           echo "2.3-07: two upgrades at once on an empty database (the advisory lock serialises them)"
-          uv run alembic upgrade head & first=$!
-          uv run alembic upgrade head & second=$!
+          uv run alembic upgrade head > first.log 2>&1 & first=$!
+          uv run alembic upgrade head > second.log 2>&1 & second=$!
           wait "$first"; wait "$second"
+          cat first.log second.log
+          test "$(cat first.log second.log | grep -c 'Running upgrade')" = 2  # 0001 and 0002, once
           test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM roles")" = 3
           echo "2.3-08: downgrading the seed is refused while a membership uses a system role"
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
@@ -169,12 +171,18 @@ jobs:
           docker compose exec -T db psql -U postgres -d usermgmt -tAc \
             "SELECT is_platform_admin AND email_verified AND password_hash LIKE '\$argon2id\$%'
              FROM users WHERE email = 'OPS@example.com'" | tee /dev/stderr | grep -qx t
+          hash_of() {
+            docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+              "SELECT md5(password_hash) FROM users WHERE email = 'ops@example.com'"
+          }
+          before=$(hash_of)
           set +e
           echo 'Other-Passw0rd-123' \
             | docker compose exec -T app python -m app.cli create-admin --email ops@example.com
           code=$?
           set -e
           test "$code" -eq 1
+          test "$(hash_of)" = "$before"
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)
