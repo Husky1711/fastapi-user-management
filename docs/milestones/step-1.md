@@ -1,12 +1,12 @@
 # Milestone 1: Project skeleton & tooling
 
 - PR: https://github.com/Husky1711/fastapi-user-management/pull/2
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45887647468
-  (120 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
-  scenarios passed on the real stack; coverage 97.8 %; open "Summary" for every result)
-- Verdict: **PASS, awaiting the owner's decision.** All sections ✅; gate checks 1–4 PASS; check 5
-  PASS in round 3 (rounds 1 and 2 failed; see `reviews/`). Four areas score 8, below the ≥ 9
-  bar: the owner either accepts them or asks for the round-3 fixes before merge.
+- Latest CI run (automatic report): RUNLINK
+  (139 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
+  scenarios passed on the real stack; coverage 97.9 %; open "Summary" for every result)
+- Verdict: **IN PROGRESS**. Round 3 passed with four areas at 8, below the ≥ 9 bar, so the
+  round-3 findings were fixed (R3-xx) and review round 4 is pending. Under the owner's standing
+  instruction the step merges automatically once every touched area is ≥ 9.
 
 > Process note: the testing process was introduced partway through this step, so the first
 > scenario plans were written after the first version of the code. The round 1 review found
@@ -18,12 +18,12 @@
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Clean branch and tooling | ✅ | 5 / 5 | Old code removed from `v2`; stays on `main` |
-| 1.2 | Settings and safety checks for strict environments | ✅ | 23 / 23 | Staging now strict as well |
-| 1.3 | Logging and request middleware | ✅ | 32 / 32 | |
-| 1.4 | Error format (RFC 9457) | ✅ | 16 / 16 | Error boundary moved inside CORS |
-| 1.5 | Health probes, readiness cache, infrastructure clients | ✅ | 19 / 19 | |
-| 1.6 | Docker, Compose, CI and automatic test report | ✅ | 9 / 9 | |
-| | **Total** | **✅** | **104 / 104** | |
+| 1.2 | Settings and safety checks for strict environments | ✅ | 27 / 27 | Staging now strict as well |
+| 1.3 | Logging and request middleware | ✅ | 35 / 35 | Logs written by a background thread |
+| 1.4 | Error format (RFC 9457) | ✅ | 18 / 18 | Documented in OpenAPI |
+| 1.5 | Health probes, readiness cache, infrastructure clients | ✅ | 21 / 21 | |
+| 1.6 | Docker, Compose, CI and automatic test report | ✅ | 11 / 11 | Locked dependencies; loopback-only ports |
+| | **Total** | **✅** | **117 / 117** | |
 
 ## Scenario plan and results
 
@@ -73,6 +73,10 @@
 | 1.2-21 | C11 | Real container started as production with safe settings (strong secret, dedicated DB role) | Ready 200; HSTS sent; `/docs` and `/openapi.json` 404 | CI step "1.2-21" | ✅ |
 | 1.2-22 | C8 | Settings requested repeatedly | Loaded once, same object | test `s1_2_22` | ✅ |
 | 1.2-23 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| 1.2-24 | C12, C10 | App settings exported in the shell or CI | Removed for every test, so results don't depend on the machine | autouse fixture + test `s1_2_24` | ✅ |
+| 1.2-25 | C6, C3 | JWT secret with 9 vs 10 distinct characters | 9 rejected as repetitive; 10 accepted | test `s1_2_25` (×2) | ✅ |
+| 1.2-26 | C6 | Strict environment with a password-less `DATABASE__URL` (none / empty) | Rejected | test `s1_2_26` (×2) | ✅ |
+| 1.2-27 | C6, C2 | `REDIS__URL` without password, user only, malformed; with password (redis / rediss) | First three rejected; last two accepted | test `s1_2_27` (×5) | ✅ |
 | — | C7 | N/A: loaded once at startup before any request, then immutable (1.2-18); no shared mutable state | | | |
 | — | C9 | N/A: loading reads only env vars and a local file; no network dependency | | | |
 
@@ -111,7 +115,10 @@
 | 1.3-29 | C9 | Client disconnects while the app reads its request body | Nothing sent; logged as 499; no ERROR log | test `s1_3_29` | ✅ |
 | 1.3-30 | C7 | Request id context after a request, same task | Reset to none (a missing reset would leak ids between requests) | test `s1_3_30` | ✅ |
 | 1.3-31 | C9, C6 | A layer outside the error boundary fails | Clean 500 problem JSON with request id; internal text hidden; logged once | test `s1_3_31` | ✅ |
-| 1.3-32 | C9 | Error after streaming started | Logged exactly once (no duplicate from the outer layer) | test `s1_3_32` | ✅ |
+| 1.3-32 | C9 | Error after streaming started | Logged exactly once by the app (the server adds its own record when it aborts the connection; accepted, R3-04) | test `s1_3_32` | ✅ |
+| 1.3-33 | C9 | Request path logs while stdout is slow | Records are queued; only the background writer touches stdout | test `s1_3_33` | ✅ |
+| 1.3-34 | C1 | A library's log line (uvicorn) written from the queue | Keeps the request id captured at log time | test `s1_3_34` | ✅ |
+| 1.3-35 | C6, C2 | CORS preflight from a disallowed origin, or with a disallowed method | 400 problem JSON `cors.preflight_rejected`; no CORS grant | test `s1_3_35` (×2) | ✅ |
 | — | C10 | N/A: logging and middleware store no data | | | |
 
 ### Section 1.4: Error format (RFC 9457)
@@ -134,6 +141,8 @@
 | 1.4-14 | C11 | Browser app on an allowed origin reads an error on the real server | CORS header and exposed `X-Request-ID` | e2e `s1_4_14` | ✅ |
 | 1.4-15 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 1.4-16 | C2, C6 | Validation error on a 500-char client-chosen key with a secret-like value | Key cut to 64 chars in the field path; value never echoed | test `s1_4_16` | ✅ |
+| 1.4-17 | C1 | API schema | `ProblemOut` documented; `/health/ready` lists 500 (problem JSON) and 503 | test `s1_4_17` | ✅ |
+| 1.4-18 | C1 | Versioned API routes | Document 422 (`ValidationProblemOut`, problem JSON) and 500 | test `s1_4_18` | ✅ |
 | — | C7 | Covered by 1.3-15 and 1.3-30: concurrent requests on the 404 error path each get their own request id, and the id is reset after each request | | | |
 | — | C8 | N/A: error handling holds no state; the same input always gives the same output | | | |
 | — | C10 | N/A: no data stored | | | |
@@ -160,7 +169,9 @@
 | 1.5-16 | C3 | No checks at all (lifespan not started, or an empty set) | Not ready (fails closed) | tests `s1_5_16` (×2) | ✅ |
 | 1.5-17 | C7 | 30 concurrent probes over HTTP with a counting check | The check runs once; all 200 | test `s1_5_17` | ✅ |
 | 1.5-18 | C9, C11 | App started while PostgreSQL is down | Starts; live 200, ready 503; ready 200 once the DB is back | CI step "1.5-18" | ✅ |
-| 1.5-19 | C6, C11 | Readiness failure logs on the real stack | No credentials, no traceback | CI step "1.5-19" | ✅ |
+| 1.5-19 | C6, C11 | Redis and PostgreSQL outage logs on the real stack (1.5-13/14) | At least two failure lines; no credentials; no traceback | CI step "1.5-19" | ✅ |
+| 1.5-20 | C6 | Key=value secrets (`password=…`, `PASSWORD=…` in a query, `token = …`) in an error | Redacted | test `s1_5_20` (×3) | ✅ |
+| 1.5-21 | C6, C11 | Real app with a wrong DB password | Not ready; the log says "password authentication failed for user postgres" and never contains the password; no traceback | CI step "1.5-21" | ✅ |
 | — | C2 | N/A: probes take no input; wrong method on a probe is covered by 1.4-07 | | | |
 | — | C10 | N/A: probes neither read nor write application data | | | |
 
@@ -177,6 +188,8 @@
 | 1.6-07 | C9 | Tests fail or produce no file | Report and artifacts still published (`if: always()`); missing file handled (1.6-06) | `ci.yml` + test `s1_6_06` | ✅ |
 | 1.6-08 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 1.6-09 | C1 | A setting edited in `.env` | Reaches the app container (CORS origin added to `.env`, then used by e2e 1.4-14) | CI step "1.6-09" | ✅ |
+| 1.6-10 | C6 | Local stack exposure | App, PostgreSQL and Redis published on 127.0.0.1 only; Redis refuses clients without the password (`NOAUTH`) | CI step "1.6-10" | ✅ |
+| 1.6-11 | C10, C12 | Dependencies installed in CI and Docker | Exactly the committed `uv.lock` (`uv sync --locked`, uv 0.13.10 pinned in both) | CI jobs + Docker build | ✅ |
 | — | C7, C8 | N/A: each CI run starts from a clean machine; no shared state between runs | | | |
 | — | C10 | N/A: no application data | | | |
 | — | C11 | Covered by 1.1-03 (README quick start on the real stack) | | | |
@@ -214,7 +227,7 @@ Every failure found while building, testing and reviewing this step.
 | R1-16 | Review round 1 | Health checks bound to the first lifespan's resources | Built once | Rebuilt on every start (1.5-10) | Fixed |
 | R1-17 | Review round 1 | Test setup copy-pasted | No helpers | `app_with`, `client_for`, `strict_settings`, `check_ok` in `tests/helpers.py` | Fixed |
 | R1-18 | Review round 1 | Architecture layout out of date | Docs drift | `docs/ARCHITECTURE.md` §3 updated | Fixed |
-| R1-19 | Review round 1 | Builds not reproducible | No `uv.lock`; tag pinning | Owner to commit `uv.lock`; pinning in step 9 | Carried forward |
+| R1-19 | Review round 1 | Builds not reproducible | No `uv.lock`; tag pinning | `uv.lock` generated in CI and committed; `--locked` everywhere (1.6-11). Digest/SHA pinning in step 9 | Fixed (pinning carried to step 9) |
 | R1-20 | Review round 1 | Timeout test relied on a real sleep | Timing-based | Never-finishing check waits on an unset event (1.5-04) | Fixed |
 | R2-01 | Review round 2 (High) | Three claims beyond their evidence: (a) 1.2-20 never showed the default-secret refusal; (b) `is_production` called "tested" but never run; (c) "app starts with DB down" never exercised | Evidence not re-checked after changes | (a) CI runs real defaults and greps both messages; (b) unused `is_production` deleted, row corrected; (c) CI step 1.5-18 | Fixed |
 | R2-02 | Review round 2 | Readiness failures logged full tracebacks, possibly with connection strings | `log.exception` | Error type plus redacted, capped message; no traceback (1.5-03, 1.5-19) | Fixed |
@@ -225,22 +238,37 @@ Every failure found while building, testing and reviewing this step.
 | R2-07 | Review round 2 | Request-id isolation test couldn't fail | Each task has its own context | Same-task reset test (1.3-30) | Fixed |
 | R2-08 | Review round 2 | Last-resort 500 untested; errors after streaming logged twice | Missing test; both layers logged | Tests 1.3-31, 1.3-32; outer layer no longer logs re-raised errors | Fixed |
 | R2-09 | Review round 2 | Health schemas outside `app/schemas/`; router read app state directly; duplicate doc line | Placement | `app/schemas/health.py`; `get_readiness_probe` dependency; `response_model` honoured; doc fixed | Fixed |
-| R2-10 | Review round 2 | Strict checks don't catch weak secrets or password-less DB/Redis URLs | Narrow checks | Added to step 9 in the roadmap | Carried forward |
+| R2-10 | Review round 2 | Strict checks don't catch weak secrets or password-less DB/Redis URLs | Narrow checks | Done now instead of step 9 (1.2-25/26/27) | Fixed |
 | R2-11 | Review round 2 | Small test duplication | Leftovers | `ALLOWED_ORIGIN`, crash route, ASGI fakes moved to `tests/helpers.py` | Fixed |
-| R2-12 | Review round 2 | Builds not reproducible | Same as R1-19 | Same as R1-19 | Carried forward |
+| R2-12 | Review round 2 | Builds not reproducible | Same as R1-19 | Same as R1-19 | Fixed |
 | F10 | CI: tests | New log test assumed a record without traceback has `exc_info is None` (it is `False`) | Wrong assumption | Assert falsy | Fixed |
 | F11 | CI: tests | The "no secret in logs" check read pytest's plain log text, which leaves out structured fields, so it could never fail | Test checked the wrong output | Checks the JSON lines exactly as written in production (1.5-03) | Fixed |
+| R3-01 | Review round 3 (Medium) | Compose published PostgreSQL (default password) and Redis (no auth) on every interface | Default port syntax | Loopback-only ports; Redis password (1.6-10) | Fixed |
+| R3-02 | Review round 3 (Medium) | Real-stack log check couldn't detect leaked credentials | Ran after the app was recreated; only DNS errors left | Runs before the recreate; new wrong-password check (1.5-19, 1.5-21) | Fixed |
+| R3-03 | Review round 3 | Disconnect on a Pydantic-body route would be logged as 400 | FastAPI wraps body-read errors | Added to step 3 (first body routes) | Carried to step 3 |
+| R3-04 | Review round 3 | Error after streaming: the server logs its own record too | The connection must be aborted so the client sees a truncated response | Accepted and documented in 1.3-32 | Accepted |
+| R3-05 | Review round 3 | Tests depended on settings exported in the shell | Env vars still read | Autouse fixture removes them (1.2-24) | Fixed |
+| R3-06 | Review round 3 | Broken-stream route defined twice | Leftover | `add_broken_stream_route` helper | Fixed |
+| R3-07 | Review round 3 | Rejected CORS preflight returned plain text | Starlette default | `ProblemCORSMiddleware` (1.3-35) | Fixed |
+| R3-08 | Review round 3 | Logging wrote to stdout on the event loop | Direct handler | Queue + background writer (1.3-33/34) | Fixed |
+| R3-09 | Review round 3 | `.env.example` didn't document the Compose variables | Missing | Compose section added | Fixed |
+| R3-10 | Review round 3 | Wrong CI-step ids in two rows; old-code test missed paths | Typos; short list | Fixed ids; more paths checked (1.1-04) | Fixed |
+| R3-11 | Review round 3 | Carried: lockfile, pinning, credential checks | — | Lockfile and credential checks done (R1-19, R2-10); pinning stays in step 9 | Fixed (pinning carried) |
+| F12 | CI: tests | OpenAPI test assumed app-wide error docs reach included routers | FastAPI applies them only to routes declared on the app | Error docs set on the health and API routers (1.4-17/18) | Fixed |
+| F13 | Author before push | Docker's uv 0.5 couldn't read the lockfile written by uv 0.13 | Version mismatch | uv 0.13.10 pinned in CI and Docker (1.6-11) | Fixed |
 
-**Totals:** 104 scenarios, 104 passing. 43 failures found: 38 fixed, 1 fixed with a documented
-rule waiver (F5), 1 process change (F8), 3 carried forward (R1-19 = R2-12 lockfile, R2-10 to step 9).
+**Totals:** 117 scenarios, 117 passing. 56 failures found: 52 fixed, 1 fixed with a documented
+rule waiver (F5), 1 process change (F8), 1 accepted with a reason (R3-04), 1 carried to step 3
+(R3-03). Image digest and action SHA pinning stays in step 9.
 
 ## Gate
 
 ### 1. Automated: PASS
-Lint, `mypy --strict` (39 files), 120 tests against real PostgreSQL 16 and Redis 7 with 97.8 %
-coverage, and the Compose job (README quick start, `.env` reaching the app, 6 user scenarios,
-non-root and image checks, Redis and PostgreSQL outages, app started with the DB down, log
-hygiene, safe and unsafe production containers): all green in the linked run.
+Lint, `mypy --strict` (40 files), 139 tests against real PostgreSQL 16 and Redis 7 with 97.9 %
+coverage, all installed from the committed lockfile, and the Compose job (README quick start,
+loopback-only ports and Redis auth, `.env` reaching the app, 6 user scenarios, non-root and
+image checks, Redis and PostgreSQL outages, app started with the DB down, outage and
+wrong-password log hygiene, safe and unsafe production containers): all green in the linked run.
 
 ### 2. Tester: PASS
 Every section covers each category C1–C12 or gives an N/A reason (tables above). Every row
@@ -248,7 +276,7 @@ names its evidence.
 
 ### 3. User: PASS
 Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.5-08, 1.5-12,
-1.5-13, 1.5-14, 1.5-18, 1.5-19, 1.6-02, 1.6-03, 1.6-09.
+1.5-13, 1.5-14, 1.5-18, 1.5-19, 1.5-21, 1.6-02, 1.6-03, 1.6-09, 1.6-10.
 
 ### 4. Cross-check vs old code (`main` @ `209a9bd`): PASS
 
@@ -287,7 +315,8 @@ Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.
 | --- | --- | --- | --- |
 | 1 | `919dbc7` | **FAIL**: 4 High, 9 Medium, 7 Low | [`reviews/step-1-round-1.md`](reviews/step-1-round-1.md); every finding addressed (R1-01 to R1-20) |
 | 2 | `180a554` | **FAIL**: 1 High, 3 Medium, 8 Low; 18 of 20 round-1 findings confirmed resolved | [`reviews/step-1-round-2.md`](reviews/step-1-round-2.md); every finding addressed (R2-01 to R2-12) |
-| 3 | `e90cc09` | **PASS**: 0 Critical/High, 2 Medium, 9 Low; all round-2 findings resolved or carried | [`reviews/step-1-round-3.md`](reviews/step-1-round-3.md) |
+| 3 | `e90cc09` | **PASS**: 0 Critical/High, 2 Medium, 9 Low; all round-2 findings resolved or carried | [`reviews/step-1-round-3.md`](reviews/step-1-round-3.md); findings addressed (R3-01 to R3-11) |
+| 4 | pending | | |
 
 ## Scorecard (independent reviewer)
 

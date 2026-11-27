@@ -110,6 +110,15 @@ jobs:
           echo "uid=$uid"; test "$uid" != "0"
       - name: "1.6-03 Image contains no tests, docs, env files or git data"
         run: docker compose exec -T app sh -c 'test ! -e /app/tests && test ! -e /app/docs && test ! -e /app/.env && test ! -e /app/.git'
+      - name: "1.6-10 Ports are published on loopback only; Redis refuses clients without the password"
+        run: |
+          for svc in "app 8000" "db 5432" "redis 6379"; do
+            set -- $svc
+            addr=$(docker compose port "$1" "$2")
+            echo "$1 -> $addr"
+            case "$addr" in 127.0.0.1:*) ;; *) echo "$1 is not bound to loopback"; exit 1 ;; esac
+          done
+          docker compose exec -T -e REDISCLI_AUTH= redis redis-cli ping | tee /dev/stderr | grep -q NOAUTH
       - name: "1.6-09 A setting edited in .env reaches the app"
         run: |
           echo 'CORS__ALLOW_ORIGINS=["http://localhost:3000"]' >> .env

@@ -136,6 +136,7 @@ delete; no migrations; lockout columns unused.
 - [ ] `GET /me`, `GET /me/sessions`, `DELETE /me/sessions/{id}`, `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
 - [ ] `POST /me/password` (change password; revokes other sessions)
 - [ ] Tests for every path, including reuse detection, lockout and expiry
+- [ ] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)
 
 **Fixes from review:** unsalted SHA-256 passwords; `/debug-login` and `/debug-refresh`
 (not recreated); revocation that hashed the hash and revoked nothing; revoke-others killing the
@@ -243,7 +244,7 @@ tokens never cleaned.
 - [ ] ASVS L2 V2/V3/V4 checklist in `docs/security/asvs.md`, each item linked to code or test
 - [ ] Security headers reviewed; CORS allow-list only
 - [ ] `pip-audit` and `bandit` in CI; Dependabot enabled
-- [ ] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (from step 1 review, R2-10)
+- [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
