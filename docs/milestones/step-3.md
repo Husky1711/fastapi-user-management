@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46049595954
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46050265813
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -15,10 +15,10 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
 | 3.4 | Signup and login: lockout, rehash, session strategies | 🔄 | 17 / 18 | CI run 46049595954; 3.4-17 (real stack, needs `/me`) runs with 3.6-12 |
-| 3.5 | Refresh rotation, reuse detection, logout, logout-all | ⬜ | 0 / 14 | |
+| 3.5 | Refresh rotation, reuse detection, logout, logout-all | 🔄 | 13 / 14 | CI run 46050265813; 3.5-13 (real stack) runs with 3.6-12 |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **53 / 89** | |
+| | **Total** | | **66 / 89** | |
 
 ## Design decisions for this step
 
@@ -134,20 +134,20 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.5-01 | C1 | Refresh with the current refresh token | New pair; old row `rotated`; same family; `sid` unchanged | test | ⬜ |
-| 3.5-02 | C6 | Refresh with an already-rotated token (stolen copy) | 401; whole family revoked (`reuse_detected`); audited; the legitimate holder's newer token stops working | test | ⬜ |
-| 3.5-03 | C4 | Refresh with an unknown, expired or logged-out token | 401 `auth.invalid_token`; no family revoked | test | ⬜ |
-| 3.5-04 | C2 | Refresh with a missing / empty / oversized token | 422 or 401, never 500 | test | ⬜ |
-| 3.5-05 | C7 | Two concurrent refreshes with the same token | Exactly one succeeds; the other is treated as reuse (family revoked) | test | ⬜ |
-| 3.5-06 | C3 | Refresh exactly at expiry (injected clock) | Refused at `expires_at`; accepted 1 s before | test | ⬜ |
-| 3.5-07 | C3 | Refresh keeps a session alive, but not forever | Each rotation gets a fresh TTL, capped at `AUTH__SESSION_MAX_AGE_DAYS` from the family's first login; past the cap, 401 | test | ⬜ |
-| 3.5-08 | C1 | Logout | Current family revoked (`logout`); access token stops working immediately | test | ⬜ |
-| 3.5-09 | C8 | Logout twice | Second call 401 (token's session gone), nothing else changes | test | ⬜ |
-| 3.5-10 | C1 | Logout-all | Every family of the user revoked (`logout_all`); other users untouched | test | ⬜ |
-| 3.5-11 | C4 | Logout without a token | 401 | test | ⬜ |
-| 3.5-12 | C10 | Refresh after the user was disabled | 401; no new session | test | ⬜ |
+| 3.5-01 | C1 | Refresh with the current refresh token | New pair; old row `rotated`; same family; `sid` unchanged | test | ✅ |
+| 3.5-02 | C6 | Refresh with an already-rotated token (stolen copy) | 401; whole family revoked (`reuse_detected`); audited; the legitimate holder's newer token stops working | test | ✅ |
+| 3.5-03 | C4 | Refresh with an unknown, expired or logged-out token | 401 `auth.invalid_token`; no family revoked | test | ✅ |
+| 3.5-04 | C2 | Refresh with a missing / empty / oversized token | 422 or 401, never 500 | test | ✅ |
+| 3.5-05 | C7 | Two concurrent refreshes with the same token | Exactly one succeeds; the other is treated as reuse (family revoked) | test | ✅ |
+| 3.5-06 | C3 | Refresh exactly at expiry (injected clock) | Refused at `expires_at`; accepted 1 s before | test | ✅ |
+| 3.5-07 | C3 | Refresh keeps a session alive, but not forever | Each rotation gets a fresh TTL, capped at `AUTH__SESSION_MAX_AGE_DAYS` from the family's first login; past the cap, 401 | test | ✅ |
+| 3.5-08 | C1 | Logout | Current family revoked (`logout`); access token stops working immediately | test | ✅ |
+| 3.5-09 | C8 | Logout twice | Second call 401 (token's session gone), nothing else changes | test | ✅ |
+| 3.5-10 | C1 | Logout-all | Every family of the user revoked (`logout_all`); other users untouched | test | ✅ |
+| 3.5-11 | C4 | Logout without a token | 401 | test | ✅ |
+| 3.5-12 | C10 | Refresh after the user was disabled | 401; no new session | test | ✅ |
 | 3.5-13 | C11 | Real stack: login, refresh twice, replay the first refresh token, everything revoked | As stated | CI step (Compose) | ⬜ |
-| 3.5-14 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.5-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A: a user acts only on their own sessions (3.2-05 covers cross-user) | | | |
 | — | C9 | Covered by 3.4-16 (same service path) | | | |
 

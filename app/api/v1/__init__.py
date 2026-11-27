@@ -6,10 +6,10 @@ Feature routers are listed in `FEATURE_ROUTERS` (from roadmap step 3 on). Every 
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth
+from app.api.v1 import auth, me
 from app.schemas.errors import API_ERROR_RESPONSES
 
-FEATURE_ROUTERS: tuple[APIRouter, ...] = (auth.router,)
+FEATURE_ROUTERS: tuple[APIRouter, ...] = (auth.router, me.router)
 
 
 def build_api_router(*extra_routers: APIRouter) -> APIRouter:

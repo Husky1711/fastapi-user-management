@@ -212,6 +212,33 @@ jobs:
           set -e
           test "$code" -eq 1
           test "$(hash_of)" = "$before"
+      - name: "3.3-09, 3.4-17, 3.5-13, 3.6-12 A user signs up, logs in, refreshes and changes password on the stack"
+        run: |
+          api=http://localhost:8000/api/v1
+          post() { curl -s -o body.json -w '%{http_code}' -X POST "$api$1" -H 'Content-Type: application/json' "${@:3}" -d "$2"; }
+          email="stack-$(date +%s)@example.com"
+          test "$(post /auth/signup "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 202
+          # A spoofed X-Forwarded-For from an untrusted client must not become the session's IP.
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}" \
+            -H 'X-Forwarded-For: 198.51.100.66')" = 200
+          access=$(jq -r .access_token body.json); first_refresh=$(jq -r .refresh_token body.json)
+          auth=(-H "Authorization: Bearer $access")
+          test "$(curl -s -o me.json -w '%{http_code}' "${auth[@]}" $api/me)" = 200
+          test "$(jq -r .email me.json)" = "$email"
+          ip=$(curl -s "${auth[@]}" $api/me/sessions | jq -r '.items[0].ip')
+          echo "session ip: $ip"; test "$ip" != "198.51.100.66"
+          test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 200
+          second_refresh=$(jq -r .refresh_token body.json)
+          test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 401   # replay
+          test "$(post /auth/refresh "{\"refresh_token\":\"$second_refresh\"}")" = 401  # family revoked
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 200
+          access=$(jq -r .access_token body.json)
+          test "$(post /me/password '{"current_password":"Stack-Passw0rd-123","new_password":"Stack-Passw0rd-456"}' \
+            -H "Authorization: Bearer $access")" = 204
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 401
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-456\"}")" = 200
+          if docker compose logs app | grep -q "Stack-Passw0rd"; then echo "password in logs"; exit 1; fi
+          if docker compose logs app | grep -q "$first_refresh"; then echo "token in logs"; exit 1; fi
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

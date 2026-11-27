@@ -119,7 +119,7 @@ async def login(
         await verify_dummy_password(password)
         raise InvalidCredentials
     if not await verify_password(user.password_hash, password):
-        await _count_failure(session, settings.auth, user.id, client, now)
+        await count_failed_login(session, settings.auth, user.id, client, now)
         raise InvalidCredentials
     new_hash = await hash_password(password) if password_needs_rehash(user.password_hash) else None
     tokens = await _complete_login(session, settings, user.id, new_hash, client, now)
@@ -170,7 +170,7 @@ def _mark_login(user: User, now: datetime, new_hash: str | None) -> None:
         user.password_hash = new_hash
 
 
-async def _count_failure(
+async def count_failed_login(
     session: AsyncSession, policy: AuthSettings, user_id: UUID, client: ClientInfo, now: datetime
 ) -> None:
     async with transaction(session):

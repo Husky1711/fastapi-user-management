@@ -3,13 +3,10 @@
 Rate-limit policies for these routes are added in roadmap step 4.
 """
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status
 
 from app.core import clock
-from app.core.config import Settings
-from app.core.deps import Authenticated, Client, DbSession
+from app.core.deps import AppSettings, Authenticated, Client, DbSession
 from app.core.errors import NotFound
 from app.schemas.auth import LoginIn, RefreshIn, SignupAcceptedOut, SignupIn, TokenOut
 from app.schemas.errors import NOT_FOUND_RESPONSE, UNAUTHORIZED_RESPONSE
@@ -17,14 +14,6 @@ from app.services import auth
 from app.services.auth import IssuedTokens
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _settings(request: Request) -> Settings:
-    settings: Settings = request.app.state.settings
-    return settings
-
-
-AppSettings = Annotated[Settings, Depends(_settings)]
 
 
 def _signup_enabled(settings: AppSettings) -> None:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core import clock
 from app.core.client import USER_AGENT_MAX_LENGTH, ClientInfo
+from app.core.config import Settings
 from app.core.errors import Unauthorized
 from app.services.auth import CurrentUser, authenticate
 
@@ -41,7 +42,7 @@ async def get_current_user(
     """The only place an access token is read (CLAUDE.md, "one way to do each thing")."""
     if credentials is None:
         raise Unauthorized(headers={"WWW-Authenticate": "Bearer"})
-    settings = request.app.state.settings.jwt
+    settings = app_settings(request).jwt
     return await authenticate(session, settings, credentials.credentials, now=clock.now())
 
 
@@ -68,3 +69,12 @@ def _ip_or_none(host: str | None) -> str | None:
 
 Authenticated = Annotated[CurrentUser, Depends(get_current_user)]
 Client = Annotated[ClientInfo, Depends(client_info)]
+
+
+def app_settings(request: Request) -> Settings:
+    """The settings this app was created with (tests create apps with their own)."""
+    settings: Settings = request.app.state.settings
+    return settings
+
+
+AppSettings = Annotated[Settings, Depends(app_settings)]
