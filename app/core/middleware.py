@@ -134,9 +134,21 @@ class RequestContextMiddleware:
         # Stays 499 only if the app finished without sending any response (client went away).
         status_code = CLIENT_CLOSED_REQUEST
         response_started = False
+        client_gone = False  # the client disconnected before any response started
+
+        async def tracking_receive() -> Message:
+            nonlocal client_gone
+            message = await receive()
+            if message["type"] == "http.disconnect" and not response_started:
+                client_gone = True
+            return message
 
         async def send_with_headers(message: Message) -> None:
             nonlocal status_code, response_started
+            if client_gone:
+                # Nobody to answer. Frameworks may still try (FastAPI turns a body-read failure
+                # into a 400): drop it, so the request is logged as 499, not 400.
+                return
             if message["type"] == "http.response.start":
                 response_started = True
                 status_code = message["status"]
@@ -144,7 +156,7 @@ class RequestContextMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, receive, send_with_headers)
+            await self.app(scope, tracking_receive, send_with_headers)
         except asyncio.CancelledError:
             # The request was cancelled (e.g. server shutdown): not a server error. status_code
             # stays 499 unless a response had already started.

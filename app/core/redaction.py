@@ -8,16 +8,22 @@ from collections.abc import Mapping
 
 # "scheme://user:password@host" → "scheme://***@host"
 _URL_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^@/\s]+@", re.IGNORECASE)
-# "password=hunter2" (libpq key/value DSNs, query strings) → "password=***"
+# "password=hunter2", "token: abc", '"api_key": "abc"' (DSNs, query strings, headers, JSON)
+# → the value becomes ***. A word alone ("password reset sent") is left as it is.
 _KEY_VALUE_SECRET = re.compile(
-    r"\b(password|passwd|pwd|secret|token)\s*=\s*[^\s;&'\"]+", re.IGNORECASE
+    r"""(["']?\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token"""
+    r"""|refresh[_-]?token|client[_-]?secret)["']?\s*[=:]\s*)(["']?)[^\s;&,'"}]+""",
+    re.IGNORECASE,
 )
+# "Authorization: Bearer eyJ…" / "Basic dXNl…" → "Bearer ***"
+_AUTH_SCHEME = re.compile(r"\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE)
 
 
 def redact(text: str, *, limit: int | None = None) -> str:
-    """Remove credentials (in URLs and key=value pairs); optionally cap the length."""
-    without_urls = _URL_CREDENTIALS.sub(r"\1***@", text)
-    cleaned = _KEY_VALUE_SECRET.sub(r"\1=***", without_urls)
+    """Remove credentials (URLs, key/value pairs, auth headers); optionally cap the length."""
+    cleaned = _URL_CREDENTIALS.sub(r"\1***@", text)
+    cleaned = _KEY_VALUE_SECRET.sub(r"\1\2***", cleaned)
+    cleaned = _AUTH_SCHEME.sub(r"\1 ***", cleaned)
     return cleaned if limit is None else cleaned[:limit]
 
 
