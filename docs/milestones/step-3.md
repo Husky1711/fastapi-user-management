@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46044586029
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46046371009
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -12,13 +12,13 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
-| 3.2 | Auth data: migration 0003, session and audit repositories | ⬜ | 0 / 9 | |
+| 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ⬜ | 0 / 13 | |
 | 3.4 | Signup and login: lockout, rehash, session strategies | ⬜ | 0 / 18 | |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ⬜ | 0 / 14 | |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **14 / 89** | |
+| | **Total** | | **23 / 89** | |
 
 ## Design decisions for this step
 
@@ -73,15 +73,15 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.2-01 | C1 | Migration 0003 up, down, up | `users.last_login_at`, `sessions.revoked_reason` (+ CHECK), index on active rows per family; round trip clean | CI step + test | ⬜ |
-| 3.2-02 | C10 | Revoked row without a reason, or a reason without `revoked_at` | Rejected (CHECK) | test | ⬜ |
-| 3.2-03 | C1 | Session repository: add, get by token hash, active row of a family, active families of a user (paged) | Correct rows; revoked and expired excluded | test | ⬜ |
-| 3.2-04 | C1 | Revoke one family / all of a user's families / all but one, with a reason | Bulk `UPDATE`s; counts returned; already-revoked rows untouched | test | ⬜ |
-| 3.2-05 | C5, C6 | Revoking another user's family by id | Nothing changes (every method is scoped by `user_id`) | test | ⬜ |
-| 3.2-06 | C1 | Audit repository: add an entry | Row with action, actor, target, ip, request id, details | test | ⬜ |
-| 3.2-07 | C6 | Audit details | Never contain the password, token or full email (masked) | test | ⬜ |
-| 3.2-08 | C10 | Models vs migrated database (parity, names, triggers) | Still no difference (step 2 tests) | test | ⬜ |
-| 3.2-09 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.2-01 | C1 | Migration 0003 up, down, up | `users.last_login_at`, `sessions.revoked_reason` (+ CHECK), index on active rows per family; round trip clean | CI step + test | ✅ |
+| 3.2-02 | C10 | Revoked row without a reason, or a reason without `revoked_at` | Rejected (CHECK) | test | ✅ |
+| 3.2-03 | C1 | Session repository: add, get by token hash, active row of a family, active families of a user (paged) | Correct rows; revoked and expired excluded | test | ✅ |
+| 3.2-04 | C1 | Revoke one family / all of a user's families / all but one, with a reason | Bulk `UPDATE`s; counts returned; already-revoked rows untouched | test | ✅ |
+| 3.2-05 | C5, C6 | Revoking another user's family by id | Nothing changes (every method is scoped by `user_id`) | test | ✅ |
+| 3.2-06 | C1 | Audit repository: add an entry | Row with action, actor, target, ip, request id, details | test | ✅ |
+| 3.2-07 | C6 | Audit details | Never contain the password, token or full email (masked) | test | ✅ |
+| 3.2-08 | C10 | Models vs migrated database (parity, names, triggers) | Still no difference (step 2 tests) | test | ✅ |
+| 3.2-09 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C2, C3, C7, C8, C9, C11 | Covered by 3.4–3.6 (the repositories are exercised through the flows) | | | |
 
 ### Section 3.3: Request dependencies
@@ -190,7 +190,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
 | F1 | CI test (runs 46043542631, 46044092198) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12; the step 1 test 1.2-04 expects the new message (run 46044092198 caught it) | Fixed (run 46044586029) |
-| F2 | CI test (run 46045405514) | 3.2-04 failed: `SADeprecationWarning` for `Result.tuples()` (warnings are errors) | SQLAlchemy 2.1 deprecates it; rows unpack directly | Rows unpacked directly | Fixed |
+| F2 | CI test (run 46045405514) | 3.2-04 failed: `SADeprecationWarning` for `Result.tuples()` (warnings are errors) | SQLAlchemy 2.1 deprecates it; rows unpack directly | Rows unpacked directly (and a lint fix, run 46045889238) | Fixed (run 46046371009) |
 
 ## Gate (when all sections are ✅)
 
