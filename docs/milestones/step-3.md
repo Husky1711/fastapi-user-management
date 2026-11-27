@@ -1,8 +1,8 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46082036988
-- Verdict: **GATE IN PROGRESS** (all sections ✅; review rounds 1–3 FAIL, fixes below, round 4 pending)
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46083134460
+- Verdict: **GATE IN PROGRESS** (all sections ✅; review rounds 1–4 FAIL, fixes below, round 5 pending)
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
 `test_s3_<section>_<nn>_...`; *CI step* means a named step in the CI workflow.
@@ -12,16 +12,16 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
-| 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 10 / 10 | CI run 46046371009; 3.2-10 in run 46056180851 |
+| 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 11 / 11 | CI run 46046371009; 3.2-10 in run 46056180851; 3.2-11 in run 46083134460 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 14 / 14 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12); 3.3-14 in run 46080870382 |
 | 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 23 / 24 | CI run 46049595954; 3.4-17 in run 46051473324; 3.4-20/21 in run 46079219114; 3.4-22/23 in run 46080870382; 3.4-24 is a pinned known gap (step 6) |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 19 / 19 | CI run 46050265813; 3.5-13 in run 46051473324; 3.5-15 in run 46079219114; 3.5-16 in run 46080870382; 3.5-17..19 in run 46082036988 |
-| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 16 / 16 | CI run 46051473324; 3.6-14 in run 46079219114; 3.6-15/16 in run 46080870382 |
+| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 18 / 18 | CI run 46051473324; 3.6-14 in run 46079219114; 3.6-15/16 in run 46080870382; 3.6-17/18 in run 46083134460 |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 9 / 9 | CI run 46052631869; 3.7-09 in run 46080870382 |
 | 3.8 | Security audit fixes: per-user lock order, re-checks under the lock | ✅ | 12 / 12 | Failing first in run 46055289113; passing in 46055748820; extended after review round 1, run 46079219114; 3.8-12 in run 46080870382 |
-| | **Total** | | **117 / 118** | 89 planned + 29 added during the step: 3.4-19 (step 2 carry-over); 3.2-10 and 3.8-01..11 (security audit); 3.4-20, 3.4-21, 3.5-15, 3.6-14 (review round 1); 3.3-14, 3.4-22..24, 3.5-16, 3.6-15, 3.6-16, 3.7-09, 3.8-12 (review round 2); 3.5-17..19 (review round 3) |
+| | **Total** | | **120 / 121** | 89 planned + 32 added during the step: 3.4-19 (step 2 carry-over); 3.2-10, 3.8-01..05 and 3.8-11 (security audit); 3.8-06..10 (review round 1); 3.4-20, 3.4-21, 3.5-15, 3.6-14 (review round 1); 3.3-14, 3.4-22..24, 3.5-16, 3.6-15, 3.6-16, 3.7-09, 3.8-12 (review round 2); 3.5-17..19 (review round 3); 3.2-11, 3.6-17, 3.6-18 (review round 4) |
 
-**Totals:** 118 scenarios: 117 passing, 0 failing, 1 known gap pinned as a strict expected failure (3.4-24, closed in step 6). Failures found and fixed during the step: 12 (F1–F11, F13); 1 expected red run (F12).
+**Totals:** 121 scenarios: 120 passing, 0 failing, 1 known gap pinned as a strict expected failure (3.4-24, closed in step 6). Failures found and fixed during the step: 12 (F1–F11, F13); 1 expected red run (F12).
 
 ## Design decisions for this step
 
@@ -89,6 +89,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.2-08 | C10 | Models vs migrated database (parity, names, triggers) | Still no difference (step 2 tests) | test | ✅ |
 | 3.2-09 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 3.2-10 | C10 | (added during build, F9) Backfill: two active legacy rows of one family with the same `created_at` | Exactly one stays active (ties broken by id); the unique index is created | CI step 3.2-01b | ✅ |
+| 3.2-11 | C9 | (added, review round 4) The block fails and ending the outer transaction fails too | The block's own error surfaces; the second failure is logged once as a warning with its type only (no message, no secret) | test | ✅ |
 | — | C2, C3, C7, C8, C9, C11 | Covered by 3.4–3.6 (the repositories are exercised through the flows) | | | |
 
 ### Section 3.3: Request dependencies
@@ -120,7 +121,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.4-02 | C6 | Signup with an existing email (any case) | Same 202 and body; no change to the existing user | test | ✅ |
 | 3.4-03 | C2, C3 | Signup with a weak password (incl. padded with spaces to 12: `"a"+11 spaces`, `"ab"+10 spaces+"c"`, cases added in review round 3), invalid email, extra fields, missing fields | 422 with stable codes; nothing created | test | ✅ |
 | 3.4-04 | C1 | Signup disabled (`AUTH__SIGNUP_ENABLED=false`) | 404 (the route behaves as absent) | test | ✅ |
-| 3.4-05 | C1 | Login with the right password | 200; access + refresh token, `token_type`, `expires_in` from settings; `last_login_at` set; counter reset | test | ✅ |
+| 3.4-05 | C1 | Login with the right password | 200; access + refresh token, `token_type`, `expires_in` from settings; `last_login_at` set; counter reset (refresh lifetime 30 min by default since review round 4) | test | ✅ |
 | 3.4-06 | C4 | Wrong password; unknown email; disabled or deleted user | Same 401 `auth.invalid_credentials` | test | ✅ |
 | 3.4-07 | C6 | Timing: unknown email vs wrong password | Both run one Argon2 verify (spy count) | test | ✅ |
 | 3.4-08 | C6 | 5 wrong passwords | Locked for 15 min; the right password is then refused with the same 401; audited | test | ✅ |
@@ -165,8 +166,8 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | — | C5 | N/A: a user acts only on their own sessions (3.2-05 covers cross-user) | | | |
 | 3.5-15 | C9 | (added, review round 1) Database down at refresh | Generic 500; the token not in logs or body | test | ✅ |
 | 3.5-16 | C9 | (added, review round 2) The database fails inside the logout / logout-all write (after authentication) | Generic 500; nothing changed (the session still works); token not logged | test | ✅ |
-| 3.5-17 | C3 | (added, review round 3) ASVS level 2 limits `AUTH__REFRESH_TTL=PT30M`, `AUTH__SESSION_MAX_AGE=PT12H` | Refreshing every 29 min keeps a session alive to 11 h 36; the next refresh (past 12 h) is 401; 30 min idle ends a session (refused exactly at expiry) | test | ✅ |
-| 3.5-18 | C9, C10 | (added, review round 3) Writing the new refresh token fails after the old row was marked `rotated` | 500; the mark is rolled back with it, so a retry with the same token succeeds (not reuse) | test | ✅ |
+| 3.5-17 | C3 | (added, review round 3; defaults and exact boundaries in round 4) The default limits are ASVS level 2: 30 min idle and 12 h absolute | Refreshing every 29 min keeps a session alive; at 12 h − 1 s a refresh works, at 12 h it is refused and that session's access token stops working; 30 min − 1 s idle refresh works, exactly 30 min is refused | test | ✅ |
+| 3.5-18 | C9, C10 | (added, review round 3; real INSERT failure in round 4) The database refuses the new refresh row (a CHECK fails at flush) after the old row was marked `rotated` | 500; the mark is rolled back with it, so a retry with the same token succeeds (not reuse) | test | ✅ |
 | 3.5-19 | C7 | (added, review round 3) The refreshing node's clock is 2 s behind the login node's | 200, not a 500 from the `family_started_first` CHECK (the new row is never older than its family) | test | ✅ |
 
 ### Section 3.6: `/me`
@@ -175,8 +176,8 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | --- | --- | --- | --- | --- | --- |
 | 3.6-01 | C1 | `GET /me` | Own profile (`id`, `email`, `full_name`, `email_verified`, `created_at`); no hash, no counters | test | ✅ |
 | 3.6-02 | C1 | `GET /me/sessions` | Own active sessions, paged, current one marked; no token hashes | test | ✅ |
-| 3.6-03 | C1 | `DELETE /me/sessions/{id}` | 204; that family revoked (`revoked`) | test | ✅ |
-| 3.6-04 | C5, C6 | Delete another user's session id; unknown id; malformed id | 404 (not 403); 404; 422 | test | ✅ |
+| 3.6-03 | C1 | `POST /me/sessions/{id}/revoke` for another device (with the current password; `DELETE` until review round 4) | 204; that family revoked (`revoked`) | test | ✅ |
+| 3.6-04 | C5, C6 | Revoke another user's session id; unknown id; malformed id | 404 (not 403); 404; 422 | test | ✅ |
 | 3.6-05 | C1 | `POST /me/sessions/revoke-others` | Every other family revoked; the current one keeps working | test | ✅ |
 | 3.6-06 | C1 | `POST /me/password` with the right current password | 204; new hash; other sessions revoked (`password_changed`); current kept | test | ✅ |
 | 3.6-07 | C4 | Change password with a wrong current password | 401-style refusal (`auth.invalid_credentials`), counts toward lockout | test | ✅ |
@@ -190,6 +191,8 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | — | C7 | Covered by 3.5-05 (session races) | | | |
 | 3.6-15 | C9, C10 | (added, review round 2) The database fails inside the password-change write | Generic 500; the whole change rolled back: old password and other devices still work | test | ✅ |
 | 3.6-16 | C8 | (added, review round 2) Ending the same session twice | 204, then 404 `session.not_found`; one audit entry | test | ✅ |
+| 3.6-17 | C4, C6, C11 | (added, review round 4) Ending another device, revoke-others and logout-all with a stolen access token: no password, wrong password, right password | 422 `auth.current_password_required`; 401 `auth.invalid_credentials` (counted toward the lockout, audited `auth.reauth_failed`; the other device still works); 204 and the other device is signed out. Logout-all also on the real stack (3.8-10) | test, 3 variants; CI step (Compose) | ✅ |
+| 3.6-18 | C1 | (added, review round 4) Ending this session by id; and with `AUTH__REAUTH_TO_END_SESSIONS=false`, ending another device, revoke-others and logout-all | All 204 without a password | test | ✅ |
 
 ### Section 3.7: Carried from step 1
 
@@ -224,7 +227,7 @@ function `test_s3_8_<nn>_...`; variants are its parameters.
 | 3.8-07 | C7, C4 | (review M2) The account is disabled while a password change is hashing | Change refused (status re-checked under the lock); password unchanged | test | ✅ |
 | 3.8-08 | C7, C10 | Six concurrent logins under `replace_all` and under `limit_sessions` (limit 2) | All 200; exactly 1 / 2 active sessions remain (count-then-insert serialized by the user lock) | test (real pool), 2 variants | ✅ |
 | 3.8-09 | C9, C10 | The user row is removed while a login (right or wrong password) is verifying | 401 `auth.invalid_credentials`, never 500; right password: one `auth.login_refused` with no actor; wrong password: nothing audited (no row to count) | test, 2 variants | ✅ |
-| 3.8-10 | C11 | Real stack: a stolen access token guesses 5 times, then the right password is refused; a refreshed stolen token dies at the owner's logout-all; no active session left in the database | As stated | CI step (Compose) | ✅ |
+| 3.8-10 | C11 | Real stack: logout-all without the password is 422, with it 204, and it ends a session refreshed with a stolen token (no active row left in the database); then a stolen access token guesses 5 times and the right password is refused (account locked) | As stated | CI step (Compose) | ✅ |
 | 3.8-11 | C12 | Earlier tests still pass (incl. refresh race 3.5-05, password change 3.6-06, lockout 3.4-08/10) | CI green | CI run | ✅ |
 | 3.8-12 | C7 | (added, review round 2; `limit_sessions` variant review round 3) A login under `replace_all`, or `limit_sessions` with a limit of 1, while a refresh is mid-rotation | The login waits for the rotation, then ends the successor too: only the new login's session remains | test (real pool) | ✅ |
 | — | C2, C3, C5 | N/A: no new input, boundary or permission; routes and schemas unchanged (input caps are 3.4-20/21) | | | |
@@ -282,7 +285,7 @@ refused, new accepted).
 | Rotation revoked the old token; replaying it was just "invalid" | Families; a replayed rotated token revokes the family, audited | Added | A stolen refresh token went unnoticed |
 | `revoke-others` passed session id `0`, so it also ended the current session | Keeps the current family (`sid`) | Fixed | Users signed themselves out |
 | Logout needed the refresh token; the access token stayed valid until expiry | Logout with the access token; access ends at once (family check) | Improved | "Logged out" tokens kept working for minutes |
-| `DELETE /sessions/{id}` by integer id | By family UUID, scoped to the user; others' ids are 404 | Improved | Guessable ids |
+| `DELETE /sessions/{id}` by integer id | `POST /me/sessions/{id}/revoke` by family UUID, scoped to the user; others' ids are 404; another device needs the current password | Improved | Guessable ids |
 | Session strategy chosen by the client per request (`login-with-session-control`) | Server setting `AUTH__SESSION_STRATEGY` | Fixed | Clients could pick the weakest policy |
 | `login_attempts` / `locked_until` never used | Lockout (5 / 15 min), atomic counter, lock not extended by more failures, audited | Added | No brute-force protection (rate limits: step 4) |
 | Signup answered "Email already exists" / "Username already exists" | Same 202 either way | Fixed | Account enumeration |
@@ -306,7 +309,9 @@ refused, new accepted).
   [reviews/step-3-round-2.md](reviews/step-3-round-2.md). Resolution below.
 - Round 3 (commit 5270ef5): **FAIL**, 8.9/10, two High findings. Verbatim:
   [reviews/step-3-round-3.md](reviews/step-3-round-3.md). Resolution below.
-- Round 4: pending.
+- Round 4 (commit af8ddf9): **FAIL**, 8.9/10, one High finding. Verbatim:
+  [reviews/step-3-round-4.md](reviews/step-3-round-4.md). Resolution below.
+- Round 5: pending.
 
 **Round 1 resolution**
 
@@ -372,11 +377,26 @@ refused, new accepted).
 | L8 | Two cross-check rows (`GET /auth/sessions`, `session_info`) |
 | Missing scenarios | Padded passwords; level 2 limits (3.5-17); V3.3.4 recorded as a deviation; no-store on errors; refresh vs `limit_sessions` login (3.8-12 variant); failed rotation rolls back (3.5-18); clock skew (3.5-19) |
 
+**Round 4 resolution**
+
+| # | Resolution |
+| --- | --- |
+| H1 | Option (b), no change to VISION scope: ADR-0011 supersedes ADR-0010. Defaults are level 2 (30 min idle and 12 h absolute; re-auth to end other sessions on); products may opt down by settings. Ending one other session moved from `DELETE` to `POST /me/sessions/{id}/revoke` (a body on `DELETE` has no defined meaning, RFC 9110). Tests 3.5-17, 3.6-17, 3.6-18, 3.8-10 |
+| M1 | ADR-0011, `.env.example` and the config comment say level 2 needs **both** limits |
+| M2 | `Settings` refuses `AUTH__REFRESH_TTL` below twice `JWT__ACCESS_TTL_SECONDS`; 3.1-12 |
+| L1 | V3.3.4 row rewritten (now passes by default); V2.4.2 replaces 2.4.4; N/A rows for V3.2.3 and V3.5.1 |
+| L2 | Format characters (Cf: zero-width space, soft hyphen) not counted; message says so; 2.6-04 cases |
+| L3 | 3.2-11 |
+| L4 | Totals row attributes 3.8-06..10 to review round 1 |
+| L5 | 3.5-17: refresh at 12 h − 1 s (200) and 12 h (401), access token at 12 h (401), idle at 30 min − 1 s (200) and 30 min (401) |
+| L6 | 3.5-18 makes the database refuse the INSERT itself (CHECK at flush) |
+| Missing scenarios | All six added (3.1-12, 3.5-17, 2.6-04, 3.5-18, 3.2-11, 3.6-17/18). Consequence recorded in ADR-0011: re-auth is refused while the account is locked (no password oracle), so a lock also blocks ending other sessions; step 4's limits keep the lockout from being used against the owner |
+
 ### ASVS 4.0.3 (roadmap exit criterion), level 2, for these flows
 
 | Item | Requirement (short) | Status | Evidence |
 | --- | --- | --- | --- |
-| V2.1.1 / 2.1.2 | Passwords ≥ 12 characters after runs of spaces are combined; at least 64 allowed (128 here) | Pass | `check_password_rules` collapses whitespace before counting (review round 3); 2.6-04, 3.4-03, 3.6-08 padded cases |
+| V2.1.1 / 2.1.2 | Passwords ≥ 12 characters after runs of spaces are combined (invisible format characters not counted, review round 4); at least 64 allowed (128 here) | Pass | `check_password_rules` collapses whitespace before counting (review round 3); 2.6-04, 3.4-03, 3.6-08 padded cases |
 | V2.1.3 | No truncation | Pass | Whole password hashed (Argon2 has no 72-byte limit); 3.4-20 |
 | V2.1.4 | Any printable Unicode, incl. spaces and emoji | Pass | NFKC; only control characters refused (`security.py`) |
 | V2.1.5 / 2.1.6 | Users can change their password; needs current and new | Pass | `POST /me/password`; 3.6-06, 3.6-07 |
@@ -387,7 +407,7 @@ refused, new accepted).
 | V2.2.2 | Weak authenticators (SMS, email OTP) not used as a primary factor | N/A | Passwords only; no SMS or email authenticators exist |
 | V2.2.3 | Notify after a credential change | **Carried to step 6** (email) | Password-change audit entry exists now |
 | V2.2.4–2.2.7, V2.7, V2.8 | MFA, phishing resistance, OTP | Out of scope | VISION backlog (version 2) |
-| V2.4.1 / 2.4.4 | Salted, approved, memory-hard hash with tuned cost | Pass | Argon2id, RFC 9106 low-memory profile; rehash on login 3.4-11 |
+| V2.4.1 / 2.4.2 | Salted, approved, memory-hard hash with tuned cost; salt of at least 32 bits | Pass | Argon2id, RFC 9106 low-memory profile, 128-bit random salt per hash; rehash on login 3.4-11 (V2.4.4 is bcrypt-only: N/A) |
 | V2.4.5 | An extra iteration with a secret salt ("pepper") kept apart from the hashes | **Carried to step 9** (decision) | Not done in step 3, on purpose: a pepper without key versioning can never be rotated, and losing it makes every password unrecoverable. Step 9 adds it with a key id in the stored hash, rotation through rehash-on-login, and an ADR |
 | V8.2.1 | Anti-caching headers on sensitive responses | Pass | `Cache-Control: no-store` on every `/api/v1` answer, errors included (3.4-22) |
 | V2.5.1 / 2.5.6 | Recovery never sends the password; secure reset | **Carried to step 6** | Reset is step 6 |
@@ -395,18 +415,20 @@ refused, new accepted).
 | V2.10.4 | Secrets not in source | Pass | JWT secret from settings, safety check per algorithm (3.1-12) |
 | V3.1.1 | Tokens never in URLs | Pass | Header and JSON body only |
 | V3.2.1 / 3.2.2 / 3.2.4 | New session per login; ≥ 64 bits; approved generator | Pass | New family per login; 256-bit `token_urlsafe`; 3.1-06/07 |
+| V3.2.3 | Tokens stored safely in the browser | N/A | Client concern; the API returns tokens only in response bodies, never cookies or URLs |
 | V3.3.1 | Logout invalidates the session | Pass | 3.5-08, 3.5-10, 3.6-14 |
-| V3.3.2 | Re-authentication after an idle or absolute limit (L1: 30 days; L2: 12 h or 30 min idle) | Pass at L1 by default; L2 by configuration | Defaults 14 days idle / 30 days absolute (L1). `AUTH__REFRESH_TTL=PT30M` / `AUTH__SESSION_MAX_AGE=PT12H` give L2, tested at the boundaries (3.5-17). Defaults chosen in ADR-0010 |
+| V3.3.2 | Re-authentication when actively used and after an idle period (L2: 12 h and 30 min idle) | Pass (defaults) | `AUTH__SESSION_MAX_AGE=PT12H` and `AUTH__REFRESH_TTL=PT30M` by default, refresh outlives access (validated); boundaries in 3.5-17, validator in 3.1-12 (ADR-0011). Longer values are a product's opt-down to L1 |
 | V3.3.3 | Option to end all other sessions after a password change | Pass (automatic) | 3.6-06, 3.8-04 |
-| V3.3.4 | Users can see and end their active sessions (L2: after re-entering credentials) | Pass at L1; **deviation at L2** (ADR-0010) | 3.6-02..05, 3.6-14, 3.6-16. Ending sessions needs only the access token: it removes access and never grants any; the reason and the opt-in path are in ADR-0010 |
+| V3.3.4 | Users can see their sessions and, after re-entering credentials, end any or all | Pass (defaults) | Listing 3.6-02; ending another device, revoke-others and logout-all need the current password, missing 422 / wrong 401 counted (3.6-17, 3.8-10); ending this session needs none (3.6-18). `AUTH__REAUTH_TO_END_SESSIONS=false` is a product's opt-down (ADR-0011) |
 | V3.4.x | Cookie attributes | N/A | Bearer tokens, no cookies |
+| V3.5.1 | Users can revoke OAuth tokens given to linked apps | N/A | No OAuth authorization server or linked apps |
 | V3.5.2 / 3.5.3 | Session tokens not static keys; signed and tamper-checked stateless tokens | Pass | Rotation; HS* with algorithm pinned, all claims required (3.1-02/03) |
 | V3.7.1 | Re-authentication before sensitive changes | Pass | Current password required for password change |
 
-Every item this step owns passes at level 2, with two recorded exceptions: V3.3.2 passes at
-level 2 only when configured (defaults are level 1 by choice), and V3.3.4 is a deliberate
-level 2 deviation; both are decided in ADR-0010. The five items the step doesn't own
-(V2.1.7, V2.2.1 rate limits, V2.2.3, V2.4.5, V2.5) each have a named step in the ROADMAP.
+Every level 2 item this step owns passes with the default settings (ADR-0011; ADR-0010's
+level 1 defaults and V3.3.4 deviation are superseded). A product can opt down to level 1
+for V3.3.2 and V3.3.4 through settings. The five items the step doesn't own (V2.1.7, V2.2.1
+rate limits, V2.2.3, V2.4.5, V2.5) each have a named step in the ROADMAP.
 
 ### 6. Security audit: PASS (after fixes)
 

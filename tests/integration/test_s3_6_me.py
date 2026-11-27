@@ -366,5 +366,6 @@ async def test_s3_6_18_ending_this_session_or_with_reauth_off_needs_no_password(
         _, (phone, laptop) = await _account(http, devices=2)
         phone_id = await _session_id(http, phone)
         other = await http.post(f"/api/v1/me/sessions/{phone_id}/revoke", headers=_bearer(laptop))
+        others = await http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(laptop))
         everything = await http.post("/api/v1/auth/logout-all", headers=_bearer(laptop))
-    assert (own.status_code, other.status_code, everything.status_code) == (204, 204, 204)
+    assert [r.status_code for r in (own, other, others, everything)] == [204, 204, 204, 204]
