@@ -86,12 +86,12 @@ async def test_s2_6_09_existing_email_changes_nothing(db_engine: AsyncEngine, em
 async def test_s2_6_09_email_of_a_deleted_user_is_still_taken(db: AsyncSession) -> None:
     gone = new_user(status=UserStatus.DELETED, deleted_at=clock.now())
     await add(db, gone)
-    email = gone.email
+    email, gone_id = gone.email, gone.id  # the failed transaction's rollback expires `gone`
     await db.commit()  # like a fresh request: the service opens its own transaction
     with pytest.raises(Conflict):
         await create_platform_admin(db, email=email, password=PASSWORD)
     (only,) = (await db.execute(select(User.id).where(User.email == email))).scalars()
-    assert only == gone.id
+    assert only == gone_id
 
 
 async def test_s2_6_10_password_is_only_read_from_stdin_and_never_printed(
