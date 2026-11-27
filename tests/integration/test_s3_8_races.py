@@ -521,7 +521,10 @@ async def test_s3_8_14_reentry_on_an_account_that_changes_underneath_is_refused(
         email, (tokens,) = await _account(http, devices=1)
         gate = Gate()
         if change == "disabled_before_reserving":
-            monkeypatch.setattr(auth, "lock_user", gate.wrap(auth.lock_user, after=False))
+            # Paused before the reservation's transaction opens (the test shares its connection).
+            monkeypatch.setattr(
+                auth, "_reserve_reauth", gate.wrap(auth._reserve_reauth, after=False)
+            )
             body = {"current_password": PASSWORD}
         else:
             verify = gate.wrap(security.verify_password, after=True)
