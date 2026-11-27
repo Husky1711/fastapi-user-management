@@ -48,6 +48,15 @@ class IssuedTokens:
 
 
 @dataclass(frozen=True, slots=True)
+class Verified:
+    """The stored hash a password was checked against, and its replacement if the hash
+    parameters were raised since it was made."""
+
+    hash: str
+    rehash: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CurrentUser:
     user: User
     session_id: UUID  # the session family the access token belongs to
@@ -121,8 +130,10 @@ async def login(
     if not await verify_password(user.password_hash, password):
         await count_failed_login(session, settings.auth, user.id, client, now)
         raise InvalidCredentials
-    new_hash = await hash_password(password) if password_needs_rehash(user.password_hash) else None
-    tokens = await _complete_login(session, settings, user.id, new_hash, client, now)
+    verified = Verified(hash=user.password_hash, rehash=None)
+    if password_needs_rehash(user.password_hash):
+        verified = Verified(hash=user.password_hash, rehash=await hash_password(password))
+    tokens = await _complete_login(session, settings, user.id, verified, client, now)
     if tokens is None:  # raised after the commit, so the "refused" audit entry is kept
         raise InvalidCredentials
     return tokens
@@ -132,18 +143,19 @@ async def _complete_login(
     session: AsyncSession,
     settings: Settings,
     user_id: UUID,
-    new_hash: str | None,
+    verified: Verified,
     client: ClientInfo,
     now: datetime,
 ) -> IssuedTokens | None:
-    """Re-check the user under a row lock (a concurrent failure may have locked it), then
-    start the session. None if the account can't log in now."""
+    """Re-check the user under the row lock, then start the session. None if the account
+    can't log in now: locked or disabled meanwhile, or the password changed meanwhile (the
+    password that was checked is no longer the account's password)."""
     async with transaction(session):
         user = await UserRepository(session).get_for_update(user_id)
-        if user is None or not _can_log_in(user, now):
+        if user is None or not _can_log_in(user, now) or user.password_hash != verified.hash:
             audit.record(session, action="auth.login_refused", client=client, actor_user_id=user_id)
             return None
-        _mark_login(user, now, new_hash)
+        _mark_login(user, now, verified.rehash)
         await _apply_session_strategy(session, settings.auth, user.id, client, now)
         tokens = _start_session(session, settings, user.id, client, now)
         audit.record(session, action="auth.logged_in", client=client, actor_user_id=user.id)
@@ -157,9 +169,12 @@ async def _user_by_email(session: AsyncSession, email: str) -> User | None:
         return None
 
 
+def is_locked(user: User, now: datetime) -> bool:
+    return user.locked_until is not None and user.locked_until > now
+
+
 def _can_log_in(user: User, now: datetime) -> bool:
-    locked = user.locked_until is not None and user.locked_until > now
-    return user.status == UserStatus.ACTIVE and not locked
+    return user.status == UserStatus.ACTIVE and not is_locked(user, now)
 
 
 def _mark_login(user: User, now: datetime, new_hash: str | None) -> None:
@@ -271,19 +286,32 @@ async def refresh(
     now: datetime,
 ) -> IssuedTokens:
     """Rotate a refresh token. A token that was already rotated is being replayed (it was
-    copied): the whole family is revoked and the attempt audited. Raises `InvalidToken`."""
+    copied): the whole family is revoked and the attempt audited. Raises `InvalidToken`.
+
+    The owner's row is locked before the token's row is re-read, the same order every
+    revocation uses, so a logout or password change never misses the successor token."""
+    sessions = SessionRepository(session)
+    token_hash = hash_token(refresh_token)
     async with transaction(session):
-        row = await SessionRepository(session).get_by_token_hash(
-            hash_token(refresh_token), for_update=True
-        )
-        tokens = await _rotate(session, settings, row, client, now) if row else None
+        found = await sessions.get_by_token_hash(token_hash)
+        tokens = None
+        if found is not None:
+            user = await UserRepository(session).get_for_update(found.user_id, include_deleted=True)
+            row = await sessions.get_by_token_hash(token_hash, for_update=True)
+            if user is not None and row is not None:
+                tokens = await _rotate(session, settings, user, row, client, now)
     if tokens is None:  # raised after the commit, so a reuse revocation is kept
         raise InvalidToken
     return tokens
 
 
 async def _rotate(
-    session: AsyncSession, settings: Settings, row: UserSession, client: ClientInfo, now: datetime
+    session: AsyncSession,
+    settings: Settings,
+    user: User,
+    row: UserSession,
+    client: ClientInfo,
+    now: datetime,
 ) -> IssuedTokens | None:
     sessions = SessionRepository(session)
     if row.revoked_reason == RevokeReason.ROTATED:
@@ -304,8 +332,7 @@ async def _rotate(
     max_age_end = row.family_started_at + timedelta(days=settings.auth.session_max_age_days)
     if row.revoked_at is not None or row.expires_at <= now or max_age_end <= now:
         return None
-    user = await UserRepository(session).get(row.user_id)
-    if user is None or user.status != UserStatus.ACTIVE:
+    if user.deleted_at is not None or user.status != UserStatus.ACTIVE:
         return None
     await sessions.revoke_family(
         user_id=row.user_id, family_id=row.family_id, reason=RevokeReason.ROTATED, now=now
@@ -313,6 +340,11 @@ async def _rotate(
     return _add_refresh_token(
         session, settings, row.user_id, row.family_id, row.family_started_at, now, client
     )
+
+
+async def lock_user(session: AsyncSession, user_id: UUID) -> User | None:
+    """Take the per-user lock every session or credential change takes first."""
+    return await UserRepository(session).get_for_update(user_id, include_deleted=True)
 
 
 async def logout(
@@ -327,6 +359,7 @@ async def logout(
     sessions = SessionRepository(session)
     user_id = current.user.id
     async with transaction(session):
+        await lock_user(session, user_id)
         if everywhere:
             await sessions.revoke_all(user_id=user_id, reason=RevokeReason.LOGOUT_ALL, now=now)
         else:

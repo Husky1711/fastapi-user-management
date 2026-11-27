@@ -32,14 +32,17 @@ class UserRepository(Repository):
         statement = select(User).where(User.email == email, User.deleted_at.is_(None))
         return (await self.session.execute(statement)).scalar_one_or_none()
 
-    async def get_for_update(self, user_id: UUID) -> User | None:
-        """The current row, locked until the transaction ends (concurrent logins queue here)."""
-        statement = (
-            select(User)
-            .where(User.id == user_id, User.deleted_at.is_(None))
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+    async def get_for_update(self, user_id: UUID, *, include_deleted: bool = False) -> User | None:
+        """The current row, locked until the transaction ends.
+
+        Every flow that creates or ends sessions or changes credentials takes this lock
+        first (user row, then session rows), so those flows run one after another per user
+        and each sees what the previous one committed.
+        """
+        statement = select(User).where(User.id == user_id)
+        if not include_deleted:
+            statement = statement.where(User.deleted_at.is_(None))
+        statement = statement.with_for_update().execution_options(populate_existing=True)
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def record_failed_login(

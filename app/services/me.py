@@ -10,12 +10,18 @@ from app.core.client import ClientInfo
 from app.core.config import Settings
 from app.core.errors import NotFound, Unprocessable
 from app.core.pagination import PaginationParams
-from app.core.security import check_password_rules, hash_password, verify_password
+from app.core.security import InvalidToken, check_password_rules, hash_password, verify_password
 from app.infra.database import end_read, transaction
-from app.models import RevokeReason, UserSession
-from app.repositories import SessionRepository, Slice, UserRepository
+from app.models import RevokeReason, User, UserSession
+from app.repositories import SessionRepository, Slice
 from app.services import audit
-from app.services.auth import CurrentUser, InvalidCredentials, count_failed_login
+from app.services.auth import (
+    CurrentUser,
+    InvalidCredentials,
+    count_failed_login,
+    is_locked,
+    lock_user,
+)
 
 
 class PasswordUnchanged(Unprocessable):
@@ -39,6 +45,7 @@ async def end_session(
 ) -> None:
     """End one of the user's sessions. Someone else's id is "not found", like an unknown one."""
     async with transaction(session):
+        await lock_user(session, current.user.id)
         ended = await SessionRepository(session).revoke_family(
             user_id=current.user.id, family_id=session_id, reason=RevokeReason.REVOKED, now=now
         )
@@ -57,6 +64,7 @@ async def end_other_sessions(
     session: AsyncSession, current: CurrentUser, *, client: ClientInfo, now: datetime
 ) -> None:
     async with transaction(session):
+        await lock_user(session, current.user.id)
         ended = await SessionRepository(session).revoke_all(
             user_id=current.user.id,
             reason=RevokeReason.REVOKED,
@@ -82,10 +90,13 @@ async def change_password(
     client: ClientInfo,
     now: datetime,
 ) -> None:
-    """Needs the current password (a stolen access token alone can't take the account).
-    Every other session ends; this one stays signed in."""
+    """Needs the current password (a stolen access token alone can't take the account),
+    and is refused while the account is locked, like a login. Every other session ends;
+    this one stays signed in."""
     check_password_rules(new_password)
     user_id, stored_hash = current.user.id, current.user.password_hash
+    if is_locked(current.user, now):
+        raise InvalidCredentials  # no guessing past the lockout with a stolen token
     await end_read(session)  # no pool connection is held while Argon2 runs
     if not await verify_password(stored_hash, current_password):
         await count_failed_login(session, settings.auth, user_id, client, now)
@@ -94,17 +105,42 @@ async def change_password(
         raise PasswordUnchanged
     new_hash = await hash_password(new_password)
     async with transaction(session):
-        user = await UserRepository(session).get_for_update(user_id)
-        if user is None:  # deleted meanwhile
-            raise InvalidCredentials
-        user.password_hash = new_hash
-        await SessionRepository(session).revoke_all(
-            user_id=user_id,
-            reason=RevokeReason.PASSWORD_CHANGED,
-            now=now,
-            except_family=current.session_id,
-        )
-        audit.record(session, action="auth.password_changed", client=client, actor_user_id=user_id)
+        user = await lock_user(session, user_id)
+        refusal = await _refusal_under_lock(session, user, current.session_id, stored_hash, now)
+        if user is not None and refusal is None:
+            await _replace_password(session, user, current.session_id, new_hash, now)
+        action = "auth.password_change_refused" if refusal else "auth.password_changed"
+        audit.record(session, action=action, client=client, actor_user_id=user_id)
+    if refusal is not None:  # raised after the commit, so the "refused" audit entry is kept
+        raise refusal
+
+
+async def _refusal_under_lock(
+    session: AsyncSession, user: User | None, family_id: UUID, verified_hash: str, now: datetime
+) -> InvalidCredentials | InvalidToken | None:
+    """What was checked before the slow hashing may have changed since: the session may
+    have ended, the account may be locked, or the password changed by another request."""
+    if user is None or user.deleted_at is not None or is_locked(user, now):
+        return InvalidCredentials()
+    if user.password_hash != verified_hash:
+        return InvalidCredentials()
+    live = await SessionRepository(session).active_in_family(
+        user_id=user.id, family_id=family_id, now=now
+    )
+    return InvalidToken() if live is None else None
+
+
+async def _replace_password(
+    session: AsyncSession, user: User, keep_family: UUID, new_hash: str, now: datetime
+) -> None:
+    user.password_hash = new_hash
+    user.failed_login_count = 0
+    await SessionRepository(session).revoke_all(
+        user_id=user.id,
+        reason=RevokeReason.PASSWORD_CHANGED,
+        now=now,
+        except_family=keep_family,
+    )
 
 
 def _same(first: str, second: str) -> bool:
