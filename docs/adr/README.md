@@ -16,7 +16,8 @@ ADR that supersedes the old one and update the old one's status line.
 | [0008](0008-gcra-rate-limiting.md) | GCRA rate limiting in a Redis Lua script | Accepted |
 | [0009](0009-ascii-email-domains.md) | Email domains are ASCII only (no IDN) for now | Accepted |
 | [0010](0010-session-limits-and-ending-sessions.md) | Session limits configurable to ASVS level 2; ending sessions needs no password | Superseded by 0011 |
-| [0011](0011-asvs-level-2-session-defaults.md) | Sessions default to ASVS level 2; ending other sessions needs the password | Accepted |
+| [0011](0011-asvs-level-2-session-defaults.md) | Sessions default to ASVS level 2; ending other sessions needs the password | Accepted (lockout consequence replaced by 0012) |
+| [0012](0012-reauthentication-budget-per-session.md) | Re-entering the password uses a per-session budget, not the account lockout | Accepted |
 
 ## Template
 

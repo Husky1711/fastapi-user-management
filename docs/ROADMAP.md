@@ -166,7 +166,7 @@ current session; `settings` NameError; role/org trusted from JWT claims; hard-co
 - [ ] Fail closed for auth routes, open for others (configurable); no per-request `PING`
 - [ ] Use `SCAN`/key sets, never `KEYS`
 - [ ] Tests with real Redis: burst, steady rate, reset, concurrency, Redis down
-- [ ] Limits on `POST /me/password` and `POST /auth/refresh` too; lockout can't be used to keep an owner out (per-IP/per-email limits before the counter) (from step 3 audit)
+- [ ] Limits on every password-checking route (`/auth/login`, `/me/password`, `/auth/logout-all`, `/me/sessions/revoke-others`, `/me/sessions/{id}/revoke`) and on `/auth/refresh`. Signed-in re-entries already have a per-session budget (ADR-0012); what's left is the anonymous login lockout used to keep an owner out of logging in: per-IP and per-IP-per-email limits checked before the account counter, so one source can't keep re-locking an account (from step 3 audit and review round 5, M1)
 - [ ] Per-IP limits on signup and login that make the signup-then-login account probe slow (from step 3 review round 2, M3; closed for good in step 6)
 
 **Fixes from review:** same-second requests counted once; rejected requests recorded;

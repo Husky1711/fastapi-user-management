@@ -40,7 +40,8 @@ make help                # all commands
 - Responses under `/api/v1` carry `Cache-Control: no-store`; don't cache them.
 - By default a session ends after 30 minutes without a refresh, or 12 hours after login
   (ASVS level 2). Ending another device's session, "sign out other devices" and logout-all
-  need the current password (`{"current_password": "..."}`).
+  need the current password (`{"current_password": "..."}`). Three wrong passwords in a row
+  on these screens end that session; the user logs in again.
 
 ## Documentation
 

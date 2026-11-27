@@ -65,7 +65,9 @@ doesn't block inserts that merely reference the user), then touches session rows
 flows therefore run one after another per user, so a revocation can't miss a token a
 concurrent refresh just issued, and the fixed order prevents deadlocks. Anything checked before
 `end_read` and slow hashing (the verified password hash, a live session, the account's
-status and lockout) is checked again under that lock before the write.
+status, and for logins the lockout) is checked again under that lock before the write:
+`auth.lock_and_recheck` for every write after a password re-entry, `_complete_login` for
+logins.
 
 **`core/deps.py` and services.** `get_current_user` in `core/deps.py` calls
 `services.auth.authenticate`, while services import other `core` modules. This one
@@ -275,9 +277,10 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 - **Reuse detection**: each rotation stays in the same `family_id`. If an already-rotated
   refresh token is presented, the whole family is revoked (it was stolen).
 - **Lockout**: after N failed logins (default 5) the account is locked for M minutes
-  (default 15), with an audit entry. Wrong current passwords on password change count too,
-  and a locked account can't change its password (no guessing past the lock with a stolen
-  access token). Unknown emails still run a dummy Argon2 verify so
+  (default 15), with an audit entry. It applies to anonymous logins only.
+- **Re-entering the password** (password change, ending other sessions, logout-all) uses a
+  per-session budget (default 3) reserved under the user lock before Argon2 runs; using it
+  up with wrong passwords ends that session (ADR-0012). Unknown emails still run a dummy Argon2 verify so
   response time does not reveal which emails exist.
 - **Session strategies** (`allow_multiple`, `replace_all`, `limit_sessions`, …) are a
   config setting, not a query parameter clients can choose.

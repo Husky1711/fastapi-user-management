@@ -509,3 +509,36 @@ async def test_s3_8_13_a_stale_reentry_cannot_end_sessions_after_a_password_chan
     assert owner_after.status_code == 200  # the stale request ended nothing
     user = await _user(db, email)
     assert (await _actions(db, user.id))["auth.reauth_refused"] == 1
+
+
+@pytest.mark.parametrize("change", ["disabled_before_reserving", "removed_while_verifying"])
+async def test_s3_8_14_reentry_on_an_account_that_changes_underneath_is_refused(
+    db: AsyncSession, db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """The reservation re-reads the account under the lock (disabled meanwhile: refused and
+    audited); a user removed while Argon2 runs gets a plain 401, never a 500."""
+    async with api_client(db_connection) as http:
+        email, (tokens,) = await _account(http, devices=1)
+        gate = Gate()
+        if change == "disabled_before_reserving":
+            monkeypatch.setattr(auth, "lock_user", gate.wrap(auth.lock_user, after=False))
+            body = {"current_password": PASSWORD}
+        else:
+            verify = gate.wrap(security.verify_password, after=True)
+            monkeypatch.setattr("app.services.auth.verify_password", verify)
+            body = {"current_password": "Wrong-Guess-Number-1"}
+        request = http.post(LOGOUT_ALL, json=body, headers=_bearer(tokens))
+        async with paused_request(gate, request) as attempt:
+            if change == "disabled_before_reserving":
+                user = await _user(db, email)
+                user.status = UserStatus.DISABLED
+                await db.flush()
+            else:
+                await db.execute(delete(User).where(User.email == email))
+                await db.flush()
+    assert (attempt.result().status_code, attempt.result().json()["code"]) == (
+        401,
+        "auth.invalid_credentials",
+    )
+    refused = await db.execute(select(AuditLog).where(AuditLog.action == "auth.reauth_refused"))
+    assert len(refused.scalars().all()) == (1 if change == "disabled_before_reserving" else 0)

@@ -1,6 +1,6 @@
 # 0011. Sessions default to ASVS level 2; ending other sessions needs the password
 
-- Status: Accepted (supersedes [ADR-0010](0010-session-limits-and-ending-sessions.md))
+- Status: Accepted (supersedes [ADR-0010](0010-session-limits-and-ending-sessions.md)); its lockout consequence is replaced by [ADR-0012](0012-reauthentication-budget-per-session.md)
 - Date: 2026-11-28
 
 ## Context
