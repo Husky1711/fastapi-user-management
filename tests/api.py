@@ -12,6 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from app.core import clock
+from app.core.deps import Authenticated, Client
 from app.core.security import hash_token, issue_access_token, new_opaque_token
 from app.main import create_app
 from app.models import User, UserSession
@@ -78,3 +79,19 @@ async def signed_in(db: AsyncSession, user: User | None = None, **session_values
         make_settings().jwt, user_id=user.id, session_id=row.family_id, now=now
     )
     return SignedIn(user=user, session=row, access_token=access, refresh_token=refresh)
+
+
+WHOAMI = "/api/v1/_test/whoami"
+whoami_router = APIRouter()
+
+
+@whoami_router.get("/_test/whoami")
+async def whoami(current: Authenticated, client: Client) -> dict[str, str | None]:
+    """Test-only route: who `get_current_user` and `client_info` say is calling."""
+    return {
+        "user": str(current.user.id),
+        "email": current.user.email,
+        "session": str(current.session_id),
+        "ip": client.ip,
+        "user_agent": client.user_agent,
+    }

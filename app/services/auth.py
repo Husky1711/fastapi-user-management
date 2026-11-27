@@ -260,3 +260,78 @@ def _add_refresh_token(
         access_expires_in=settings.jwt.access_ttl_seconds,
         refresh_expires_in=int((expires_at - now).total_seconds()),
     )
+
+
+async def refresh(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    refresh_token: str,
+    client: ClientInfo,
+    now: datetime,
+) -> IssuedTokens:
+    """Rotate a refresh token. A token that was already rotated is being replayed (it was
+    copied): the whole family is revoked and the attempt audited. Raises `InvalidToken`."""
+    async with transaction(session):
+        row = await SessionRepository(session).get_by_token_hash(
+            hash_token(refresh_token), for_update=True
+        )
+        tokens = await _rotate(session, settings, row, client, now) if row else None
+    if tokens is None:  # raised after the commit, so a reuse revocation is kept
+        raise InvalidToken
+    return tokens
+
+
+async def _rotate(
+    session: AsyncSession, settings: Settings, row: UserSession, client: ClientInfo, now: datetime
+) -> IssuedTokens | None:
+    sessions = SessionRepository(session)
+    if row.revoked_reason == RevokeReason.ROTATED:
+        await sessions.revoke_family(
+            user_id=row.user_id,
+            family_id=row.family_id,
+            reason=RevokeReason.REUSE_DETECTED,
+            now=now,
+        )
+        audit.record(
+            session,
+            action="auth.refresh_token_reused",
+            client=client,
+            actor_user_id=row.user_id,
+            target=("session", row.family_id),
+        )
+        return None
+    max_age_end = row.family_started_at + timedelta(days=settings.auth.session_max_age_days)
+    if row.revoked_at is not None or row.expires_at <= now or max_age_end <= now:
+        return None
+    user = await UserRepository(session).get(row.user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        return None
+    await sessions.revoke_family(
+        user_id=row.user_id, family_id=row.family_id, reason=RevokeReason.ROTATED, now=now
+    )
+    return _add_refresh_token(
+        session, settings, row.user_id, row.family_id, row.family_started_at, now, client
+    )
+
+
+async def logout(
+    session: AsyncSession,
+    current: CurrentUser,
+    *,
+    everywhere: bool,
+    client: ClientInfo,
+    now: datetime,
+) -> None:
+    """End this session (its whole family), or every session of the user."""
+    sessions = SessionRepository(session)
+    user_id = current.user.id
+    async with transaction(session):
+        if everywhere:
+            await sessions.revoke_all(user_id=user_id, reason=RevokeReason.LOGOUT_ALL, now=now)
+        else:
+            await sessions.revoke_family(
+                user_id=user_id, family_id=current.session_id, reason=RevokeReason.LOGOUT, now=now
+            )
+        action = "auth.logged_out_everywhere" if everywhere else "auth.logged_out"
+        audit.record(session, action=action, client=client, actor_user_id=user_id)

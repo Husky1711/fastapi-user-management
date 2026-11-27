@@ -6,35 +6,20 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from fastapi import APIRouter
 from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.core import clock
-from app.core.deps import Authenticated, Client
 from app.core.logging import JsonFormatter
 from app.core.security import issue_access_token
 from app.main import create_app
 from app.models import RevokeReason, User, UserSession, UserStatus
-from tests.api import api_client, signed_in
+from tests.api import WHOAMI, api_client, signed_in
+from tests.api import whoami_router as router
 from tests.db import SERVICES, UNREACHABLE_DB
 from tests.helpers import check_ok, client_for, make_settings
 
 pytestmark = SERVICES
-WHOAMI = "/api/v1/_test/whoami"
-
-router = APIRouter()
-
-
-@router.get("/_test/whoami")
-async def whoami(current: Authenticated, client: Client) -> dict[str, str | None]:
-    return {
-        "user": str(current.user.id),
-        "email": current.user.email,
-        "session": str(current.session_id),
-        "ip": client.ip,
-        "user_agent": client.user_agent,
-    }
 
 
 async def test_s3_3_01_valid_token_loads_the_user_and_session(

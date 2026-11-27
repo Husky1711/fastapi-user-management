@@ -39,8 +39,8 @@ class SessionRepository(Repository):
     ) -> UserSession | None:
         """Any row with this hash, revoked or not (a revoked `rotated` row means reuse)."""
         statement = select(UserSession).where(UserSession.token_hash == token_hash)
-        if for_update:
-            statement = statement.with_for_update()
+        if for_update:  # and re-read: a concurrent refresh may have just rotated it
+            statement = statement.with_for_update().execution_options(populate_existing=True)
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def active_in_family(
