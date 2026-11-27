@@ -8,10 +8,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
+from app.schemas.errors import COMMON_ERROR_RESPONSES
 from app.schemas.health import LivenessOut, ReadinessOut
 from app.services.health import ReadinessProbe
 
-router = APIRouter(prefix="/health", tags=["Health"])
+router = APIRouter(prefix="/health", tags=["Health"], responses=COMMON_ERROR_RESPONSES)
 
 
 def get_readiness_probe(request: Request) -> ReadinessProbe:

@@ -3,16 +3,16 @@
 # ---------- build: install dependencies into a virtualenv ----------
 FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /app
-# uv.lock is optional until it is committed (see docs/ROADMAP.md step 1).
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
+# --locked: fail if uv.lock doesn't match pyproject.toml, so builds are reproducible.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev
+    uv sync --locked --no-dev
 
 # ---------- runtime: only the virtualenv and the app code ----------
 FROM python:3.12-slim AS runtime

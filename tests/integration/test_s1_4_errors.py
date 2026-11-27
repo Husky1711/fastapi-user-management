@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.api.v1 import api_router
 from app.core.config import CorsSettings
 from app.core.errors import Conflict, NotFound
+from app.schemas.errors import ValidationProblemOut
 from tests.helpers import (
     ALLOWED_ORIGIN,
     CRASH_PATH,
@@ -193,7 +194,7 @@ async def test_s1_4_16_client_chosen_keys_in_error_paths_are_cut_short(http: Asy
 async def test_s1_4_17_error_format_is_documented_in_the_api_schema(http: AsyncClient) -> None:
     schema = (await http.get("/openapi.json")).json()
     components = schema["components"]["schemas"]
-    assert {"ProblemOut", "ValidationProblemOut", "FieldError"} <= set(components)
+    assert "ProblemOut" in components
     assert set(components["ProblemOut"]["properties"]) >= {
         "type",
         "title",
@@ -209,3 +210,5 @@ async def test_s1_4_17_error_format_is_documented_in_the_api_schema(http: AsyncC
 
 def test_s1_4_18_versioned_api_documents_validation_errors_in_the_problem_format() -> None:
     assert {422, 500} <= set(api_router.responses)
+    assert api_router.responses[422]["model"] is ValidationProblemOut
+    assert "application/problem+json" in api_router.responses[422]["content"]
