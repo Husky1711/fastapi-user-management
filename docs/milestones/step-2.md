@@ -1,8 +1,8 @@
 # Milestone 2: Database foundation
 
 - PR: #4
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45928196703
-- Verdict: **IN PROGRESS**
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45930672394
+- Verdict: **GATE IN PROGRESS** (all sections ✅)
 
 Scenario plans below were written **before** the code (process rule). Results are filled in as
 each section passes in CI. Ids map to test names `test_s2_<section>_<nn>_...`; *CI step* means a
@@ -20,9 +20,9 @@ C10 data integrity; enforcement starts in step 5.
 | 2.2 | Schema: 10 tables, constraints, indexes, triggers | ✅ | 22 / 22 | CI run 45928196703 |
 | 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ✅ | 7 / 7 | CI run 45928196703 |
 | 2.4 | Seed data: permissions and system roles | ✅ | 6 / 6 | CI run 45928196703 |
-| 2.5 | Repositories with tenant scoping | ⬜ | 0 / 14 | |
-| 2.6 | Password hashing, input rules and the `create-admin` command | ⬜ | 0 / 14 | |
-| | **Total** | | **44 / 72** | |
+| 2.5 | Repositories with tenant scoping | ✅ | 14 / 14 | CI run 45928783140 (+ coverage follow-up) |
+| 2.6 | Password hashing, input rules and the `create-admin` command | ✅ | 14 / 14 | CI run 45930672394 |
+| | **Total** | | **72 / 72** | |
 
 ## Design decisions for this step
 
@@ -92,7 +92,7 @@ C10 data integrity; enforcement starts in step 5.
 | 2.2-17 | C1 | `updated_at` after a bulk `UPDATE` | Changed by the trigger | test | ✅ |
 | 2.2-18 | C3 | Session `expires_at` not after `created_at` | Rejected (CHECK) | test | ✅ |
 | 2.2-19 | C3 | Negative `failed_login_count` | Rejected (CHECK) | test | ✅ |
-| 2.2-20 | C1 | Every foreign key has a full (non-partial) index starting with its columns; every declared index exists | Checked from the models and the catalog | test | ✅ |
+| 2.2-20 | C1, C10 | Every foreign key has a full (non-partial) index starting with its columns and declares `ON DELETE`; every declared index exists | Checked from the models and the catalog | test | ✅ |
 | 2.2-21 | C7 | Two concurrent inserts of the same email | Exactly one succeeds | test | ✅ |
 | 2.2-22 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C8 | Covered by 2.2-05/08/14/21 (repeating an insert is rejected, not duplicated) | | | |
@@ -128,20 +128,20 @@ C10 data integrity; enforcement starts in step 5.
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.5-01 | C1 | Users: add, get by id, get by email (case-insensitive) | Found / None | test | ⬜ |
-| 2.5-02 | C1 | Users: soft-deleted users are not returned by default lookups | None | test | ⬜ |
-| 2.5-03 | C1 | Organizations: add, get by id, get by slug | Found / None | test | ⬜ |
-| 2.5-04 | C1 | Roles: system roles; role by key for an org (custom first, then system) | Correct role | test | ⬜ |
-| 2.5-05 | C1 | Roles: permissions of a role | Exact set | test | ⬜ |
-| 2.5-06 | C1 | Memberships: add, get for (user, org) | Found / None | test | ⬜ |
-| 2.5-07 | C5, C6 | Memberships of org A never returned when asking for org B | Isolation holds | test | ⬜ |
-| 2.5-08 | C3 | Listing members: limit 1, limit max, offset past the end | Correct page and total | test | ⬜ |
-| 2.5-09 | C2 | Limit 0 / above max / negative offset | Rejected before querying | test | ⬜ |
-| 2.5-10 | C1 | Members of an org with their roles | Loaded in a fixed number of queries (no N+1) | test (query counter) | ⬜ |
-| 2.5-11 | C6 | Org-scoped repository methods | Every one requires `organization_id` (signature check) | test | ⬜ |
-| 2.5-12 | C10 | Repository methods never commit | Changes visible only after the caller's transaction commits | test | ⬜ |
-| 2.5-13 | C8 | Same lookup twice | Same result, no writes | test | ⬜ |
-| 2.5-14 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 2.5-01 | C1 | Users: add, get by id, get by email (case-insensitive) | Found / None | test | ✅ |
+| 2.5-02 | C1 | Users: soft-deleted users are not returned by default lookups | None | test | ✅ |
+| 2.5-03 | C1 | Organizations: add, get by id, get by slug | Found / None | test | ✅ |
+| 2.5-04 | C1 | Roles: system roles; role by key for an org (custom first, then system) | Correct role | test | ✅ |
+| 2.5-05 | C1 | Roles: permissions of a role | Exact set | test | ✅ |
+| 2.5-06 | C1 | Memberships: add, get for (user, org) | Found / None | test | ✅ |
+| 2.5-07 | C5, C6 | Memberships of org A never returned when asking for org B | Isolation holds | test | ✅ |
+| 2.5-08 | C3 | Listing members: limit 1, limit max, offset past the end | Correct page and total | test | ✅ |
+| 2.5-09 | C2 | Limit 0 / above max / negative offset | Rejected before querying | test | ✅ |
+| 2.5-10 | C1 | Members of an org with their roles | Loaded in a fixed number of queries (no N+1) | test (query counter) | ✅ |
+| 2.5-11 | C6 | Org-scoped repository methods | Every one requires `organization_id` (signature check) | test | ✅ |
+| 2.5-12 | C10 | Repository methods never commit | Changes visible only after the caller's transaction commits | test | ✅ |
+| 2.5-13 | C8 | Same lookup twice | Same result, no writes | test | ✅ |
+| 2.5-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C7 | Covered by 2.2-21 (concurrency is enforced by constraints, not repositories) | | | |
 | — | C9 | Covered by 2.1-07 | | | |
 | — | C11 | Covered by 2.6-12 (CLI uses the repositories on the real stack) | | | |
@@ -150,20 +150,20 @@ C10 data integrity; enforcement starts in step 5.
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.6-01 | C1 | Hash then verify a password | Verifies; hash is Argon2id with the configured parameters | test | ⬜ |
-| 2.6-02 | C6 | Same password hashed twice | Different hashes (random salt) | test | ⬜ |
-| 2.6-03 | C6 | Wrong password; malformed hash | Not verified; no exception leaks | test | ⬜ |
-| 2.6-04 | C3 | Password of 11 / 12 / 128 / 129 characters | 11 and 129 rejected; 12 and 128 accepted | test | ⬜ |
-| 2.6-05 | C2 | Unicode password (normalised NFKC) | Same password typed two ways verifies | test | ⬜ |
-| 2.6-06 | C9 | Hashing from async code | Runs in a worker thread (doesn't block the event loop) | test | ⬜ |
-| 2.6-07 | C2 | Emails: valid forms; missing `@`, spaces, empty parts, too long | Valid normalised (lower-cased domain); invalid rejected | test | ⬜ |
-| 2.6-08 | C1 | `create-admin` with email and password on stdin | Platform admin created, email verified, exit 0 | test | ⬜ |
-| 2.6-09 | C8 | `create-admin` for an existing email | Exit 1, nothing changed, clear message | test | ⬜ |
-| 2.6-10 | C6 | Password never on the command line | Only accepted on stdin; not in output or logs | test | ⬜ |
-| 2.6-11 | C2 | Weak password or invalid email | Exit 2 with a clear message; nothing created | test | ⬜ |
-| 2.6-12 | C11 | Operator runs `create-admin` in the Compose stack | Admin row exists with an Argon2id hash | CI step | ⬜ |
-| 2.6-13 | C9 | `create-admin` with the database down | Exit 1, clear message, no password in output | test | ⬜ |
-| 2.6-14 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 2.6-01 | C1 | Hash then verify a password | Verifies; hash is Argon2id with the configured parameters | test | ✅ |
+| 2.6-02 | C6 | Same password hashed twice | Different hashes (random salt) | test | ✅ |
+| 2.6-03 | C6 | Wrong password; malformed hash | Not verified; no exception leaks | test | ✅ |
+| 2.6-04 | C3 | Password of 11 / 12 / 128 / 129 characters | 11 and 129 rejected; 12 and 128 accepted | test | ✅ |
+| 2.6-05 | C2 | Unicode password (normalised NFKC) | Same password typed two ways verifies | test | ✅ |
+| 2.6-06 | C9 | Hashing from async code | Runs in a worker thread (doesn't block the event loop) | test | ✅ |
+| 2.6-07 | C2 | Emails: valid forms; missing `@`, spaces, empty parts, too long | Valid normalised (lower-cased domain); invalid rejected | test | ✅ |
+| 2.6-08 | C1 | `create-admin` with email and password on stdin | Platform admin created, email verified, exit 0 | test | ✅ |
+| 2.6-09 | C8 | `create-admin` for an existing email | Exit 1, nothing changed, clear message | test | ✅ |
+| 2.6-10 | C6 | Password never on the command line | Only accepted on stdin; not in output or logs | test | ✅ |
+| 2.6-11 | C2 | Weak password or invalid email | Exit 2 with a clear message; nothing created | test | ✅ |
+| 2.6-12 | C11 | Operator runs `create-admin` in the Compose stack | Admin row exists with an Argon2id hash | CI step | ✅ |
+| 2.6-13 | C9 | `create-admin` with the database down | Exit 1, clear message, no password in output | test | ✅ |
+| 2.6-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C7 | Covered by 2.2-21 (concurrent creation resolved by the unique email) | | | |
 | — | C10 | Covered by 2.6-09 and 2.6-11 (failures change nothing) | | | |
 
@@ -171,13 +171,66 @@ C10 data integrity; enforcement starts in step 5.
 
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
+| F6 | CI test (run 45928783140, coverage) | `MembershipRepository.add` and `list_for_user` had no test (exit criterion: every repository method has one) | Missed in the plan | Test 2.5-06 extended | Fixed |
+| F7 | CI type check / test (run 45929425304) | Hasher spy failed (`PasswordHasher` attributes are read-only); `mypy` on `cli.getpass`; service test hit "transaction already begun" | Spy patched a slotted object; test reused a session mid-transaction | Spy subclass swapped in; `getpass.getpass` patched by path; test commits its setup first, like a fresh request | Fixed (run 45929858848) |
+| F8 | CI test (runs 45929858848, 45930272706) | 2.6-09 read attributes of an object the expected rollback had expired | The service's rolled-back transaction expires every object in the session (SQLAlchemy behaviour) | Ids read before the call; behaviour noted for step 3 services | Fixed (run 45930672394) |
 | F2 | CI test (run 45927754158) | 2.2-07 and 2.2-11 failed with a foreign-key error | Tests inserted memberships for users that were never added | Users added before their memberships | Fixed (run 45928196703) |
 | F3 | CI test, 2.3-03 name parity (run 45927754158) | Every CHECK in the database was named twice over (`ck_users_ck_users_status`) | Alembic applies the target metadata's naming convention to explicit CHECK names again | Names wrapped in `op.f()` in the migration (not yet merged, so edited in place) | Fixed (run 45928196703) |
 | F4 | CI type check (run 45927754158) | `mypy --strict`: untyped lambda calls in 2.2-15 | Lambdas in an unannotated dict | Dict annotated `dict[str, Callable[[bytes], Base]]` | Fixed (run 45928196703) |
 | F5 | Self-review before tests ran | `sessions.user_id`, `one_time_tokens.user_id` and `invitations.organization_id` had only partial indexes | Indexes designed for the "active rows" query only | Full indexes; 2.2-20 now checks every foreign key | Fixed (run 45928196703) |
 | F1 | CI type check (run 45926311467) | `mypy --strict` on 2.1 tests: untyped `postgresql.dialect()` call, `**overrides` typed `int \| float` passed to `DatabaseSettings`, list of factories typed `object` | Test helpers written loosely | Dialect taken from an unconnected engine; explicit keyword parameters; precise list type | Fixed (run 45926673123) |
 
-## Gate (when all sections are ✅)
+## Gate
+
+Security audit (check 6) is not required for step 2 (required at the end of steps 3, 4, 5, 6,
+7 and 9); the password-hashing code it touches is audited with step 3.
+
+### 1. Automated: PASS
+Lint, `mypy --strict` (app, tests, scripts, migrations), the migration round trip
+(upgrade → downgrade to an empty database → upgrade → repeated upgrade is a no-op), 271 tests
+against real PostgreSQL 16 and Redis 7 at 98 % coverage, and the Compose job (migrations and
+`create-admin` on the real stack, wrong-password migration, all step 1 checks): green in the
+linked run.
+
+### 2. Tester: PASS
+Every section covers each category C1–C12 or gives an N/A reason (tables above); every row
+names its evidence. Beyond the happy path the plan attacks: case-variant duplicate emails,
+cross-organization roles (insert, update, invitation, moving the role), concurrent sign-ups
+racing on one email, constraint names drifting between models and database, unindexed
+foreign keys, naive datetimes, deleted users' emails, the database being down, passwords
+reaching output or logs.
+
+### 3. User: PASS
+Real-stack scenarios: 2.3-05 (operator runs the migrations in Compose, seed roles present,
+app ready), 2.3-06 (migration with a wrong password fails clearly, password not printed),
+2.6-12 (operator creates the first admin in Compose; a second run exits 1 and changes
+nothing), plus every step 1 real-stack scenario.
+
+### 4. Cross-check vs old code (`main` @ `209a9bd`): PASS
+
+| Old | New | Decision | Reason |
+| --- | --- | --- | --- |
+| Integer primary keys | UUID v4 keys (bigint identity for `audit_logs`) | Improved | No guessable ids in URLs |
+| `users.role` free text (`super_admin` / `admin` / `user`) | `users.is_platform_admin` + `memberships.role_id` → `roles` → `permissions` | Replaced | Roles are data; one user can belong to several orgs |
+| `users.organization_id` nullable, default `1` | `memberships (user_id, organization_id)` unique | Fixed | Every user silently joined org 1 |
+| `users.username` unique | Dropped | Dropped | Login is by email (VISION); two identifiers doubled the enumeration surface |
+| `users.email String(100)` unique, case-sensitive | `citext`, unique ignoring case, 3–254 characters | Fixed | `A@x.com` and `a@x.com` were different accounts |
+| `users.password String(255)` (unsalted SHA-256) | `password_hash` Argon2id (RFC 9106 parameters) | Fixed | Old hashes were crackable |
+| `phone_number` default `"0000000000"` | Dropped | Dropped | Fake default data |
+| `login_attempts`, `locked_until` (never used) | `failed_login_count` (≥ 0), `locked_until` | Kept | Used by lockout in step 3 |
+| `last_login` | Not yet present | Moved | Added with login in step 3 (ROADMAP) |
+| `status String(20)` free text | `status` + CHECK; `deleted_at` must match `deleted` | Improved | Invalid states refused by the database |
+| No soft delete | `deleted_at`; repositories hide deleted users | Added | Audit history survives account deletion |
+| `updated_at onupdate=func.now()` (ORM only) | Database trigger, skipped when nothing changed | Improved | Bulk `UPDATE`s kept stale timestamps |
+| `organizations.name` unique, `description` | `name` (not unique) + `slug` (citext, unique, URL-safe); no description | Changed | Two companies can share a name; the slug is the identifier |
+| `refresh_tokens`: `is_revoked` + `revoked_at`, `ip_address String(45)`, `device_info` + `user_agent` | `sessions`: `revoked_at`, `ip inet`, `user_agent` (≤ 256), `family_id` for rotation, 32-byte hash | Improved | One source of truth for revocation; typed IP; reuse detection needs the family |
+| No index on `user_id` / `expires_at` for tokens | Indexes on every foreign key and every `expires_at` | Fixed | Session checks and cleanup scanned the table |
+| Foreign keys without `ON DELETE` | Every foreign key declares it (test 2.2-20) | Fixed | Deleting a user failed or left orphans |
+| `create_all()` at startup | Alembic migrations with a tested downgrade | Fixed | No schema history |
+| Naive and aware datetimes mixed | `timestamptz` everywhere; naive values refused | Fixed | Silent time-zone bugs |
+| No first-admin path (`super_admin` set by hand in SQL) | `python -m app.cli create-admin` (password from stdin) | Added | Safe, repeatable bootstrap |
+
+### 5. Independent review
 
 Pending.
 

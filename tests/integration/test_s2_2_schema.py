@@ -380,7 +380,7 @@ def _leading_columns_with_full_index() -> dict[str, set[tuple[str, ...]]]:
     return covered
 
 
-async def test_s2_2_20_indexes_exist_and_every_foreign_key_is_indexed(db: AsyncSession) -> None:
+async def test_s2_2_20_every_foreign_key_is_indexed_and_has_a_delete_rule(db: AsyncSession) -> None:
     covered = _leading_columns_with_full_index()
     unindexed = [
         f"{fk.parent.name}({', '.join(fk.column_keys)})"
@@ -389,6 +389,13 @@ async def test_s2_2_20_indexes_exist_and_every_foreign_key_is_indexed(db: AsyncS
         if tuple(fk.column_keys) not in covered[table.name]
     ]
     assert unindexed == []
+    no_delete_rule = [
+        f"{fk.parent.name}.{fk.name}"
+        for table in Base.metadata.sorted_tables
+        for fk in table.foreign_key_constraints
+        if fk.ondelete is None
+    ]
+    assert no_delete_rule == []
     declared = {index.name for table in Base.metadata.sorted_tables for index in table.indexes}
     rows = await db.execute(text("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"))
     assert declared <= set(rows.scalars())

@@ -52,6 +52,7 @@ flowchart TD
 ```
 app/
   main.py                 # create_app(): middleware, routers, lifespan
+  cli.py                  # operator commands: python -m app.cli create-admin
   core/
     config.py             # Settings (pydantic-settings); production safety checks
     security.py           # Argon2 hashing, JWT encode/decode, token hashing
@@ -60,6 +61,8 @@ app/
     logging.py            # structured JSON logging to stdout; request id context
     middleware.py         # request id, security headers, access log; error boundary (500s)
     pagination.py         # Page[T], limit/offset params
+    permissions.py        # permission catalogue and system roles (seeded by a migration)
+    emails.py             # email address syntax rules
     clock.py              # now() in UTC; replaced in tests
   api/
     v1/
