@@ -1,7 +1,7 @@
 # Milestone 1: Project skeleton & tooling
 
 - PR: https://github.com/Husky1711/fastapi-user-management/pull/2
-- Latest CI run (automatic report): RUNLINK
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45921977725
   (139 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
   scenarios passed on the real stack; coverage 97.9 %; open "Summary" for every result)
 - Verdict: **IN PROGRESS**. Round 3 passed with four areas at 8, below the ≥ 9 bar, so the
