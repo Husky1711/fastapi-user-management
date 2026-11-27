@@ -28,5 +28,17 @@ def test_s1_1_02_env_example_template_is_committed() -> None:
 
 
 def test_s1_1_04_no_old_code_left_on_the_branch() -> None:
-    for old in ("legacy", "routes", "services", "utils", "main.py", "requirement.txt"):
+    old_paths = (
+        "legacy",
+        "config",
+        "models",
+        "routes",
+        "schemas/login.py",
+        "services",
+        "utils",
+        "main.py",
+        "config_manager.py",
+        "requirement.txt",
+    )
+    for old in old_paths:
         assert not (ROOT / old).exists(), f"old code still present: {old}"

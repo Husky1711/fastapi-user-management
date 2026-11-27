@@ -1,11 +1,14 @@
 .DEFAULT_GOAL := help
-.PHONY: help install run down logs lint format typecheck test check migrate
+.PHONY: help install lock run down logs lint format typecheck test check migrate
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-10s %s\n", $$1, $$2}'
 
-install: ## Install dependencies (creates/updates uv.lock)
-	uv sync
+install: ## Install exactly the locked dependencies
+	uv sync --locked
+
+lock: ## Update uv.lock after changing dependencies in pyproject.toml (commit the result)
+	uv lock
 
 run: ## Start app, PostgreSQL and Redis with Docker Compose
 	docker compose up --build

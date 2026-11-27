@@ -8,6 +8,7 @@
 
 `ErrorBoundaryMiddleware` is the innermost layer. It turns any unhandled exception into a
 generic RFC 9457 500, *inside* CORS, so browser clients can read the error and its request id.
+A client that disconnects is not an error: nothing is sent and the request is logged as 499.
 """
 
 import asyncio
@@ -15,10 +16,13 @@ import re
 import time
 import uuid
 
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import ClientDisconnect
+from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.errors import internal_error_response
+from app.core.errors import internal_error_response, problem_response
 from app.core.logging import get_logger, request_id_var
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -56,6 +60,21 @@ def _incoming_request_id(scope: Scope) -> str | None:
     return None
 
 
+class ProblemCORSMiddleware(CORSMiddleware):
+    """Starlette's CORS middleware, but a rejected preflight uses the standard error format."""
+
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code != 400:
+            return response
+        return problem_response(
+            400,
+            "cors.preflight_rejected",
+            "This cross-origin request is not allowed.",
+            headers={"Vary": "Origin"},
+        )
+
+
 class ErrorBoundaryMiddleware:
     """Innermost layer: unhandled exception → generic 500 (no internal details)."""
 
@@ -76,6 +95,10 @@ class ErrorBoundaryMiddleware:
 
         try:
             await self.app(scope, receive, tracking_send)
+        except ClientDisconnect:
+            # The client went away while we read its request: nobody to answer. The access
+            # log records 499 because no response was sent.
+            return
         except Exception:
             log.exception("unhandled exception", path=scope["path"])
             if response_started:
@@ -108,7 +131,8 @@ class RequestContextMiddleware:
         request_id = _incoming_request_id(scope) or uuid.uuid4().hex
         token = request_id_var.set(request_id)
         started = time.perf_counter()
-        status_code = 500
+        # Stays 499 only if the app finished without sending any response (client went away).
+        status_code = CLIENT_CLOSED_REQUEST
         response_started = False
 
         async def send_with_headers(message: Message) -> None:
@@ -122,15 +146,15 @@ class RequestContextMiddleware:
         try:
             await self.app(scope, receive, send_with_headers)
         except asyncio.CancelledError:
-            # The client disconnected or the server is shutting down: not a server error.
-            if not response_started:
-                status_code = CLIENT_CLOSED_REQUEST
+            # The request was cancelled (e.g. server shutdown): not a server error. status_code
+            # stays 499 unless a response had already started.
             raise
         except Exception:
+            if response_started:
+                # The error boundary (or the server) logs this; logging here would duplicate it.
+                raise
             # Last resort for failures outside the error boundary (e.g. in other middleware).
             log.exception("unhandled exception", path=scope["path"])
-            if response_started:
-                raise
             await internal_error_response()(scope, receive, send_with_headers)
         finally:
             log.info(

@@ -11,13 +11,18 @@ safety check has passed.
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
-DEFAULT_DATABASE_CREDENTIALS = "postgres:postgres@"
+MIN_JWT_SECRET_DISTINCT_CHARS = 10  # rejects "aaaa…" or "abababab…" style secrets
+DEV_REDIS_PASSWORD = "redis-dev-password"  # noqa: S105 - published in .env.example and Compose
+# Passwords published in this repository or used as image defaults. Never allowed in strict
+# environments.
+WELL_KNOWN_PASSWORDS = frozenset({"postgres", DEV_REDIS_PASSWORD, "password", "changeme"})
 
 
 class Environment(StrEnum):
@@ -45,7 +50,9 @@ class _Section(BaseModel):
 
 
 class DatabaseSettings(_Section):
-    url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt"
+    # SecretStr: the URL carries the password, so it must not appear in repr, dumps or logs.
+    # Unwrapped only in app/infra/.
+    url: SecretStr = SecretStr("postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt")
     pool_size: int = Field(default=5, ge=1, le=100)
     max_overflow: int = Field(default=5, ge=0, le=100)
     pool_timeout_seconds: float = Field(default=10.0, gt=0)
@@ -53,7 +60,7 @@ class DatabaseSettings(_Section):
 
 
 class RedisSettings(_Section):
-    url: str = "redis://localhost:6379/0"
+    url: SecretStr = SecretStr(f"redis://:{DEV_REDIS_PASSWORD}@localhost:6379/0")
 
 
 class JwtSettings(_Section):
@@ -77,6 +84,9 @@ class CorsSettings(_Section):
 
 class LogSettings(_Section):
     level: LogLevel = LogLevel.INFO
+    # Records waiting to be written. When full (stdout stuck), new records are dropped and
+    # counted instead of using unbounded memory.
+    queue_size: int = Field(default=10_000, ge=100, le=1_000_000)
 
 
 class HealthSettings(_Section):
@@ -115,10 +125,6 @@ class Settings(BaseSettings):
     health: HealthSettings = Field(default_factory=HealthSettings)
 
     @property
-    def is_production(self) -> bool:
-        return self.environment is Environment.PRODUCTION
-
-    @property
     def is_strict(self) -> bool:
         """Staging and production: unsafe settings stop the app from starting."""
         return self.environment in STRICT_ENVIRONMENTS
@@ -132,22 +138,39 @@ class Settings(BaseSettings):
         """Every reason these settings are unsafe for a strict environment (empty if safe)."""
         if not self.is_strict:
             return []
-        problems: list[str] = []
-        secret = self.jwt.secret_key.get_secret_value()
-        if secret == DEFAULT_JWT_SECRET:
-            problems.append("JWT__SECRET_KEY is the development default")
-        elif len(secret) < MIN_JWT_SECRET_LENGTH:
-            problems.append(f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters")
+        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value())
         if self.debug:
             problems.append("DEBUG must be false")
-        if DEFAULT_DATABASE_CREDENTIALS in self.database.url:
-            problems.append("DATABASE__URL uses the default postgres:postgres credentials")
+        problems += _url_password_problems("DATABASE__URL", self.database.url)
+        problems += _url_password_problems("REDIS__URL", self.redis.url)
         return problems
 
     def ensure_safe(self) -> None:
         problems = self.safety_problems()
         if problems:
             raise UnsafeConfigurationError(self.environment, problems)
+
+
+def _jwt_secret_problems(secret: str) -> list[str]:
+    if secret == DEFAULT_JWT_SECRET:
+        return ["JWT__SECRET_KEY is the development default"]
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        return [f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters"]
+    if len(set(secret)) < MIN_JWT_SECRET_DISTINCT_CHARS:
+        return ["JWT__SECRET_KEY is too repetitive; generate a random one"]
+    return []
+
+
+def _url_password_problems(name: str, url: SecretStr) -> list[str]:
+    try:
+        password = urlsplit(url.get_secret_value()).password
+    except ValueError:  # malformed URL: we can't prove it carries a real password
+        password = None
+    if not password:
+        return [f"{name} must include a password"]
+    if password in WELL_KNOWN_PASSWORDS:
+        return [f"{name} uses a well-known default password"]
+    return []
 
 
 @lru_cache

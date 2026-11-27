@@ -6,16 +6,24 @@ Test-only routes are added to a fresh app inside the test; they never exist in t
 from collections.abc import AsyncIterator, Mapping
 
 import pytest
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from httpx import AsyncClient
 from pydantic import BaseModel
 
 from app.core.config import CorsSettings
 from app.core.errors import Conflict, NotFound
-from tests.helpers import app_with, client_for, make_settings
-
-ALLOWED_ORIGIN = "https://app.example.com"
+from app.main import create_app
+from tests.helpers import (
+    ALLOWED_ORIGIN,
+    CRASH_PATH,
+    CRASH_SECRET,
+    STREAM_PATH,
+    add_broken_stream_route,
+    add_crash_route,
+    app_with,
+    client_for,
+    make_settings,
+)
 
 
 class SignupIn(BaseModel):
@@ -24,7 +32,9 @@ class SignupIn(BaseModel):
 
 
 def _app_with_test_routes() -> FastAPI:
-    app = app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
+    app = add_broken_stream_route(
+        add_crash_route(app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,)))))
+    )
 
     @app.get("/_test/not-found")
     async def not_found() -> None:
@@ -42,9 +52,9 @@ def _app_with_test_routes() -> FastAPI:
     async def items(limit: int = Query(ge=1, le=100)) -> None:
         return None
 
-    @app.get("/_test/crash")
-    async def crash() -> None:
-        raise RuntimeError("database password is hunter2")
+    @app.post("/_test/scores")
+    async def scores(body: dict[str, int]) -> None:
+        return None
 
     @app.get("/_test/teapot")
     async def teapot() -> None:
@@ -53,14 +63,6 @@ def _app_with_test_routes() -> FastAPI:
     @app.get("/_test/client-closed")
     async def client_closed() -> None:
         raise HTTPException(status_code=499, detail="Client closed request")
-
-    async def broken_stream() -> AsyncIterator[bytes]:
-        yield b"partial"
-        raise RuntimeError("stream broke")
-
-    @app.get("/_test/stream")
-    async def stream() -> StreamingResponse:
-        return StreamingResponse(broken_stream())
 
     return app
 
@@ -142,10 +144,10 @@ async def test_s1_4_07_wrong_method_is_problem_json(http: AsyncClient) -> None:
 
 
 async def test_s1_4_08_unhandled_exception_is_a_generic_500(http: AsyncClient) -> None:
-    response = await http.get("/_test/crash")
+    response = await http.get(CRASH_PATH)
     assert response.status_code == 500
     _assert_problem(response.json(), 500, "server.internal_error")
-    assert "hunter2" not in response.text
+    assert CRASH_SECRET not in response.text
     assert response.headers["X-Request-ID"] == response.json()["request_id"]
 
 
@@ -168,11 +170,58 @@ async def test_s1_4_10_non_standard_status_code_still_gets_problem_json(
 
 async def test_s1_4_11_error_after_streaming_started_is_not_disguised(http: AsyncClient) -> None:
     with pytest.raises(RuntimeError, match="stream broke"):
-        await http.get("/_test/stream")
+        await http.get(STREAM_PATH)
 
 
 async def test_s1_4_12_browser_can_read_a_500_from_an_allowed_origin(http: AsyncClient) -> None:
-    response = await http.get("/_test/crash", headers={"Origin": ALLOWED_ORIGIN})
+    response = await http.get(CRASH_PATH, headers={"Origin": ALLOWED_ORIGIN})
     assert response.status_code == 500
     assert response.headers["access-control-allow-origin"] == ALLOWED_ORIGIN
     assert response.json()["request_id"] == response.headers["X-Request-ID"]
+
+
+async def test_s1_4_16_client_chosen_keys_in_error_paths_are_cut_short(http: AsyncClient) -> None:
+    long_key = "k" * 500
+    response = await http.post("/_test/scores", json={long_key: "not-a-number-secret"})
+    assert response.status_code == 422
+    loc = response.json()["errors"][0]["loc"]
+    assert loc == ["body", "k" * 64 + "…"]
+    assert "not-a-number-secret" not in response.text
+    assert long_key not in response.text
+
+
+async def test_s1_4_17_error_responses_are_documented_as_problem_json_only(
+    http: AsyncClient,
+) -> None:
+    schema = (await http.get("/openapi.json")).json()
+    components = schema["components"]["schemas"]
+    assert {"ProblemOut", "ValidationProblemOut", "FieldError"} <= set(components)
+    expected = {"type", "title", "status", "detail", "code", "request_id"}
+    assert set(components["ProblemOut"]["properties"]) >= expected
+    ready = schema["paths"]["/health/ready"]["get"]["responses"]
+    assert set(ready["500"]["content"]) == {"application/problem+json"}
+    assert "503" in ready
+
+
+class EchoIn(BaseModel):
+    name: str
+
+
+async def test_s1_4_18_versioned_api_routes_document_422_and_500_as_problem_json() -> None:
+    feature = APIRouter()
+
+    @feature.post("/_test/echo")
+    async def echo(body: EchoIn) -> EchoIn:
+        return body
+
+    async with client_for(create_app(make_settings(), api_routers=[feature])) as client:
+        schema = (await client.get("/openapi.json")).json()
+        invalid = await client.post("/api/v1/_test/echo", json={})
+    responses = schema["paths"]["/api/v1/_test/echo"]["post"]["responses"]
+    assert set(responses["422"]["content"]) == {"application/problem+json"}
+    assert responses["422"]["content"]["application/problem+json"]["schema"] == {
+        "$ref": "#/components/schemas/ValidationProblemOut"
+    }
+    assert set(responses["500"]["content"]) == {"application/problem+json"}
+    assert invalid.status_code == 422
+    assert invalid.headers["content-type"] == "application/problem+json"

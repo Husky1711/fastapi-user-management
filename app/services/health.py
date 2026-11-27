@@ -1,7 +1,8 @@
 """Readiness checking: can this instance serve traffic?
 
-Checks run in parallel, each under a time limit. Failure reasons are logged, never returned,
-because they can contain connection strings.
+Checks run in parallel, each under a time limit. A probe with no checks is never ready.
+Failures are logged as the exception type plus a redacted, shortened message (credentials in
+URLs removed, no traceback) and are never returned to the caller.
 
 Rate-limit policy: probes are exempt from per-client rate limits (load balancers call them
 constantly). Instead, results are cached for `cache_seconds` and refreshed by one caller at a
@@ -12,21 +13,16 @@ per window.
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Literal
-
-from pydantic import BaseModel
 
 from app.core.logging import get_logger
+from app.core.redaction import redact
+from app.schemas.health import CheckResult, ReadinessOut
 
 HealthCheck = Callable[[], Awaitable[None]]
-CheckResult = Literal["ok", "error", "timeout"]
+
+MAX_LOGGED_ERROR = 200
 
 log = get_logger(__name__)
-
-
-class ReadinessOut(BaseModel):
-    status: Literal["ready", "not_ready"]
-    checks: dict[str, CheckResult]
 
 
 async def _run_check(name: str, check: HealthCheck, limit_seconds: float) -> CheckResult:
@@ -36,8 +32,13 @@ async def _run_check(name: str, check: HealthCheck, limit_seconds: float) -> Che
     except TimeoutError:
         log.warning("readiness check timed out", check=name, limit_seconds=limit_seconds)
         return "timeout"
-    except Exception:
-        log.exception("readiness check failed", check=name)
+    except Exception as exc:
+        log.warning(
+            "readiness check failed",
+            check=name,
+            error_type=type(exc).__name__,
+            error=redact(str(exc), limit=MAX_LOGGED_ERROR),
+        )
         return "error"
     return "ok"
 
@@ -45,7 +46,8 @@ async def _run_check(name: str, check: HealthCheck, limit_seconds: float) -> Che
 async def run_checks(checks: Mapping[str, HealthCheck], limit_seconds: float) -> ReadinessOut:
     names = list(checks)
     results = await asyncio.gather(*(_run_check(n, checks[n], limit_seconds) for n in names))
-    ready = all(result == "ok" for result in results)
+    # No checks means nothing was verified: never report ready (fail closed).
+    ready = bool(results) and all(result == "ok" for result in results)
     return ReadinessOut(
         status="ready" if ready else "not_ready",
         checks=dict(zip(names, results, strict=True)),

@@ -20,7 +20,7 @@ flowchart LR
     F -- no --> G{Step gate:<br/>5 checks on the whole step}
     G -- fail --> C
     G -- pass --> H[Independent review<br/>+ scorecard]
-    H --> I[Owner approves → merge → next step]
+    H --> I[All touched areas ≥ 9 → merge into v2 → next step]
 ```
 
 ### Level 1: section test (after every section)
@@ -36,7 +36,8 @@ where they belong together). The sections are listed in the step's report.
 
 The whole step is retested together, on the real stack: every section's scenarios again, plus
 how the sections work with each other and with all earlier steps. This is the five-check gate
-(§4). Only a PASS, plus the owner's approval, lets the next step start.
+(§4). Only a PASS with every touched scorecard area ≥ 9 (or carried to a named later step) lets the
+next step start; it then starts automatically.
 
 ### Session rule (stopping mid-step)
 

@@ -1,15 +1,21 @@
 """Section 1.2: settings and safety checks for strict environments."""
 
+import os
+import string
+from typing import Any
+
 import pytest
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import SettingsError
 
 from app.core.config import (
+    MIN_JWT_SECRET_DISTINCT_CHARS,
     MIN_JWT_SECRET_LENGTH,
     CorsSettings,
     DatabaseSettings,
     Environment,
     JwtSettings,
+    RedisSettings,
     Settings,
     UnsafeConfigurationError,
     get_settings,
@@ -47,7 +53,8 @@ def test_s1_2_03_default_jwt_secret_is_rejected(environment: Environment) -> Non
     ],
 )
 def test_s1_2_04_jwt_secret_length_boundary(length: int, accepted: bool) -> None:
-    settings = strict_settings(jwt=JwtSettings(secret_key=SecretStr("k" * length)))
+    varied = (string.ascii_letters + string.digits)[:length]
+    settings = strict_settings(jwt=JwtSettings(secret_key=SecretStr(varied)))
     expected = [] if accepted else ["JWT__SECRET_KEY must be at least 32 characters"]
     assert settings.safety_problems() == expected
 
@@ -58,8 +65,7 @@ def test_s1_2_05_debug_is_rejected() -> None:
 
 def test_s1_2_06_default_database_credentials_are_rejected() -> None:
     problems = strict_settings(database=DatabaseSettings()).safety_problems()
-    assert len(problems) == 1
-    assert "postgres:postgres" in problems[0]
+    assert problems == ["DATABASE__URL uses a well-known default password"]
 
 
 def test_s1_2_07_every_problem_is_reported_at_once() -> None:
@@ -122,11 +128,19 @@ def test_s1_2_13_pool_size_limits_are_inclusive(size: int) -> None:
     assert DatabaseSettings(pool_size=size).pool_size == size
 
 
-def test_s1_2_14_secret_is_not_shown_when_settings_are_printed() -> None:
-    secret = "super-secret-value-that-must-not-leak-0001"
-    settings = make_settings(jwt=JwtSettings(secret_key=SecretStr(secret)))
-    assert secret not in repr(settings)
-    assert secret not in str(settings.model_dump())
+def test_s1_2_14_no_secret_is_shown_when_settings_are_printed() -> None:
+    secrets = ["super-secret-value-that-must-not-leak-0001", "db-secret-p4ss", "redis-secret-p4ss"]
+    settings = make_settings(
+        jwt=JwtSettings(secret_key=SecretStr(secrets[0])),
+        database=DatabaseSettings(
+            url=SecretStr(f"postgresql+asyncpg://app:{secrets[1]}@db:5432/app")
+        ),
+        redis=RedisSettings(url=SecretStr(f"redis://:{secrets[2]}@cache:6379/0")),
+    )
+    shown = " ".join([repr(settings), str(settings), str(settings.model_dump())])
+    for secret in secrets:
+        assert secret not in shown
+    assert secrets[1] in settings.database.url.get_secret_value()  # still usable by infra
 
 
 def test_s1_2_15_production_from_real_env_vars_is_detected(
@@ -164,3 +178,74 @@ def test_s1_2_22_settings_are_loaded_once_per_process() -> None:
         assert get_settings() is get_settings()
     finally:
         get_settings.cache_clear()
+
+
+def test_s1_2_24_shell_settings_do_not_leak_into_tests() -> None:
+    # The autouse fixture removed app settings exported in the shell or CI (e.g. DATABASE__URL).
+    assert not [name for name in os.environ if name.startswith(("DATABASE__", "JWT__", "REDIS__"))]
+    assert make_settings().environment is Environment.TEST
+
+
+@pytest.mark.parametrize(
+    ("distinct", "accepted"),
+    [(MIN_JWT_SECRET_DISTINCT_CHARS - 1, False), (MIN_JWT_SECRET_DISTINCT_CHARS, True)],
+)
+def test_s1_2_25_repetitive_jwt_secret_is_rejected(distinct: int, accepted: bool) -> None:
+    pattern = string.ascii_letters[:distinct]
+    secret = (pattern * 10)[:48]
+    problems = strict_settings(jwt=JwtSettings(secret_key=SecretStr(secret))).safety_problems()
+    assert problems == (
+        [] if accepted else ["JWT__SECRET_KEY is too repetitive; generate a random one"]
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["postgresql+asyncpg://app@db:5432/app", "postgresql+asyncpg://app:@db:5432/app"],
+)
+def test_s1_2_26_database_url_without_password_is_rejected(url: str) -> None:
+    problems = strict_settings(database=DatabaseSettings(url=SecretStr(url))).safety_problems()
+    assert problems == ["DATABASE__URL must include a password"]
+
+
+@pytest.mark.parametrize(
+    ("url", "accepted"),
+    [
+        ("redis://cache:6379/0", False),
+        ("rediss://user@cache:6380/0", False),
+        ("redis://[::1:6379/0", False),  # malformed: can't prove a password
+        ("redis://:pw@cache:6379/0", True),
+        ("rediss://user:pw@cache:6380/0", True),
+    ],
+)
+def test_s1_2_27_redis_url_must_carry_a_password(url: str, accepted: bool) -> None:
+    problems = strict_settings(redis=RedisSettings(url=SecretStr(url))).safety_problems()
+    assert problems == ([] if accepted else ["REDIS__URL must include a password"])
+
+
+@pytest.mark.parametrize(
+    ("name", "overrides"),
+    [
+        (
+            "REDIS__URL",
+            {"redis": RedisSettings(url=SecretStr("redis://:redis-dev-password@cache:6379/0"))},
+        ),
+        (
+            "REDIS__URL",
+            {"redis": RedisSettings(url=SecretStr("redis://default:changeme@cache:6379/0"))},
+        ),
+        (
+            "DATABASE__URL",
+            {"database": DatabaseSettings(url=SecretStr("postgresql+asyncpg://app:password@db/x"))},
+        ),
+        (
+            "DATABASE__URL",
+            {"database": DatabaseSettings(url=SecretStr("postgresql+asyncpg://app:postgres@db/x"))},
+        ),
+    ],
+)
+# Any: the overrides are forwarded to Settings' own typed constructor.
+def test_s1_2_28_well_known_passwords_are_rejected(name: str, overrides: dict[str, Any]) -> None:
+    assert strict_settings(**overrides).safety_problems() == [
+        f"{name} uses a well-known default password"
+    ]

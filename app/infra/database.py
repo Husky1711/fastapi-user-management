@@ -8,7 +8,7 @@ from app.core.config import DatabaseSettings
 
 def create_engine(settings: DatabaseSettings) -> AsyncEngine:
     return create_async_engine(
-        settings.url,
+        settings.url.get_secret_value(),
         pool_size=settings.pool_size,
         max_overflow=settings.max_overflow,
         pool_timeout=settings.pool_timeout_seconds,
