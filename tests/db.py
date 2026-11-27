@@ -2,15 +2,18 @@
 
 import os
 import re
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.core.config import DatabaseSettings
+from app.models import AuditLog, User
 
 # Read at import time: the autouse fixture in conftest clears app settings from the environment.
 SERVICE_DATABASE_URL = os.getenv("DATABASE__URL", "")
@@ -44,3 +47,20 @@ async def rejected(session: AsyncSession, reason: str) -> AsyncIterator[None]:
         async with session.begin_nested():
             yield
             await session.flush()
+
+
+@asynccontextmanager
+async def committed_user(engine: AsyncEngine, password_hash: str) -> AsyncIterator[str]:
+    """A user committed for real (tests that need several connections at once), and its
+    email. The user and its audit rows are removed afterwards (sessions cascade)."""
+    email = f"race-{uuid.uuid4().hex[:12]}@example.com"
+    async with AsyncSession(engine) as session, session.begin():
+        session.add(User(id=uuid.uuid4(), email=email, password_hash=password_hash))
+    try:
+        yield email
+    finally:
+        async with AsyncSession(engine) as session, session.begin():
+            found = await session.execute(select(User.id).where(User.email == email))
+            user_id = found.scalar_one()
+            await session.execute(delete(AuditLog).where(AuditLog.actor_user_id == user_id))
+            await session.execute(delete(User).where(User.id == user_id))

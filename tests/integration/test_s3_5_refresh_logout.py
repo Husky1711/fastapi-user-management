@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
@@ -16,7 +16,7 @@ from app.core.config import AuthSettings
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from tests.api import WHOAMI, api_client, whoami_router
-from tests.db import SERVICES, service_database_settings
+from tests.db import SERVICES, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
 
 pytestmark = SERVICES
@@ -133,16 +133,8 @@ async def test_s3_5_04_malformed_refresh_requests_are_422(
 @pytest.fixture
 async def committed_login(db_engine: AsyncEngine) -> AsyncIterator[str]:
     """A real login (several connections needed); everything removed after."""
-    email = f"race-{uuid.uuid4().hex[:12]}@example.com"
-    async with AsyncSession(db_engine) as session, session.begin():
-        session.add(
-            User(id=uuid.uuid4(), email=email, password_hash=await security.hash_password(PASSWORD))
-        )
-    yield email
-    async with AsyncSession(db_engine) as session, session.begin():
-        user_id = (await session.execute(select(User.id).where(User.email == email))).scalar_one()
-        await session.execute(delete(AuditLog).where(AuditLog.actor_user_id == user_id))
-        await session.execute(delete(User).where(User.id == user_id))
+    async with committed_user(db_engine, await security.hash_password(PASSWORD)) as email:
+        yield email
 
 
 async def test_s3_5_05_two_refreshes_racing_with_one_token_cannot_both_win(
