@@ -116,11 +116,11 @@ class StuckWriter(logging.Handler):
 
     def __init__(self) -> None:
         super().__init__()
-        self.release = threading.Event()
+        self.unblock = threading.Event()
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.release.wait(timeout=10)
+        self.unblock.wait(timeout=10)
         self.lines.append(self.format(record))
 
 
@@ -130,10 +130,10 @@ def test_s1_3_33_request_path_never_blocks_and_memory_stays_bounded_when_stdout_
     log = get_logger("test")
     for i in range(50):  # would block forever (or grow memory) if logging waited on the writer
         log.info("busy", n=i)
-    assert handler.queue.qsize() <= 5
+    assert handler.pending() <= 5
     assert handler.dropped >= 40
     dropped = handler.dropped
-    writer.release.set()
+    writer.unblock.set()
     flush_logs()
     log.info("after recovery")
     flush_logs()

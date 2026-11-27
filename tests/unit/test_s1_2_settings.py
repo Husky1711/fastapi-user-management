@@ -131,8 +131,10 @@ def test_s1_2_14_no_secret_is_shown_when_settings_are_printed() -> None:
     secrets = ["super-secret-value-that-must-not-leak-0001", "db-secret-p4ss", "redis-secret-p4ss"]
     settings = make_settings(
         jwt=JwtSettings(secret_key=SecretStr(secrets[0])),
-        database=DatabaseSettings(url=f"postgresql+asyncpg://app:{secrets[1]}@db:5432/app"),
-        redis=RedisSettings(url=f"redis://:{secrets[2]}@cache:6379/0"),
+        database=DatabaseSettings(
+            url=SecretStr(f"postgresql+asyncpg://app:{secrets[1]}@db:5432/app")
+        ),
+        redis=RedisSettings(url=SecretStr(f"redis://:{secrets[2]}@cache:6379/0")),
     )
     shown = " ".join([repr(settings), str(settings), str(settings.model_dump())])
     for secret in secrets:
@@ -201,7 +203,7 @@ def test_s1_2_25_repetitive_jwt_secret_is_rejected(distinct: int, accepted: bool
     ["postgresql+asyncpg://app@db:5432/app", "postgresql+asyncpg://app:@db:5432/app"],
 )
 def test_s1_2_26_database_url_without_password_is_rejected(url: str) -> None:
-    problems = strict_settings(database=DatabaseSettings(url=url)).safety_problems()
+    problems = strict_settings(database=DatabaseSettings(url=SecretStr(url))).safety_problems()
     assert problems == ["DATABASE__URL must include a password"]
 
 
@@ -216,22 +218,28 @@ def test_s1_2_26_database_url_without_password_is_rejected(url: str) -> None:
     ],
 )
 def test_s1_2_27_redis_url_must_carry_a_password(url: str, accepted: bool) -> None:
-    problems = strict_settings(redis=RedisSettings(url=url)).safety_problems()
+    problems = strict_settings(redis=RedisSettings(url=SecretStr(url))).safety_problems()
     assert problems == ([] if accepted else ["REDIS__URL must include a password"])
 
 
 @pytest.mark.parametrize(
     ("name", "overrides"),
     [
-        ("REDIS__URL", {"redis": RedisSettings(url="redis://:redis-dev-password@cache:6379/0")}),
-        ("REDIS__URL", {"redis": RedisSettings(url="redis://default:changeme@cache:6379/0")}),
         (
-            "DATABASE__URL",
-            {"database": DatabaseSettings(url="postgresql+asyncpg://app:password@db/x")},
+            "REDIS__URL",
+            {"redis": RedisSettings(url=SecretStr("redis://:redis-dev-password@cache:6379/0"))},
+        ),
+        (
+            "REDIS__URL",
+            {"redis": RedisSettings(url=SecretStr("redis://default:changeme@cache:6379/0"))},
         ),
         (
             "DATABASE__URL",
-            {"database": DatabaseSettings(url="postgresql+asyncpg://app:postgres@db/x")},
+            {"database": DatabaseSettings(url=SecretStr("postgresql+asyncpg://app:password@db/x"))},
+        ),
+        (
+            "DATABASE__URL",
+            {"database": DatabaseSettings(url=SecretStr("postgresql+asyncpg://app:postgres@db/x"))},
         ),
     ],
 )

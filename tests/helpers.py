@@ -19,8 +19,8 @@ SAFE_SECRET = "N9xq2Lr7VbKp4Zt8Ws1Ye6Hd3Gu0Mf5JcQaRtYsBnEi"  # varied, ≥ 32 ch
 ALLOWED_ORIGIN = "https://app.example.com"
 CRASH_PATH = "/_test/crash"
 CRASH_SECRET = "hunter2"
-SAFE_DB = DatabaseSettings(url="postgresql+asyncpg://app:s3cret@db:5432/app")
-SAFE_REDIS = RedisSettings(url="redis://:r3dis-pass@cache:6379/0")
+SAFE_DB = DatabaseSettings(url=SecretStr("postgresql+asyncpg://app:s3cret@db:5432/app"))
+SAFE_REDIS = RedisSettings(url=SecretStr("redis://:r3dis-pass@cache:6379/0"))
 
 
 # Any: values are forwarded unchanged to Settings' own typed constructor, which validates them.

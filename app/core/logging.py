@@ -79,6 +79,7 @@ class AppLogHandler(QueueHandler):
 
     def __init__(self, log_queue: "queue.Queue[logging.LogRecord]") -> None:
         super().__init__(log_queue)
+        self._queue = log_queue
         self.dropped = 0
         self._lock = threading.Lock()
 
@@ -95,6 +96,10 @@ class AppLogHandler(QueueHandler):
             setattr(record, _REQUEST_ID_ATTR, request_id_var.get())
         return record
 
+    def pending(self) -> int:
+        """Records waiting for the writer (never more than the queue size)."""
+        return self._queue.qsize()
+
     def enqueue(self, record: logging.LogRecord) -> None:
         with self._lock:
             if self.dropped and self._try_put(_dropped_notice(self.dropped)):
@@ -104,7 +109,7 @@ class AppLogHandler(QueueHandler):
 
     def _try_put(self, record: logging.LogRecord) -> bool:
         try:
-            self.queue.put_nowait(record)
+            self._queue.put_nowait(record)
         except queue.Full:
             return False
         return True

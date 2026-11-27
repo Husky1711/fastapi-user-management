@@ -6,6 +6,7 @@ import os
 
 import pytest
 from httpx import AsyncClient
+from pydantic import SecretStr
 
 import app.main as main_module
 from app.core.config import DatabaseSettings, HealthSettings, RedisSettings
@@ -164,8 +165,8 @@ async def test_s1_5_17_thirty_concurrent_probes_over_http_run_the_checks_once() 
 @pytest.mark.skipif(not os.getenv("RUN_SERVICE_TESTS"), reason="needs PostgreSQL and Redis")
 async def test_s1_5_11_readiness_against_real_postgres_and_redis() -> None:
     settings = make_settings(
-        database=DatabaseSettings(url=SERVICE_DATABASE_URL),
-        redis=RedisSettings(url=SERVICE_REDIS_URL),
+        database=DatabaseSettings(url=SecretStr(SERVICE_DATABASE_URL)),
+        redis=RedisSettings(url=SecretStr(SERVICE_REDIS_URL)),
     )
     app = main_module.create_app(settings)
     async with app.router.lifespan_context(app), client_for(app) as client:
