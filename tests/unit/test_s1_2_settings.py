@@ -2,6 +2,7 @@
 
 import os
 import string
+from typing import Any
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -243,7 +244,8 @@ def test_s1_2_27_redis_url_must_carry_a_password(url: str, accepted: bool) -> No
         ),
     ],
 )
-def test_s1_2_28_well_known_passwords_are_rejected(name: str, overrides: dict[str, object]) -> None:
+# Any: the overrides are forwarded to Settings' own typed constructor.
+def test_s1_2_28_well_known_passwords_are_rejected(name: str, overrides: dict[str, Any]) -> None:
     assert strict_settings(**overrides).safety_problems() == [
         f"{name} uses a well-known default password"
     ]
