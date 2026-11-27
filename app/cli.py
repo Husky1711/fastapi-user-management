@@ -12,7 +12,7 @@ import getpass
 import sys
 from typing import TextIO
 
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import Settings, get_settings
 from app.core.emails import InvalidEmail
@@ -26,6 +26,16 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_INVALID_INPUT = 2  # same code argparse uses for usage errors
 UNDEFINED_TABLE = "42P01"  # PostgreSQL SQLSTATE: the schema hasn't been migrated
+
+
+def database_problem(error: OSError | DBAPIError) -> str:
+    """What to tell the operator; only a missing table means "run migrations"."""
+    if isinstance(error, DBAPIError) and _sqlstate(error) == UNDEFINED_TABLE:
+        return (
+            "error: the database schema is missing or out of date; run migrations first "
+            "(alembic upgrade head)."
+        )
+    return f"error: cannot use the database ({type(error).__name__})."
 
 
 def _sqlstate(error: DBAPIError) -> str | None:
@@ -67,18 +77,8 @@ async def _create_admin(
     except Conflict:
         print("error: a user with this email already exists; nothing was changed.", file=err)
         return EXIT_FAILED
-    except ProgrammingError as error:
-        if _sqlstate(error) != UNDEFINED_TABLE:
-            print(f"error: cannot use the database ({type(error).__name__}).", file=err)
-            return EXIT_FAILED
-        print(
-            "error: the database schema is missing or out of date; run migrations first "
-            "(alembic upgrade head).",
-            file=err,
-        )
-        return EXIT_FAILED
     except (OSError, DBAPIError) as error:
-        print(f"error: cannot use the database ({type(error).__name__}).", file=err)
+        print(database_problem(error), file=err)
         return EXIT_FAILED
     finally:
         await engine.dispose()

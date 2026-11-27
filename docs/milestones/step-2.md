@@ -2,7 +2,7 @@
 
 - PR: #4
 - Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45934502590 (commit 79f2cba; later commits change docs only)
-- Verdict: **GATE IN PROGRESS** (all sections ✅)
+- Verdict: **PASS** (gate checks 1–5; review round 3 PASS, overall 8.9; Scalability 8 carried to step 3)
 
 Scenario plans below were written **before** the code (process rule). Results are filled in as
 each section passes in CI. Ids map to test names `test_s2_<section>_<nn>_...`; *CI step* means a
@@ -18,11 +18,11 @@ C10 data integrity; enforcement starts in step 5.
 | --- | --- | --- | --- | --- |
 | 2.1 | Database access: engine, sessions, one unit of work per request, model base | ✅ | 14 / 14 | CI run 45926673123; review fixes: see header run |
 | 2.2 | Schema: 10 tables, constraints, indexes, triggers | ✅ | 25 / 25 | CI run 45928196703; review fixes: see header run |
-| 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ✅ | 9 / 9 | CI run 45928196703; review fixes: see header run |
+| 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ✅ | 10 / 10 | CI run 45928196703; review fixes: see header run |
 | 2.4 | Seed data: permissions and system roles | ✅ | 6 / 6 | CI run 45928196703 |
 | 2.5 | Repositories with tenant scoping | ✅ | 14 / 14 | CI run 45928783140; review fixes: see header run |
 | 2.6 | Password hashing, input rules and the `create-admin` command | ✅ | 16 / 16 | CI run 45930672394; review fixes: see header run |
-| | **Total** | | **84 / 84** | 72 planned + 9 added after review round 1 + 3 after round 2 |
+| | **Total** | | **85 / 85** | 72 planned + 9 added after review round 1 + 3 after round 2 + 1 after round 3 |
 
 ## Design decisions for this step
 
@@ -30,8 +30,10 @@ C10 data integrity; enforcement starts in step 5.
   dependencies only read; the service writes inside `transaction(session)`
   (`app/infra/database.py`): a SAVEPOINT inside the transaction the dependencies' reads began,
   committed before the response is built (a failed commit is an error, never a 200). A failure
-  rolls back only the savepoint, so the dependencies' objects stay readable (R2-02); a nested
-  call is refused (R2-04).
+  rolls back only the savepoint, so the dependencies' objects stay readable unless the block
+  changed them (R2-02, R3-06); a nested call is refused (R2-04). Cost: when a dependency has
+  read, each unit of work adds two round trips (`SAVEPOINT`, `RELEASE`); to be measured with
+  the step 3 load numbers (R3-07).
   The first design (the service calling `session.begin()`) failed as soon as a dependency had
   read: review finding R1-01. Rule written in ARCHITECTURE §2.
 - **Timestamps come from the app clock** (`app.core.clock.now()`); server defaults are only a
@@ -79,8 +81,8 @@ C10 data integrity; enforcement starts in step 5.
 | 2.1-10 | C7, C10 | A dependency reads, then the unit of work writes and fails | Nothing kept; the next request starts clean (added: R1-01) | test | ✅ |
 | 2.1-11 | C9 | Connection pool exhausted (one connection held) | Waits `pool_timeout`, then a generic 500; recovers when the connection is freed (added) | test | ✅ |
 | 2.1-12 | C10 | An object loaded by a dependency is read after the unit of work failed | Still readable (savepoint rollback); the failed block left nothing (added: R2-02) | test | ✅ |
-| 2.1-13 | C10 | A unit of work entered inside another | Refused with `NestedUnitOfWork`; the outer one still commits (added: R2-04) | test | ✅ |
-| 2.1-14 | C7, C9 | The request is cancelled (client gone) in the middle of a unit of work | Rolled back; nothing stored (added) | test | ✅ |
+| 2.1-13 | C10 | A unit of work entered inside another | Refused with `NestedUnitOfWork`; the outer one still commits, seen from another connection (added: R2-04, R3-03) | test | ✅ |
+| 2.1-14 | C7, C9 | The request is cancelled (client gone) in the middle of a unit of work, after a dependency read (savepoint branch) | Rolled back; nothing stored; the pooled connection is returned (added; R3-04) | test | ✅ |
 | — | C2, C3 | N/A: the access layer takes no user input | | | |
 | — | C6 | Covered by 2.1-07 (no secret leakage on failure) | | | |
 | — | C11 | Covered by 2.3-05 (migrated real stack), 2.6-12 (CLI on the real stack) and 2.6-15 (route → service) | | | |
@@ -131,6 +133,7 @@ C10 data integrity; enforcement starts in step 5.
 | 2.3-07 | C7 | Two `upgrade head` runs at once on an empty database | Both exit 0; migrations run once; 3 system roles (added: R1-06) | CI step | ✅ |
 | 2.3-08 | C10 | Downgrade of the seed while a membership uses a system role | Refused by the foreign key; still at head (added) | CI step | ✅ |
 | 2.3-09 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| 2.3-10 | C9 | Migration against an unresponsive host | Fails with `TimeoutError` within seconds, no password printed (added: R3-05b) | CI step | ✅ |
 | — | C2, C3, C6 | N/A: migrations take no user input | | | |
 
 ### Section 2.4: Seed data
@@ -183,7 +186,7 @@ C10 data integrity; enforcement starts in step 5.
 | 2.6-10 | C6 | Password never on the command line | Only accepted on stdin; not in output or logs | test | ✅ |
 | 2.6-11 | C2 | Weak password or invalid email | Exit 2 with a clear message; nothing created | test | ✅ |
 | 2.6-12 | C11 | Operator runs `create-admin` in the Compose stack | Admin row exists with an Argon2id hash | CI step | ✅ |
-| 2.6-13 | C9 | `create-admin` with the database refused, unresponsive (connect timeout) or not migrated | Exit 1 within seconds, clear message, no password in output | test | ✅ |
+| 2.6-13 | C9 | `create-admin` with the database refused, unresponsive (connect timeout), not migrated, or failing otherwise (privilege, syntax, no SQLSTATE) | Exit 1 within seconds; "run migrations" only for a missing table; no password in output | test | ✅ |
 | 2.6-14 | C7 | Two concurrent creates with one email (different case) through the service | Exactly one user, exactly one `Conflict` (added) | test | ✅ |
 | 2.6-15 | C11 | Route whose dependency reads, then calls the service (the step 3 shape) | 200 created; then 409 `user.email_taken`, 422 `user.email_invalid` / `user.password_weak` as problem JSON (added: R1-01, R1-02) | test | ✅ |
 | 2.6-16 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
@@ -206,9 +209,10 @@ C10 data integrity; enforcement starts in step 5.
 
 Review round 1 findings (R1-01 to R1-18) and what was done: see "Independent review" below.
 
-**Totals:** 84 scenarios, 84 passed, 0 failing. Failures found and fixed: 10 by CI or
-self-review (F1–F10) and 29 by the independent review (18 in round 1, 11 in round 2), of which
-24 were fixed in this step and 5 carried to named steps.
+**Totals:** 85 scenarios, 85 passed, 0 failing. Failures found and fixed: 10 by CI or
+self-review (F1–F10) and 36 by the independent review (18 in round 1, 11 in round 2, 7 in round 3),
+of which 31 were fixed in this step and 5 carried to named steps (R3-06's extra scenario is
+also added to step 3).
 
 ## Gate
 
@@ -272,6 +276,7 @@ hash is unchanged), plus every step 1 real-stack scenario.
 | --- | --- | --- | --- |
 | 1 | `175cee2` | **FAIL**: 4 High, 5 Medium, 9 Low; overall 8.2 | [`reviews/step-2-round-1.md`](reviews/step-2-round-1.md) |
 | 2 | `621b96c` | **PASS**: 0 Critical/High, 5 Medium, 6 Low; overall 8.9 (Scalability 8, carried to step 3) | [`reviews/step-2-round-2.md`](reviews/step-2-round-2.md) |
+| 3 | `7de96e7` | **PASS**: 0 Critical/High, 1 Medium, 6 Low; overall 8.9 (Scalability 8, carried to step 3) | [`reviews/step-2-round-3.md`](reviews/step-2-round-3.md) |
 
 Round 1 findings and what was done:
 
@@ -312,13 +317,29 @@ Round 2 findings and what was done:
 | R2-10 | Low | Only SQLSTATE 42P01 says "run migrations" | `app/cli.py`, 2.6-13 |
 | R2-11 | Low | Run links; CI counts "Running upgrade" lines and compares the hash; docstring and `WeakPassword` detail | 2.3-07, 2.6-12 |
 
+Round 3 findings and what was done (verified by CI, not re-reviewed: round 3 already passed
+and these changes only add tests, merge two duplicate messages and correct docs):
+
+| # | Sev. | Done | Evidence |
+| --- | --- | --- | --- |
+| R3-01 | Medium | Every branch of the CLI's database message tested (`database_problem`) | 2.6-13 (`tests/unit/test_s2_6_cli_messages.py`) |
+| R3-02 | Low | One helper for the database message | `app/cli.py` |
+| R3-03 | Low | 2.1-13 runs on a real session and reads the commit from another connection | 2.1-13 |
+| R3-04 | Low | 2.1-14 cancels in the savepoint branch on a pooled engine; checks the connection is returned | 2.1-14 |
+| R3-05 | Low | (b) added as 2.3-10; (a) listed below with its reason | 2.3-10 |
+| R3-06 | Low | ARCHITECTURE §2 says "unless the block changed them"; scenario carried to step 3 | ROADMAP step 3 |
+| R3-07 | Low | Cost recorded in the design decision; to measure in step 3 | design decisions |
+
 Missing scenarios named by the reviews were added: 2.1-10, 2.1-11, 2.2-23, 2.2-24, 2.2-25,
 2.3-07, 2.3-08, 2.5-08 (largest page, deepest offset), 2.6-04 (control characters, spaces),
 2.6-13 (not migrated, unresponsive host), 2.6-14 and 2.6-15 (round 1); 2.1-12, 2.1-13,
-2.1-14 and the NFKC-lengthening case in 2.6-04 (round 2). Not added, with reason: the request
-path against an unresponsive host (same engine setting as the CLI case, 2.6-13); downgrade
-with a pre-existing `citext` (unsupported setup, documented); hashing that holds a connection
-(step 3, R2-03).
+2.1-14 and the NFKC-lengthening case in 2.6-04 (round 2). Round 3: 2.3-10, and 2.1-13 / 2.1-14
+strengthened. Not added, with reason: the request path against an unresponsive host (same
+engine setting as the CLI case, 2.6-13); downgrade with a pre-existing `citext` (unsupported
+setup, documented); `updated_at` against `created_at` with the app clock ahead of the
+database's (no ordering is promised across two clocks; ARCHITECTURE §4 states the split);
+carried to step 3: hashing that holds a connection (R2-03), a changed current user after a
+failed block (R3-06) and concurrent signups through the savepoint branch.
 
 ## Carried forward
 

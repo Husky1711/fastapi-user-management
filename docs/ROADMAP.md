@@ -129,6 +129,7 @@ delete; no migrations; lockout columns unused.
 - [ ] `core/security.py`: PyJWT encode/decode with `iss`, `aud`, `jti`, `sid` (Argon2id hash/verify and `password_needs_rehash` already built in step 2)
 - [ ] Record `last_login_at` on users (new migration; the old code's `last_login`, deferred from step 2) and rehash on login when `password_needs_rehash`
 - [ ] Bound concurrent Argon2 work (a settings-sized semaphore around hash/verify, 64 MiB each), and don't hold a pool connection idle in a transaction while hashing (end the dependencies' read transaction first, or hash before any read), with tests (from step 2 review, R1-08, R2-03)
+- [ ] Scenarios for the unit of work under auth: the current user changed and then the block fails (e.g. a failed-login counter); two concurrent signups over HTTP where a dependency read first (savepoint branch) (from step 2 review, R3-06, R3)
 - [ ] Decide internationalised (IDN) email domains: IDNA-encode or keep refusing, and record it (from step 2 review, R1-18)
 - [ ] Dummy Argon2 verify for unknown emails (no timing leak)
 - [ ] `get_current_user` dependency — the **only** place a token is decoded and a user loaded

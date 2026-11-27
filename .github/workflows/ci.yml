@@ -115,6 +115,17 @@ jobs:
           uv run alembic upgrade head 2>&1 | tee second-run.log
           if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
           uv run alembic current | tee /dev/stderr | grep -q "0002 (head)"
+      - name: "2.3-10 Migration against an unresponsive host gives up after the connect timeout"
+        run: |
+          start=$(date +%s)
+          if DATABASE__URL="postgresql+asyncpg://app:Unused-Pw-91@10.255.255.1:5432/app" \
+             DATABASE__CONNECT_TIMEOUT_SECONDS=1 timeout 30 uv run alembic upgrade head > slow.log 2>&1
+          then echo "migration should have failed"; exit 1; fi
+          took=$(( $(date +%s) - start ))
+          tail -2 slow.log; echo "took ${took}s"
+          grep -q "TimeoutError" slow.log
+          test "$took" -lt 15
+          if grep -q "Unused-Pw-91" slow.log; then echo "password printed"; exit 1; fi
       - name: Run tests
         run: >-
           uv run pytest

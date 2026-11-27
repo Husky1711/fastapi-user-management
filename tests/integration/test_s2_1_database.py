@@ -10,14 +10,19 @@ from typing import Annotated
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from httpx import AsyncClient
-from sqlalchemy import Column, MetaData, Table, Text, func, insert, select
+from sqlalchemy import Column, MetaData, Table, Text, delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core import clock
 from app.core.deps import DbSession
 from app.core.errors import Conflict
-from app.infra.database import NestedUnitOfWork, transaction
+from app.infra.database import (
+    NestedUnitOfWork,
+    create_engine,
+    create_session_factory,
+    transaction,
+)
 from app.main import create_app
 from app.models import Organization, User
 from app.models.base import NAMING_CONVENTION, Base, Timestamps, UUIDPrimaryKey
@@ -235,35 +240,52 @@ async def test_s2_1_12_objects_loaded_before_a_failed_unit_of_work_stay_readable
     assert await db.get(Organization, org.id) is None  # the failed block left nothing behind
 
 
-async def test_s2_1_13_nested_unit_of_work_is_refused(db: AsyncSession) -> None:
-    async with transaction(db):
-        with pytest.raises(NestedUnitOfWork):
-            async with transaction(db):
-                pass
-        await add(db, user := new_user())
-    async with transaction(db):  # the marker is cleared afterwards
-        pass
-    assert await db.get(User, user.id) is user
-
-
-async def test_s2_1_14_cancelled_unit_of_work_rolls_back(db_engine: AsyncEngine) -> None:
-    email = f"cancelled-{uuid.uuid4().hex[:12]}@example.com"
-    inside = asyncio.Event()
+async def test_s2_1_13_nested_unit_of_work_is_refused_and_the_outer_one_commits(
+    db_engine: AsyncEngine,
+) -> None:
+    email = f"outer-{uuid.uuid4().hex[:12]}@example.com"
     session = AsyncSession(db_engine)
+    try:
+        async with transaction(session):
+            with pytest.raises(NestedUnitOfWork):
+                async with transaction(session):
+                    pass
+            session.add(new_user(email=email))
+        async with transaction(session):  # the marker is cleared afterwards
+            pass
+        async with AsyncSession(db_engine) as reader:  # another connection sees the commit
+            assert await UserRepository(reader).get_by_email(email) is not None
+    finally:
+        await session.close()
+        async with AsyncSession(db_engine) as cleanup, cleanup.begin():
+            await cleanup.execute(delete(User).where(User.email == email))
 
-    async def slow_write() -> None:
+
+async def test_s2_1_14_request_cancelled_mid_unit_of_work_rolls_back_and_frees_its_connection(
+    db_engine: AsyncEngine,
+) -> None:
+    email = f"cancelled-{uuid.uuid4().hex[:12]}@example.com"
+    engine = create_engine(service_database_settings(pool_size=1, max_overflow=0))
+    session = create_session_factory(engine)()
+    inside = asyncio.Event()
+
+    async def request() -> None:
+        await session.execute(select(1))  # a dependency read: the savepoint branch follows
         async with transaction(session):
             session.add(new_user(email=email))
             await session.flush()
             inside.set()
             await asyncio.Event().wait()  # the client goes away while this waits
 
-    task = asyncio.create_task(slow_write())
-    await inside.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert not session.in_transaction()
-    await session.close()
+    try:
+        task = asyncio.create_task(request())
+        await inside.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await session.close()  # what get_db does when the request ends
+        assert engine.pool.checkedout() == 0  # type: ignore[attr-defined]
+    finally:
+        await engine.dispose()
     async with AsyncSession(db_engine) as reader:
         assert await UserRepository(reader).get_by_email(email) is None

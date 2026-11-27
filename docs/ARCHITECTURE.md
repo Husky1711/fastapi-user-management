@@ -52,7 +52,8 @@ and its one service call. Dependencies only read. The service method writes insi
 `async with transaction(session):` (`app/infra/database.py`). It runs as a SAVEPOINT inside
 the transaction the dependencies' reads began and commits everything before the response is
 built. On error only the savepoint is rolled back, so objects the dependencies loaded (the
-current user) stay readable. It is entered once per service call; a nested call raises
+current user) stay readable, unless the failed block changed them: those are expired and must
+not be read afterwards (reload them in a new unit of work if needed). It is entered once per service call; a nested call raises
 `NestedUnitOfWork` instead of committing half-done work.
 
 ## 3. Folder layout
