@@ -7,7 +7,7 @@ import pytest
 from fastapi import APIRouter
 from pydantic import SecretStr
 from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, MetaData, Table, Text, text
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.core.config import DatabaseSettings
@@ -18,6 +18,8 @@ from app.models.base import NAMING_CONVENTION
 from tests.helpers import check_ok, client_for, make_settings
 
 UNREACHABLE_PASSWORD = "unreachable-db-s3cret"
+# The dialect only; creating an engine does not connect.
+POSTGRES = create_async_engine("postgresql+asyncpg://app@localhost/app").dialect
 UNREACHABLE_DB = DatabaseSettings(
     # Port 1 on loopback: nothing listens there, so the connection is refused at once.
     url=SecretStr(f"postgresql+asyncpg://app:{UNREACHABLE_PASSWORD}@127.0.0.1:1/app"),
@@ -36,7 +38,7 @@ def test_s2_1_06_naming_convention_names_every_constraint() -> None:
         Column("code", Text, unique=True),
         CheckConstraint("length(code) > 0", name="code_not_empty"),
     )
-    ddl = str(CreateTable(child).compile(dialect=postgresql.dialect()))
+    ddl = str(CreateTable(child).compile(dialect=POSTGRES))
     for name in (
         "pk_children",
         "fk_children_parent_id_parents",
@@ -45,7 +47,7 @@ def test_s2_1_06_naming_convention_names_every_constraint() -> None:
     ):
         assert f"CONSTRAINT {name}" in ddl
     (index,) = child.indexes
-    assert "ix_children_parent_id" in str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+    assert "ix_children_parent_id" in str(CreateIndex(index).compile(dialect=POSTGRES))
 
 
 def _query_router() -> APIRouter:
@@ -77,7 +79,7 @@ async def test_s2_1_07_unreachable_database_gives_generic_500(
 
 async def test_s2_1_08_each_lifespan_gets_a_fresh_session_factory() -> None:
     app = create_app(make_settings(), health_checks={"database": check_ok})
-    factories: list[object] = []
+    factories: list[async_sessionmaker[AsyncSession]] = []
     for _ in range(2):
         async with app.router.lifespan_context(app):
             factories.append(app.state.session_factory)

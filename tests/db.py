@@ -18,5 +18,7 @@ SERVICES = [
 ]
 
 
-def service_database_settings(**overrides: int | float) -> DatabaseSettings:
-    return DatabaseSettings(url=SecretStr(SERVICE_DATABASE_URL), **overrides)
+def service_database_settings(*, pool_size: int = 5, max_overflow: int = 5) -> DatabaseSettings:
+    return DatabaseSettings(
+        url=SecretStr(SERVICE_DATABASE_URL), pool_size=pool_size, max_overflow=max_overflow
+    )
