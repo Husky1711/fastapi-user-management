@@ -63,7 +63,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.1-09 | C9 | Hash pool shut down and restarted (lifespan) | New pool works; old one is closed | test | ⬜ |
 | 3.1-10 | C6 | Dummy verify for an unknown user | Runs a real Argon2 verify (same cost as a real one) and returns False | test | ⬜ |
 | 3.1-11 | C2 | IDN domain email | Refused with `user.email_invalid` (ADR-0009) | test | ⬜ |
-| 3.1-12 | C10 | JWT settings: issuer, audience, TTL bounds | Invalid values refused at startup | test | ⬜ |
+| 3.1-12 | C10 | JWT settings: issuer, audience, TTL bounds; secret shorter than the HMAC output (32/48/64 bytes for HS256/384/512) | Invalid values refused; short secret is a production safety problem | test | ⬜ |
 | 3.1-13 | C8 | Decoding the same token twice | Same claims; nothing cached that could go stale | test | ⬜ |
 | 3.1-14 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
 | — | C4, C5 | Covered in 3.3 (the primitives are used by `get_current_user`) | | | |
@@ -189,6 +189,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
+| F1 | CI test (run 46043542631) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12 | Fixed |
 
 ## Gate (when all sections are ✅)
 

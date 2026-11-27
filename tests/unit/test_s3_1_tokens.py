@@ -4,6 +4,7 @@ import asyncio
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import jwt
 import pytest
@@ -23,9 +24,13 @@ from app.core.security import (
     stop_password_hashing,
     verify_dummy_password,
 )
+from tests.helpers import strict_settings
 
 NOW = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
-SETTINGS = JwtSettings(secret_key=SecretStr("k" * 20 + "0123456789abcdefghij"))
+# 64 bytes: long enough for every allowed HMAC algorithm (RFC 7518 §3.2).
+SETTINGS = JwtSettings(
+    secret_key=SecretStr("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/")
+)
 USER, SESSION = uuid.uuid4(), uuid.uuid4()
 
 
@@ -60,7 +65,7 @@ def test_s3_1_01_access_token_round_trips_its_claims() -> None:
 @pytest.mark.parametrize(
     "token",
     [
-        jwt.encode({"sub": "x"}, "another-key-another-key-another-key", algorithm="HS256"),
+        jwt.encode({"sub": "x"}, "another-key-of-thirty-two-bytes!", algorithm="HS256"),
         jwt.encode(
             jwt.decode(_token(), options={"verify_signature": False}), None, algorithm="none"
         ),
@@ -224,3 +229,22 @@ def test_s3_1_13_decoding_twice_gives_the_same_claims() -> None:
     first = decode_access_token(SETTINGS, token, now=NOW)
     assert decode_access_token(SETTINGS, token, now=NOW) == first
     assert isinstance(first, AccessClaims)
+
+
+@pytest.mark.parametrize(
+    ("algorithm", "length", "safe"),
+    [
+        ("HS256", 32, True),
+        ("HS384", 47, False),
+        ("HS384", 48, True),
+        ("HS512", 63, False),
+        ("HS512", 64, True),
+    ],
+)
+def test_s3_1_12_secret_must_be_as_long_as_the_hmac_output(
+    algorithm: Literal["HS256", "HS384", "HS512"], length: int, safe: bool
+) -> None:
+    secret = ("0123456789abcdefghijklmnopqrstuvwxyz" * 2)[:length]
+    settings = strict_settings(jwt=JwtSettings(secret_key=SecretStr(secret), algorithm=algorithm))
+    problems = [p for p in settings.safety_problems() if "JWT__SECRET_KEY" in p]
+    assert (problems == []) is safe

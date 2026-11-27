@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
+HMAC_KEY_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 MIN_JWT_SECRET_DISTINCT_CHARS = 10  # rejects "aaaa…" or "abababab…" style secrets
 DEV_REDIS_PASSWORD = "redis-dev-password"  # noqa: S105 - published in .env.example and Compose
 # Passwords published in this repository or used as image defaults. Never allowed in strict
@@ -174,7 +175,7 @@ class Settings(BaseSettings):
         """Every reason these settings are unsafe for a strict environment (empty if safe)."""
         if not self.is_strict:
             return []
-        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value())
+        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value(), self.jwt.algorithm)
         if self.debug:
             problems.append("DEBUG must be false")
         problems += _url_password_problems("DATABASE__URL", self.database.url)
@@ -187,11 +188,13 @@ class Settings(BaseSettings):
             raise UnsafeConfigurationError(self.environment, problems)
 
 
-def _jwt_secret_problems(secret: str) -> list[str]:
+def _jwt_secret_problems(secret: str, algorithm: str = "HS256") -> list[str]:
     if secret == DEFAULT_JWT_SECRET:
         return ["JWT__SECRET_KEY is the development default"]
-    if len(secret) < MIN_JWT_SECRET_LENGTH:
-        return [f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters"]
+    # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output.
+    minimum = max(MIN_JWT_SECRET_LENGTH, HMAC_KEY_BYTES.get(algorithm, MIN_JWT_SECRET_LENGTH))
+    if len(secret.encode()) < minimum:
+        return [f"JWT__SECRET_KEY must be at least {minimum} bytes for {algorithm}"]
     if len(set(secret)) < MIN_JWT_SECRET_DISTINCT_CHARS:
         return ["JWT__SECRET_KEY is too repetitive; generate a random one"]
     return []
