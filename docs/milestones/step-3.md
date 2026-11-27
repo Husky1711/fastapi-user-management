@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46084208552
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46084765029
 - Verdict: **GATE IN PROGRESS** (all sections ✅; review rounds 1–5 FAIL, fixes below, round 6 pending)
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -18,10 +18,10 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 19 / 19 | CI run 46050265813; 3.5-13 in run 46051473324; 3.5-15 in run 46079219114; 3.5-16 in run 46080870382; 3.5-17..19 in run 46082036988 |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 20 / 20 | CI run 46051473324; 3.6-14 in run 46079219114; 3.6-15/16 in run 46080870382; 3.6-17 in run 46083134460; 3.6-18 (all four calls) in run 46083386910; 3.6-19/20 in run 46084208552 |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 9 / 9 | CI run 46052631869; 3.7-09 in run 46080870382 |
-| 3.8 | Security audit fixes: per-user lock order, re-checks under the lock | ✅ | 14 / 14 | Failing first in run 46055289113; passing in 46055748820; extended after review round 1, run 46079219114; 3.8-12 in run 46080870382; 3.8-13 in run 46084208552; 3.8-14 in the run after it |
+| 3.8 | Security audit fixes: per-user lock order, re-checks under the lock | ✅ | 14 / 14 | Failing first in run 46055289113; passing in 46055748820; extended after review round 1, run 46079219114; 3.8-12 in run 46080870382; 3.8-13 in run 46084208552; 3.8-14 in run 46084765029 |
 | | **Total** | | **124 / 125** | 89 planned + 36 added during the step: 3.4-19 (step 2 carry-over); 3.2-10, 3.8-01..05 and 3.8-11 (security audit); 3.8-06..10 (review round 1); 3.4-20, 3.4-21, 3.5-15, 3.6-14 (review round 1); 3.3-14, 3.4-22..24, 3.5-16, 3.6-15, 3.6-16, 3.7-09, 3.8-12 (review round 2); 3.5-17..19 (review round 3); 3.2-11, 3.6-17, 3.6-18 (review round 4); 3.6-19, 3.6-20, 3.8-13, 3.8-14 (review round 5) |
 
-**Totals:** 125 scenarios: 124 passing, 0 failing, 1 known gap pinned as a strict expected failure (3.4-24, closed in step 6). Failures found and fixed during the step: 12 (F1–F11, F13); 1 expected red run (F12).
+**Totals:** 125 scenarios: 124 passing, 0 failing, 1 known gap pinned as a strict expected failure (3.4-24, closed in step 6). Failures found and fixed during the step: 13 (F1–F11, F13, F14); 1 expected red run (F12).
 
 ## Design decisions for this step
 
@@ -233,7 +233,7 @@ function `test_s3_8_<nn>_...`; variants are its parameters.
 | 3.8-11 | C12 | Earlier tests still pass (incl. refresh race 3.5-05, password change 3.6-06, lockout 3.4-08/10) | CI green | CI run | ✅ |
 | 3.8-12 | C7 | (added, review round 2; `limit_sessions` variant review round 3) A login under `replace_all`, or `limit_sessions` with a limit of 1, while a refresh is mid-rotation | The login waits for the rotation, then ends the successor too: only the new login's session remains | test (real pool) | ✅ |
 | 3.8-13 | C7, C4 | (added, review round 5, H1) A re-entry on logout-all, revoke-others or ending another device verified the old password; the owner changes it (ending that session) before the write | 401; the owner's session survives; audited `auth.reauth_refused` (variants: 3 routes) | test | ✅ |
-| 3.8-14 | C7, C10 | (added, review round 5) The account is disabled just before the attempt is reserved; the user is removed while Argon2 runs | 401 `auth.invalid_credentials`, refusal audited (disabled); never 500 (removed) | test, 2 variants | ✅ |
+| 3.8-14 | C7, C10 | (added, review round 5) The account is disabled just before the attempt is reserved; the user is removed while Argon2 runs | Disabled: refused (`InvalidCredentials`) and audited before any password check; removed: 401 `auth.invalid_credentials`, never 500 | test (service level for "disabled", see F14; HTTP for "removed") | ✅ |
 | — | C2, C3, C5 | N/A: no new input, boundary or permission; routes and schemas unchanged (input caps are 3.4-20/21) | | | |
 
 ## Failure log
@@ -253,6 +253,7 @@ function `test_s3_8_<nn>_...`; variants are its parameters.
 | F11 | CI test (run 46077451738 hung 13 min, cancelled; run 46078967397 failed) | 3.8-01 never saw the revocation wait, and on that failure the test hung | (1) The new wait filter matched the statement text, which didn't hold (column order; PostgreSQL also truncates `query` at 1024 bytes); (2) on any failure the paused refresh was never released, kept the user lock, and the cleanup waited forever | (1) Waiter found by its blocker's lock on `users` (`pg_locks`, `pg_blocking_pids`), no text; (2) `paused_request` always releases and collects the paused request; (3) every CI job now has `timeout-minutes: 20` | Fixed (run 46079219114) |
 | F12 | CI, all jobs (run 46043074202, at 3b7232d) | Lint, type check, tests and Compose all failed: `uv sync --locked` refused | Expected: PyJWT was added to `pyproject.toml` before `uv.lock` could be regenerated (the sandbox has no network); a temporary CI job produced the lockfile, checked by sha256 | Lockfile committed next | Expected red run, resolved in the next run |
 | F13 | CI test (run 46080669546) | 3.4-19 errored (fixture `race_email` not found); 3.4-23 failed (disabled signup still in the OpenAPI document) | (1) Rewriting 3.4-03 deleted the fixture that sat between the two tests; (2) setting `include_in_schema` on the route after inclusion didn't reach the generated document | (1) Fixture restored; (2) the schema generator leaves switched-off paths out | Fixed (run 46080870382) |
+| F14 | CI test (runs 46084419736, 46084572013) | 3.8-14 "disabled before reserving" answered 500 (`savepoint "sa_savepoint_7" does not exist`) | Test fault: it paused the request while its read transaction (a savepoint on the test's shared connection) was still open and wrote through the same connection, so the savepoints interleaved. Moving the pause earlier didn't help: no point before the reservation has the read transaction closed | That case is tested at the service level (`verify_current_password` with the account disabled after it was loaded); the "removed while verifying" case stays over HTTP (paused after `end_read`) | Fixed (run 46084765029) |
 
 ## Gate
 
