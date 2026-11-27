@@ -5,10 +5,8 @@ run inside a savepoint (`rejected`) so the test can carry on afterwards.
 """
 
 import asyncio
-import re
 import uuid
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -31,7 +29,7 @@ from app.models import (
     role_permissions,
 )
 from app.models.base import AwareDateTime
-from tests.db import SERVICES
+from tests.db import SERVICES, rejected
 from tests.factories import (
     add,
     new_audit_log,
@@ -47,16 +45,6 @@ from tests.factories import (
 )
 
 pytestmark = SERVICES
-
-
-@asynccontextmanager
-async def rejected(session: AsyncSession, reason: str) -> AsyncIterator[None]:
-    """The writes in the block must be refused by the database, naming `reason`."""
-    # The savepoint has to wrap the caller's whole block, so the block can't be one statement.
-    with pytest.raises(IntegrityError, match=re.escape(reason)):  # noqa: PT012
-        async with session.begin_nested():
-            yield
-            await session.flush()
 
 
 async def _count(session: AsyncSession, model: type[Base], **where: object) -> int:

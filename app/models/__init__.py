@@ -4,7 +4,14 @@ from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.organization import Invitation, Membership, Organization, OrganizationStatus
 from app.models.rbac import Permission, Role, role_permissions
-from app.models.user import OneTimeToken, TokenPurpose, User, UserSession, UserStatus
+from app.models.user import (
+    OneTimeToken,
+    RevokeReason,
+    TokenPurpose,
+    User,
+    UserSession,
+    UserStatus,
+)
 
 __all__ = [
     "AuditLog",
@@ -15,6 +22,7 @@ __all__ = [
     "Organization",
     "OrganizationStatus",
     "Permission",
+    "RevokeReason",
     "Role",
     "TokenPurpose",
     "User",

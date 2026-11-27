@@ -100,7 +100,8 @@ jobs:
           uv run alembic upgrade head > second.log 2>&1 & second=$!
           wait "$first"; wait "$second"
           cat first.log second.log
-          test "$(cat first.log second.log | grep -c 'Running upgrade')" = 2  # 0001 and 0002, once
+          migrations=$(ls migrations/versions/*.py | wc -l)
+          test "$(cat first.log second.log | grep -c 'Running upgrade')" = "$migrations"  # each once
           test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM roles")" = 3
           echo "2.3-08: downgrading the seed is refused while a membership uses a system role"
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
@@ -110,11 +111,28 @@ jobs:
               SELECT gen_random_uuid(), u.id, o.id, r.id FROM users u, organizations o, roles r
               WHERE r.key = 'member' AND r.organization_id IS NULL"
           if uv run alembic downgrade 0001; then echo "downgrade should have been refused"; exit 1; fi
-          uv run alembic current | grep -q "0002 (head)"
+          uv run alembic current | tee /dev/stderr | grep -q "^0002"  # the seed is still there
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users; DELETE FROM organizations"
+          echo "3.2-01: migration 0003 backfills sessions written before it"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO users (id, email, password_hash)
+              VALUES ('00000000-0000-4000-8000-000000000001', 'old@example.com', 'x');
+            INSERT INTO sessions (id, user_id, family_id, token_hash, created_at, expires_at, revoked_at)
+            SELECT gen_random_uuid(), '00000000-0000-4000-8000-000000000001',
+                   '00000000-0000-4000-8000-0000000000f1', sha256(v::bytea),
+                   now() - (v || ' hours')::interval, now() + interval '1 day',
+                   CASE WHEN v = 'x' THEN now() END
+            FROM unnest(ARRAY['3', '2', '1']) v"
+          uv run alembic upgrade head
+          psql "$PSQL_URL" -tAc "
+            SELECT count(*) FILTER (WHERE revoked_at IS NULL) = 1
+               AND count(*) FILTER (WHERE revoked_reason = 'rotated') = 2
+               AND bool_and(family_started_at = (SELECT min(created_at) FROM sessions))
+            FROM sessions" | tee /dev/stderr | grep -qx t
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users"
           uv run alembic upgrade head 2>&1 | tee second-run.log
           if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
-          uv run alembic current | tee /dev/stderr | grep -q "0002 (head)"
+          uv run alembic current | tee /dev/stderr | grep -q "(head)"
       - name: "2.3-10 Migration against an unresponsive host gives up after the connect timeout"
         run: |
           start=$(date +%s)

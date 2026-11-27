@@ -4,21 +4,31 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, LargeBinary, Text, false, func
+from sqlalchemy import CheckConstraint, ForeignKey, Index, LargeBinary, Text, false, func, text
 from sqlalchemy.dialects.postgresql import CITEXT, INET
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.client import USER_AGENT_MAX_LENGTH
 from app.core.emails import EMAIL_MAX_LENGTH
 from app.models.base import Base, Timestamps, UUIDPrimaryKey, text_enum, utc_now
 
 TOKEN_HASH_BYTES = 32  # SHA-256 digest; the token itself is never stored
-USER_AGENT_MAX_LENGTH = 256
 
 
 class UserStatus(StrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"
     DELETED = "deleted"
+
+
+class RevokeReason(StrEnum):
+    ROTATED = "rotated"  # replaced by a refresh; presenting it again means it was stolen
+    LOGOUT = "logout"
+    LOGOUT_ALL = "logout_all"
+    REVOKED = "revoked"  # ended by the user from their session list
+    REPLACED = "replaced"  # ended by the session strategy at a new login
+    PASSWORD_CHANGED = "password_changed"  # noqa: S105 - a reason name, not a password
+    REUSE_DETECTED = "reuse_detected"
 
 
 class TokenPurpose(StrEnum):
@@ -57,11 +67,13 @@ class User(UUIDPrimaryKey, Timestamps, Base):
     is_platform_admin: Mapped[bool] = mapped_column(default=False, server_default=false())
     failed_login_count: Mapped[int] = mapped_column(default=0, server_default="0")
     locked_until: Mapped[datetime | None]
+    last_login_at: Mapped[datetime | None]
     deleted_at: Mapped[datetime | None]
 
 
 class UserSession(UUIDPrimaryKey, Timestamps, Base):
-    """A refresh-token session. `family_id` links the tokens of one rotation chain."""
+    """One refresh token. A login starts a family (`family_id`, the access token's `sid`);
+    each refresh revokes the row (`rotated`) and adds the next one to the same family."""
 
     __tablename__ = "sessions"
     __table_args__ = (
@@ -70,17 +82,32 @@ class UserSession(UUIDPrimaryKey, Timestamps, Base):
         CheckConstraint(
             f"char_length(user_agent) <= {USER_AGENT_MAX_LENGTH}", name="user_agent_length"
         ),
+        CheckConstraint(
+            "(revoked_at IS NULL) = (revoked_reason IS NULL)", name="revoked_reason_set"
+        ),
+        CheckConstraint("family_started_at <= created_at", name="family_started_first"),
         # Full index (not partial): deleting a user must also find revoked sessions.
         Index("ix_sessions_user_id", "user_id"),
+        # At most one usable token per family: two concurrent refreshes can't both succeed.
+        Index(
+            "uq_sessions_family_id_active",
+            "family_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
         Index("ix_sessions_family_id", "family_id"),
         Index("ix_sessions_expires_at", "expires_at"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     family_id: Mapped[uuid.UUID]
+    family_started_at: Mapped[datetime]  # first login of the family; caps refreshing
     token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
     expires_at: Mapped[datetime]
     revoked_at: Mapped[datetime | None]
+    revoked_reason: Mapped[RevokeReason | None] = mapped_column(
+        text_enum(RevokeReason, "revoked_reason")
+    )
     last_used_at: Mapped[datetime | None]
     ip: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(Text)

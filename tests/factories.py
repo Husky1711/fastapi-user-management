@@ -74,6 +74,7 @@ def new_session(user: User, **overrides: Any) -> UserSession:
         "id": uuid.uuid4(),
         "user_id": user.id,
         "family_id": uuid.uuid4(),
+        "family_started_at": overrides.get("created_at") or clock.now(),
         "token_hash": random_hash(),
         "expires_at": in_one_day(),
     }

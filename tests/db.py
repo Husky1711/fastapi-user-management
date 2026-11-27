@@ -1,9 +1,14 @@
 """Helpers for tests that need the real PostgreSQL (CI service or `make run`)."""
 
 import os
+import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import DatabaseSettings
 
@@ -29,3 +34,13 @@ def service_database_settings(*, pool_size: int = 5, max_overflow: int = 5) -> D
     return DatabaseSettings(
         url=SecretStr(SERVICE_DATABASE_URL), pool_size=pool_size, max_overflow=max_overflow
     )
+
+
+@asynccontextmanager
+async def rejected(session: AsyncSession, reason: str) -> AsyncIterator[None]:
+    """The writes in the block must be refused by the database, naming `reason`."""
+    # The savepoint has to wrap the caller's whole block, so the block can't be one statement.
+    with pytest.raises(IntegrityError, match=re.escape(reason)):  # noqa: PT012
+        async with session.begin_nested():
+            yield
+            await session.flush()

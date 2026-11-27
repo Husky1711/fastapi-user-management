@@ -4,10 +4,13 @@ The upgrade / downgrade / upgrade round trip itself runs as a CI step before the
 (scenarios 2.3-01, 2.3-02, 2.3-04); these tests check what that left behind.
 """
 
+from pathlib import Path
 from typing import Any
 
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -15,6 +18,7 @@ from app.models import Base
 from tests.db import SERVICES
 
 pytestmark = SERVICES
+ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
 TRIGGERS = {
     *(
@@ -70,4 +74,5 @@ async def test_s2_3_01_extension_and_triggers_are_installed(db_connection: Async
 
 async def test_s2_3_04_database_is_at_the_latest_revision(db_connection: AsyncConnection) -> None:
     version = await db_connection.execute(text("SELECT version_num FROM alembic_version"))
-    assert list(version.scalars()) == ["0002"]
+    head = ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_current_head()
+    assert list(version.scalars()) == [head]
