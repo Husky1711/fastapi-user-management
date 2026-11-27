@@ -52,11 +52,13 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_sessions_family_started_first"), "sessions", "family_started_at <= created_at"
     )
-    # Older data may hold several active rows in one family: keep the newest active.
+    # Older data may hold several active rows in one family: keep the newest active. Rows
+    # written in the same instant are ordered by id, so exactly one stays active.
     op.execute(
         "UPDATE sessions s SET revoked_at = now(), revoked_reason = 'rotated' "
         "WHERE s.revoked_at IS NULL AND EXISTS (SELECT 1 FROM sessions n "
-        "WHERE n.family_id = s.family_id AND n.revoked_at IS NULL AND n.created_at > s.created_at)"
+        "WHERE n.family_id = s.family_id AND n.revoked_at IS NULL "
+        "AND (n.created_at, n.id) > (s.created_at, s.id))"
     )
     op.create_index(
         "uq_sessions_family_id_active",
