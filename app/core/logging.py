@@ -5,13 +5,19 @@ Usage:
     log.info("user signed in", user_id=str(user.id))
 
 Every line carries the current request id. Never pass passwords, tokens or full emails.
+
+Writing to stdout can block (a slow log pipe), so the request path never writes: records go
+onto an in-memory queue and a background thread formats and writes them.
 """
 
+import atexit
 import json
 import logging
+import queue
 import sys
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from logging.handlers import QueueHandler, QueueListener
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
@@ -54,6 +60,37 @@ class StdoutHandler(logging.Handler):
             self.handleError(record)
 
 
+class AppLogHandler(QueueHandler):
+    """Root handler: queues records for the writer thread instead of writing them."""
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        # Keep the record intact (it is formatted in the writer thread), but capture the request
+        # id now: the writer thread has no request context.
+        if getattr(record, _REQUEST_ID_ATTR, None) is None:
+            setattr(record, _REQUEST_ID_ATTR, request_id_var.get())
+        return record
+
+
+_log_queue: "queue.Queue[logging.LogRecord] | None" = None
+_listener: QueueListener | None = None
+
+
+def flush_logs() -> None:
+    """Block until every queued record has been written (tests, shutdown)."""
+    if _log_queue is not None:
+        _log_queue.join()
+
+
+def _stop_writer() -> None:
+    global _listener
+    if _listener is not None:
+        _listener.stop()  # writes what is still queued, then ends the thread
+        _listener = None
+
+
+atexit.register(_stop_writer)
+
+
 class StructuredLogger:
     """Thin wrapper so call sites pass fields as keyword arguments."""
 
@@ -89,12 +126,18 @@ def get_logger(name: str) -> StructuredLogger:
 
 def configure_logging(level: str) -> None:
     """Send all logs, including uvicorn's, to stdout as JSON. Safe to call more than once."""
-    handler = StdoutHandler()
-    handler.setFormatter(JsonFormatter())
+    global _log_queue, _listener
+    _stop_writer()
+    _log_queue = queue.Queue()
+    writer = StdoutHandler()
+    writer.setFormatter(JsonFormatter())
+    _listener = QueueListener(_log_queue, writer)
+    _listener.start()
 
     root = logging.getLogger()
     # Replace only our own handler, so handlers installed by others (e.g. test capture) survive.
-    root.handlers = [h for h in root.handlers if not isinstance(h, StdoutHandler)] + [handler]
+    root.handlers = [h for h in root.handlers if not isinstance(h, AppLogHandler)]
+    root.addHandler(AppLogHandler(_log_queue))
     root.setLevel(level)
 
     for name in ("uvicorn", "uvicorn.error"):

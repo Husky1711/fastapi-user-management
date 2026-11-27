@@ -7,9 +7,11 @@ import pytest
 
 from app.core import clock
 from app.core.logging import (
+    AppLogHandler,
     JsonFormatter,
     StdoutHandler,
     configure_logging,
+    flush_logs,
     get_logger,
     request_id_var,
 )
@@ -62,6 +64,7 @@ def test_s1_3_05_json_goes_to_stdout_and_uvicorn_access_log_is_off(
 ) -> None:
     configure_logging("INFO")
     get_logger("test").info("hello", answer=42)
+    flush_logs()  # written by the background writer thread
     output = capsys.readouterr().out.strip().splitlines()[-1]
     assert json.loads(output)["answer"] == 42
     assert logging.getLogger("uvicorn.access").disabled
@@ -74,7 +77,7 @@ def test_s1_3_06_configuring_twice_keeps_one_handler_and_foreign_handlers() -> N
     try:
         configure_logging("INFO")
         configure_logging("INFO")
-        ours = [h for h in root.handlers if isinstance(h, StdoutHandler)]
+        ours = [h for h in root.handlers if isinstance(h, AppLogHandler)]
         assert len(ours) == 1
         assert foreign in root.handlers
     finally:
@@ -106,3 +109,33 @@ def test_s1_3_27_clock_is_timezone_aware_utc() -> None:
     offset = clock.now().utcoffset()
     assert offset is not None
     assert offset.total_seconds() == 0
+
+
+def test_s1_3_33_logging_from_the_request_path_never_writes_to_stdout_directly(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO")
+    token = request_id_var.set("queued-req")
+    try:
+        get_logger("test").info("queued line")
+    finally:
+        request_id_var.reset(token)
+    root_handlers = logging.getLogger().handlers
+    assert not any(isinstance(h, StdoutHandler) for h in root_handlers)  # only the writer thread
+    flush_logs()
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (line["message"], line["request_id"]) == ("queued line", "queued-req")
+
+
+def test_s1_3_34_third_party_log_lines_keep_the_request_id_across_the_queue(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO")
+    token = request_id_var.set("uvicorn-req")
+    try:
+        logging.getLogger("uvicorn.error").warning("from a library")
+    finally:
+        request_id_var.reset(token)
+    flush_logs()
+    line = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (line["logger"], line["request_id"]) == ("uvicorn.error", "uvicorn-req")

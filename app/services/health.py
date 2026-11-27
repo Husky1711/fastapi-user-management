@@ -22,14 +22,19 @@ HealthCheck = Callable[[], Awaitable[None]]
 
 # "scheme://user:password@host" → "scheme://***@host"
 _URL_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^@/\s]+@", re.IGNORECASE)
+# "password=hunter2" (libpq key/value DSNs, query strings) → "password=***"
+_KEY_VALUE_SECRET = re.compile(
+    r"\b(password|passwd|pwd|secret|token)\s*=\s*[^\s;&'\"]+", re.IGNORECASE
+)
 MAX_LOGGED_ERROR = 200
 
 log = get_logger(__name__)
 
 
 def redact(message: str) -> str:
-    """Remove credentials embedded in URLs and cap the length, for logging."""
-    return _URL_CREDENTIALS.sub(r"\1***@", message)[:MAX_LOGGED_ERROR]
+    """Remove credentials (in URLs and key=value pairs) and cap the length, for logging."""
+    without_urls = _URL_CREDENTIALS.sub(r"\1***@", message)
+    return _KEY_VALUE_SECRET.sub(r"\1=***", without_urls)[:MAX_LOGGED_ERROR]
 
 
 async def _run_check(name: str, check: HealthCheck, limit_seconds: float) -> CheckResult:

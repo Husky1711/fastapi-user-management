@@ -6,19 +6,21 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 from starlette.types import Message
 
-from app.core.config import DatabaseSettings, Environment, JwtSettings, Settings
+from app.core.config import DatabaseSettings, Environment, JwtSettings, RedisSettings, Settings
 from app.main import create_app
 from app.services.health import HealthCheck
 
-SAFE_SECRET = "a" * 48
+SAFE_SECRET = "N9xq2Lr7VbKp4Zt8Ws1Ye6Hd3Gu0Mf5JcQaRtYsBnEi"  # varied, ≥ 32 chars (test only)
 ALLOWED_ORIGIN = "https://app.example.com"
 CRASH_PATH = "/_test/crash"
 CRASH_SECRET = "hunter2"
 SAFE_DB = DatabaseSettings(url="postgresql+asyncpg://app:s3cret@db:5432/app")
+SAFE_REDIS = RedisSettings(url="redis://:r3dis-pass@cache:6379/0")
 
 
 # Any: values are forwarded unchanged to Settings' own typed constructor, which validates them.
@@ -38,6 +40,7 @@ def strict_settings(
         "environment": environment,
         "jwt": JwtSettings(secret_key=SecretStr(SAFE_SECRET)),
         "database": SAFE_DB,
+        "redis": SAFE_REDIS,
     }
     values.update(overrides)
     return make_settings(**values)
@@ -65,6 +68,23 @@ def add_crash_route(app: FastAPI) -> FastAPI:
     @app.get(CRASH_PATH)
     async def crash() -> None:
         raise RuntimeError(f"database password is {CRASH_SECRET}")
+
+    return app
+
+
+STREAM_PATH = "/_test/stream"
+
+
+def add_broken_stream_route(app: FastAPI) -> FastAPI:
+    """Test-only route that fails after its streamed response has started."""
+
+    async def broken_stream() -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("stream broke")
+
+    @app.get(STREAM_PATH)
+    async def stream() -> StreamingResponse:
+        return StreamingResponse(broken_stream())
 
     return app
 

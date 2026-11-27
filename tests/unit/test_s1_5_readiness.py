@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from app.services.health import ReadinessProbe, redact, run_checks
 from tests.helpers import check_never_finishes, check_ok
 
@@ -108,3 +110,18 @@ def test_s1_5_03_redaction_removes_url_credentials_and_caps_length() -> None:
         redact(message) == "connect postgresql+asyncpg://***@db:5432/x and redis://***@cache:6379"
     )
     assert len(redact("x" * 1000)) == 200
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("host=db user=app password=hunter2 dbname=x", "host=db user=app password=*** dbname=x"),
+        (
+            "connect?sslmode=require&PASSWORD=hunter2&x=1",
+            "connect?sslmode=require&PASSWORD=***&x=1",
+        ),
+        ("token = abc123; next", "token=***; next"),
+    ],
+)
+def test_s1_5_20_redaction_removes_key_value_secrets(message: str, expected: str) -> None:
+    assert redact(message) == expected

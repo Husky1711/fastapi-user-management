@@ -7,16 +7,18 @@ from collections.abc import AsyncIterator, Mapping
 
 import pytest
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
 from pydantic import BaseModel
 
+from app.api.v1 import api_router
 from app.core.config import CorsSettings
 from app.core.errors import Conflict, NotFound
 from tests.helpers import (
     ALLOWED_ORIGIN,
     CRASH_PATH,
     CRASH_SECRET,
+    STREAM_PATH,
+    add_broken_stream_route,
     add_crash_route,
     app_with,
     client_for,
@@ -30,8 +32,8 @@ class SignupIn(BaseModel):
 
 
 def _app_with_test_routes() -> FastAPI:
-    app = add_crash_route(
-        app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,))))
+    app = add_broken_stream_route(
+        add_crash_route(app_with(make_settings(cors=CorsSettings(allow_origins=(ALLOWED_ORIGIN,)))))
     )
 
     @app.get("/_test/not-found")
@@ -61,14 +63,6 @@ def _app_with_test_routes() -> FastAPI:
     @app.get("/_test/client-closed")
     async def client_closed() -> None:
         raise HTTPException(status_code=499, detail="Client closed request")
-
-    async def broken_stream() -> AsyncIterator[bytes]:
-        yield b"partial"
-        raise RuntimeError("stream broke")
-
-    @app.get("/_test/stream")
-    async def stream() -> StreamingResponse:
-        return StreamingResponse(broken_stream())
 
     return app
 
@@ -176,7 +170,7 @@ async def test_s1_4_10_non_standard_status_code_still_gets_problem_json(
 
 async def test_s1_4_11_error_after_streaming_started_is_not_disguised(http: AsyncClient) -> None:
     with pytest.raises(RuntimeError, match="stream broke"):
-        await http.get("/_test/stream")
+        await http.get(STREAM_PATH)
 
 
 async def test_s1_4_12_browser_can_read_a_500_from_an_allowed_origin(http: AsyncClient) -> None:
@@ -194,3 +188,24 @@ async def test_s1_4_16_client_chosen_keys_in_error_paths_are_cut_short(http: Asy
     assert loc == ["body", "k" * 64 + "…"]
     assert "not-a-number-secret" not in response.text
     assert long_key not in response.text
+
+
+async def test_s1_4_17_error_format_is_documented_in_the_api_schema(http: AsyncClient) -> None:
+    schema = (await http.get("/openapi.json")).json()
+    components = schema["components"]["schemas"]
+    assert {"ProblemOut", "ValidationProblemOut", "FieldError"} <= set(components)
+    assert set(components["ProblemOut"]["properties"]) >= {
+        "type",
+        "title",
+        "status",
+        "detail",
+        "code",
+        "request_id",
+    }
+    ready = schema["paths"]["/health/ready"]["get"]["responses"]
+    assert "application/problem+json" in ready["500"]["content"]
+    assert "503" in ready
+
+
+def test_s1_4_18_versioned_api_documents_validation_errors_in_the_problem_format() -> None:
+    assert {422, 500} <= set(api_router.responses)

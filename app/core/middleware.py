@@ -16,11 +16,13 @@ import re
 import time
 import uuid
 
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import ClientDisconnect
+from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.errors import internal_error_response
+from app.core.errors import internal_error_response, problem_response
 from app.core.logging import get_logger, request_id_var
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -56,6 +58,21 @@ def _incoming_request_id(scope: Scope) -> str | None:
     if candidate is not None and _VALID_REQUEST_ID.fullmatch(candidate):
         return candidate
     return None
+
+
+class ProblemCORSMiddleware(CORSMiddleware):
+    """Starlette's CORS middleware, but a rejected preflight uses the standard error format."""
+
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code != 400:
+            return response
+        return problem_response(
+            400,
+            "cors.preflight_rejected",
+            "This cross-origin request is not allowed.",
+            headers={"Vary": "Origin"},
+        )
 
 
 class ErrorBoundaryMiddleware:

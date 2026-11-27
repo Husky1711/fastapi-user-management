@@ -11,12 +11,14 @@ safety check has passed.
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
+MIN_JWT_SECRET_DISTINCT_CHARS = 10  # rejects "aaaa…" or "abababab…" style secrets
 DEFAULT_DATABASE_CREDENTIALS = "postgres:postgres@"
 
 
@@ -128,22 +130,38 @@ class Settings(BaseSettings):
         """Every reason these settings are unsafe for a strict environment (empty if safe)."""
         if not self.is_strict:
             return []
-        problems: list[str] = []
-        secret = self.jwt.secret_key.get_secret_value()
-        if secret == DEFAULT_JWT_SECRET:
-            problems.append("JWT__SECRET_KEY is the development default")
-        elif len(secret) < MIN_JWT_SECRET_LENGTH:
-            problems.append(f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters")
+        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value())
         if self.debug:
             problems.append("DEBUG must be false")
         if DEFAULT_DATABASE_CREDENTIALS in self.database.url:
             problems.append("DATABASE__URL uses the default postgres:postgres credentials")
+        elif not _has_password(self.database.url):
+            problems.append("DATABASE__URL must include a password")
+        if not _has_password(self.redis.url):
+            problems.append("REDIS__URL must include a password")
         return problems
 
     def ensure_safe(self) -> None:
         problems = self.safety_problems()
         if problems:
             raise UnsafeConfigurationError(self.environment, problems)
+
+
+def _jwt_secret_problems(secret: str) -> list[str]:
+    if secret == DEFAULT_JWT_SECRET:
+        return ["JWT__SECRET_KEY is the development default"]
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        return [f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters"]
+    if len(set(secret)) < MIN_JWT_SECRET_DISTINCT_CHARS:
+        return ["JWT__SECRET_KEY is too repetitive; generate a random one"]
+    return []
+
+
+def _has_password(url: str) -> bool:
+    try:
+        return bool(urlsplit(url).password)
+    except ValueError:  # malformed URL: the connection itself will fail loudly
+        return False
 
 
 @lru_cache

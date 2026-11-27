@@ -168,7 +168,7 @@
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 1.6-01 | C1 | Image builds; stack starts healthy | All services healthy | CI step "1.1-3" (`compose up --wait`) | ✅ |
+| 1.6-01 | C1 | Image builds; stack starts healthy | All services healthy | CI step "1.1-03" (`compose up --wait`) | ✅ |
 | 1.6-02 | C6 | Container user | Non-root (uid 10001 in the run) | CI step "1.6-02" | ✅ |
 | 1.6-03 | C6 | Image contents | No tests, docs, `.env` or `.git` | CI step "1.6-03" | ✅ |
 | 1.6-04 | C1 | Report reads passed, failed, error, skipped | Correct outcomes and messages | test `s1_6_04` | ✅ |
@@ -200,7 +200,7 @@ Every failure found while building, testing and reviewing this step.
 | R1-02 | Review round 1 (High) | Rows claimed coverage their tests didn't prove | Weak tests | Real tests: 1.2-04, 1.3-06, 1.5-05/06/07 | Fixed |
 | R1-03 | Review round 1 (High) | Tests not named by scenario id | Rule not followed | All tests renamed `test_s1_<section>_<nn>_...` | Fixed |
 | R1-04 | Review round 1 (High) | `Any` without a reason | Rule not followed | Removed from `app/`; commented where kept in test helpers | Fixed |
-| R1-05 | Review round 1 | Rows marked CI-verified that no CI step checked | Inspection presented as CI | CI steps 1.1-3, 1.6-02, 1.6-03; test 1.1-02 | Fixed |
+| R1-05 | Review round 1 | Rows marked CI-verified that no CI step checked | Inspection presented as CI | CI steps 1.1-03, 1.6-02, 1.6-03; test 1.1-02 | Fixed |
 | R1-06 | Review round 1 | Nested settings were mutable after the safety check | Only top level frozen | All sections frozen, origins a tuple (1.2-18) | Fixed |
 | R1-07 | Review round 1 | Staging had no safety checks and served docs | Production-only check | Staging is strict; docs only in development/test (1.2-02/03, 1.3-20) | Fixed |
 | R1-08 | Review round 1 | `JWT__ALGORITHM` accepted any string, incl. `none` | Unconstrained | HMAC-only `Literal` (1.2-12, 1.2-17); kept because step 3 uses it | Fixed |

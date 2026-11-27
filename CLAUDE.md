@@ -73,9 +73,15 @@ code is broken and try to prove it. Passing tests you wrote for the happy path p
 4. Then update the section log (✅, scenario counts), commit and push.
 
 **Level 2: every step.** When all sections are ✅, retest the whole step together on the real
-stack and run the five-check gate: automated, tester, user, cross-check vs the old code on
-`main`, independent review. PASS plus the owner's approval is required before merge, and the
-next step starts only after that.
+stack and run the gate: automated, tester, user, cross-check vs the old code on `main`,
+independent review, plus a security audit for security-relevant steps.
+
+**Autonomous progression (owner's standing instruction, 2026-11-27).** Don't ask the owner
+whether to continue. Enforce these standards yourself and keep fixing and re-checking until the
+step meets them. When a step's gate passes with **every touched scorecard area ≥ 9** (or a
+lower score whose fix belongs to a named later step, recorded as carried forward), merge the
+step's pull request into `v2` and start the next step. Report progress to the owner; ask only
+for things on the list at the end of this file.
 
 **Session rule.** Before any session ends, every finished section is tested, committed, pushed
 and marked ✅. Unfinished work is committed and marked 🔄 with a note on what is left. A new
@@ -99,7 +105,7 @@ High findings, then run it again until it returns PASS. Never edit its verdict.
 review areas against the old code's baseline, one line of evidence per score, and updates
 `docs/milestones/SCORECARD.md`. Areas not built yet are marked "not built yet", not given a
 number. A step is production-grade when every area it touches scores ≥ 9, or a lower score is
-explained and accepted by the owner.
+carried forward to a named later step whose scope it belongs to.
 
 ## Definition of done (every PR)
 
@@ -199,3 +205,4 @@ Tests that need real PostgreSQL and Redis are marked `services` and run when
 - Reversing an ADR
 - Adding a new runtime dependency that isn't in `docs/ARCHITECTURE.md` §1
 - Anything destructive on a real database or on GitHub (deleting branches, tags, releases)
+- Merging `v2` into `main` (the release, roadmap step 10)

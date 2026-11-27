@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from functools import partial
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import health
@@ -16,9 +15,14 @@ from app.api.v1 import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.core.middleware import ErrorBoundaryMiddleware, RequestContextMiddleware
+from app.core.middleware import (
+    ErrorBoundaryMiddleware,
+    ProblemCORSMiddleware,
+    RequestContextMiddleware,
+)
 from app.infra.database import create_engine, ping_database
 from app.infra.redis import create_redis, ping_redis
+from app.schemas.errors import COMMON_ERROR_RESPONSES
 from app.services.health import HealthCheck, ReadinessProbe
 
 log = get_logger(__name__)
@@ -74,6 +78,7 @@ def create_app(
         version=__version__,
         debug=settings.debug,
         lifespan=lifespan,
+        responses=COMMON_ERROR_RESPONSES,
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
@@ -91,7 +96,7 @@ def create_app(
     app.add_middleware(ErrorBoundaryMiddleware)
     if settings.cors.allow_origins:
         app.add_middleware(
-            CORSMiddleware,
+            ProblemCORSMiddleware,
             allow_origins=list(settings.cors.allow_origins),
             allow_credentials=settings.cors.allow_credentials,
             allow_methods=["*"],

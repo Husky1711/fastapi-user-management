@@ -12,8 +12,8 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 - Each step is split into sections. Each section is tested against the full scenario checklist
   before the next one starts (`docs/milestones/README.md`).
 - A step is done only when every task is ticked, its exit criteria are met, **and it passes the
-  step gate** (`docs/milestones/README.md`) with the owner's approval of the report and an
-  independent scorecard. The next step starts only after that.
+  step gate** (`docs/milestones/README.md`) with an independent scorecard where every touched
+  area is ≥ 9 (or carried to a named later step). The next step then starts automatically.
 - Tick boxes in this file in the same PR that does the work.
 - If a step reveals that the plan is wrong, change this file in that PR and say why.
 

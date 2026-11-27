@@ -12,6 +12,10 @@ from app.core.config import DatabaseSettings, HealthSettings, RedisSettings
 from app.core.logging import JsonFormatter
 from tests.helpers import app_with, check_never_finishes, check_ok, client_for, make_settings
 
+# Read at import time: the autouse fixture clears app settings from the environment per test.
+SERVICE_DATABASE_URL = os.getenv("DATABASE__URL", "")
+SERVICE_REDIS_URL = os.getenv("REDIS__URL", "")
+
 
 async def _fails_with_secret() -> None:
     raise ConnectionError("postgresql://user:secret@db/app refused")
@@ -159,8 +163,8 @@ async def test_s1_5_17_thirty_concurrent_probes_over_http_run_the_checks_once() 
 @pytest.mark.skipif(not os.getenv("RUN_SERVICE_TESTS"), reason="needs PostgreSQL and Redis")
 async def test_s1_5_11_readiness_against_real_postgres_and_redis() -> None:
     settings = make_settings(
-        database=DatabaseSettings(url=os.environ["DATABASE__URL"]),
-        redis=RedisSettings(url=os.environ["REDIS__URL"]),
+        database=DatabaseSettings(url=SERVICE_DATABASE_URL),
+        redis=RedisSettings(url=SERVICE_REDIS_URL),
     )
     app = main_module.create_app(settings)
     async with app.router.lifespan_context(app), client_for(app) as client:

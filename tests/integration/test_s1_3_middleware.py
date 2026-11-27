@@ -3,11 +3,9 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
 
 import pytest
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
 from starlette.types import Receive, Scope, Send
 
@@ -17,7 +15,9 @@ from app.core.middleware import CLIENT_CLOSED_REQUEST, RequestContextMiddleware
 from tests.helpers import (
     ALLOWED_ORIGIN,
     CRASH_PATH,
+    STREAM_PATH,
     RecordingSend,
+    add_broken_stream_route,
     add_crash_route,
     app_with,
     client_for,
@@ -250,17 +250,29 @@ async def test_s1_3_31_failure_outside_the_error_boundary_gets_a_clean_500(
 async def test_s1_3_32_error_after_streaming_started_is_logged_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    app = app_with()
-
-    async def broken_stream() -> AsyncIterator[bytes]:
-        yield b"partial"
-        raise RuntimeError("stream broke")
-
-    @app.get("/_test/stream")
-    async def stream() -> StreamingResponse:
-        return StreamingResponse(broken_stream())
+    app = add_broken_stream_route(app_with())
 
     async with client_for(app) as client:
         with caplog.at_level(logging.INFO), pytest.raises(RuntimeError):
-            await client.get("/_test/stream")
+            await client.get(STREAM_PATH)
     assert len([r for r in caplog.records if r.getMessage() == "unhandled exception"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("origin", "method"),
+    [("https://evil.example.com", "GET"), (ALLOWED_ORIGIN, "TRACE-NOT-A-METHOD")],
+)
+async def test_s1_3_35_rejected_cors_preflight_uses_the_standard_error_format(
+    origin: str, method: str
+) -> None:
+    async with client_for(_cors_app()) as client:
+        response = await client.options(
+            "/health/live",
+            headers={"Origin": origin, "Access-Control-Request-Method": method},
+        )
+    assert response.status_code == 400
+    assert response.headers["content-type"] == "application/problem+json"
+    body = response.json()
+    assert body["code"] == "cors.preflight_rejected"
+    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert "access-control-allow-origin" not in response.headers

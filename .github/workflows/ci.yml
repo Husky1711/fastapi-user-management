@@ -28,6 +28,13 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - name: "TEMPORARY: print uv.lock so it can be committed (removed once uv.lock exists)"
+        run: |
+          if [ ! -f uv.lock.committed ]; then
+            uv lock
+            sha256sum uv.lock
+            echo "UVLOCK-BEGIN"; gzip -9 -c uv.lock | base64 -w 0; echo; echo "UVLOCK-END"
+          fi
 
   typecheck:
     name: Type check
@@ -145,6 +152,25 @@ jobs:
           $WAIT http://localhost:8000/health/live 200 5
           docker compose start db
           $WAIT http://localhost:8000/health/ready 200 60
+      - name: "1.5-19 Outage logs from 1.5-13/14 contain no credentials and no tracebacks"
+        run: |
+          logs=$(docker compose logs app)
+          echo "$logs" | grep '"readiness check failed"' | head -5
+          test "$(echo "$logs" | grep -c '"readiness check failed"')" -ge 2
+          if echo "$logs" | grep -q 'postgres:postgres@\|redis-dev-password'; then echo "credentials in logs"; exit 1; fi
+          if echo "$logs" | grep '"readiness check failed"' | grep -q 'Traceback'; then echo "traceback in logs"; exit 1; fi
+      - name: "1.5-21 Wrong DB password: not ready, and the password never reaches the logs"
+        run: |
+          docker compose run --detach --no-deps --name app-badpw --publish 8002:8000 \
+            -e DATABASE__URL="postgresql+asyncpg://postgres:Wrong-Pw-7731@db:5432/usermgmt" app
+          $WAIT http://localhost:8002/health/live 200 30
+          $WAIT http://localhost:8002/health/ready 503 10
+          logs=$(docker logs app-badpw 2>&1)
+          echo "$logs" | grep '"readiness check failed"' | head -3
+          echo "$logs" | grep -q '"readiness check failed"'
+          if echo "$logs" | grep -q 'Wrong-Pw-7731'; then echo "password in logs"; exit 1; fi
+          if echo "$logs" | grep -q 'Traceback'; then echo "traceback in logs"; exit 1; fi
+          docker rm -f app-badpw
       - name: "1.5-18 App started while PostgreSQL is down: starts, not ready; ready once the DB is back"
         run: |
           docker compose stop db
@@ -153,12 +179,6 @@ jobs:
           $WAIT http://localhost:8000/health/ready 503 5
           docker compose start db
           $WAIT http://localhost:8000/health/ready 200 60
-      - name: "1.5-19 Readiness failure logs contain no credentials or tracebacks"
-        run: |
-          logs=$(docker compose logs app)
-          echo "$logs" | grep -q '"message": "readiness check failed"'
-          if echo "$logs" | grep -q 'postgres:postgres@'; then echo "credentials in logs"; exit 1; fi
-          if echo "$logs" | grep '"readiness check failed"' | grep -q 'Traceback'; then echo "traceback in logs"; exit 1; fi
       - name: "1.2-21 Production with safe settings starts, sends HSTS, hides docs"
         run: |
           docker compose exec -T db psql -U postgres -c "CREATE ROLE app_ci LOGIN PASSWORD 'ci-strong-password'"
