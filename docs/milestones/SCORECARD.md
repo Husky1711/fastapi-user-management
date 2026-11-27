@@ -8,16 +8,16 @@ scores are the baseline from the review at `main` @ `209a9bd`.
 
 | Area | Old code (baseline) | After step 1 | After step 2 | After step 3 | … | Target |
 | --- | --- | --- | --- | --- | --- | --- |
-| Folder structure & architecture | 6 | 9 | | | | 10 |
-| API design | 5 | 9 | | | | 10 |
-| Database schema | 5 | not built yet | | | | 10 |
-| Scalability & load balancing | 4 | 9 | | | | 10 |
-| DSA / algorithms | 4 | not built yet | | | | 10 |
-| Code quality & correctness | 3 | 9 | | | | 10 |
-| Duplication & reuse | 3 | 9 | | | | 10 |
-| Maintainability | 3 | 9 | | | | 10 |
-| Security | 2 | 9 | | | | 10 |
-| **Overall** | **4** | **9** (9.0) | | | | **10** |
+| Folder structure & architecture | 6 | 9 | 9 | | | 10 |
+| API design | 5 | 9 | 9 | | | 10 |
+| Database schema | 5 | not built yet | 9 | | | 10 |
+| Scalability & load balancing | 4 | 9 | 8 (carried to step 3) | | | 10 |
+| DSA / algorithms | 4 | not built yet | 9 | | | 10 |
+| Code quality & correctness | 3 | 9 | 9 | | | 10 |
+| Duplication & reuse | 3 | 9 | 9 | | | 10 |
+| Maintainability | 3 | 9 | 9 | | | 10 |
+| Security | 2 | 9 | 9 | | | 10 |
+| **Overall** | **4** | **9** (9.0) | **9** (8.9) | | | **10** |
 
 ## History
 
@@ -27,3 +27,6 @@ scores are the baseline from the review at `main` @ `209a9bd`.
 | 2026-11-27 | Step 1 | milestone-reviewer, round 3 (PASS) | 8 (8.4) | Rounds 1 (7) and 2 (8) failed on evidence gaps; see `step-1.md` |
 | 2026-11-27 | Step 1 | milestone-reviewer, round 4 (PASS) | 9 (8.7) | Security and Scalability at 8: fixed |
 | 2026-11-27 | Step 1 | milestone-reviewer, round 5 (PASS, final) | 9 (9.0) | Every touched area ≥ 9; merged |
+| 2026-11-27 | Step 2 | milestone-reviewer, round 1 (FAIL) | 8 (8.2) | 4 High: transaction contract, error types, tenant scope, a false cross-check row |
+| 2026-11-27 | Step 2 | milestone-reviewer, round 2 (PASS) | 9 (8.9) | No High; Medium findings fixed in the step |
+| 2026-11-27 | Step 2 | milestone-reviewer, round 3 (PASS, final) | 9 (8.9) | Scalability 8 carried to step 3 (bounded Argon2 work, no idle connection while hashing); merged |

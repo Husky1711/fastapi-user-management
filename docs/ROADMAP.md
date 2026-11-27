@@ -23,8 +23,8 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 | --- | --- | --- |
 | 0 | Foundation docs | ✅ Done |
 | 1 | Project skeleton & tooling | ✅ Done (review round 5: 9.0/10) |
-| 2 | Database foundation | ⬜ Not started |
-| 3 | Authentication core | ⬜ Not started |
+| 2 | Database foundation | ✅ Done (review round 3: 8.9/10; Scalability 8 carried to step 3) |
+| 3 | Authentication core | 🔄 Next |
 | 4 | Rate limiting | ⬜ Not started |
 | 5 | Organizations, memberships & permissions | ⬜ Not started |
 | 6 | Account lifecycle & email | ⬜ Not started |

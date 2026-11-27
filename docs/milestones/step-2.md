@@ -1,7 +1,7 @@
 # Milestone 2: Database foundation
 
 - PR: #4
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45934502590 (commit 79f2cba; later commits change docs only)
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46041741518 (commit bde0f91; later commits change docs only)
 - Verdict: **PASS** (gate checks 1–5; review round 3 PASS, overall 8.9; Scalability 8 carried to step 3)
 
 Scenario plans below were written **before** the code (process rule). Results are filled in as
