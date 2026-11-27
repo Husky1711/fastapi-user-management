@@ -17,20 +17,6 @@ env:
   UV_VERSION: "0.13.10"  # same as the Dockerfile; uv.lock's format depends on it
 
 jobs:
-  lock:
-    name: "TEMPORARY: regenerate uv.lock"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: |
-          uv lock
-          sha256sum uv.lock
-          echo "UVLOCK-BEGIN"; gzip -9 -c uv.lock | base64 -w 0; echo; echo "UVLOCK-END"
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
