@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46051473324
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46052631869
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -14,11 +14,11 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
-| 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 18 / 18 | CI run 46049595954; 3.4-17 in run 46051473324 |
+| 3.4 | Signup and login: lockout, rehash, session strategies | 🔄 | 18 / 19 | CI run 46049595954; 3.4-17 in run 46051473324 |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 14 / 14 | CI run 46050265813; 3.5-13 in run 46051473324 |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 13 / 13 | CI run 46051473324 |
-| 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **81 / 89** | |
+| 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 8 / 8 | CI run 46052631869 |
+| | **Total** | | **90 / 90** | 89 planned + 1 added (3.4-19) |
 
 ## Design decisions for this step
 
@@ -126,6 +126,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.4-16 | C9 | Database down at login | Generic 500; password and email not logged | test | ✅ |
 | 3.4-17 | C11 | User signs up, logs in, calls `/me` (real stack) | Works end to end | CI step (Compose) | ✅ |
 | 3.4-18 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
+| 3.4-19 | C7 | Two concurrent signups with one email (different case) over HTTP | Both 202, same body; exactly one user (added: step 2 carry-over) | test | ⬜ |
 | — | C5 | N/A: signup and login are public | | | |
 | — | C8 | Covered by 3.4-02 (repeat signup) and 3.4-12 (repeat login) | | | |
 | — | C10 | Covered by 3.4-03 (nothing created) and 3.4-10 (counter exact) | | | |
@@ -175,14 +176,14 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.7-01 | C9 | Client disconnects while a JSON-body route reads its body | Logged with status 499, not 400; no error response attempted | test | ⬜ |
-| 3.7-02 | C1 | Normal JSON request | Unchanged (200/422 as before) | test | ⬜ |
-| 3.7-03 | C6 | Log fields named like secrets (`password`, `token`, `secret`, `authorization`, `api_key`, …), any case | Value replaced by `[REDACTED]` | test | ⬜ |
-| 3.7-04 | C6 | Secret values that aren't strings (numbers, lists, nested dicts) | Redacted | test | ⬜ |
-| 3.7-05 | C6 | `key: value`, `key=value` and `Authorization: Bearer …` inside messages | Value redacted | test | ⬜ |
-| 3.7-06 | C2 | Messages that only mention the words ("password reset sent") | Not mangled | test | ⬜ |
-| 3.7-07 | C1 | Login and refresh logs | Never contain the password or a token (whole flow) | test | ⬜ |
-| 3.7-08 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.7-01 | C9 | Client disconnects while a JSON-body route reads its body | Logged with status 499, not 400; no error response attempted | test | ✅ |
+| 3.7-02 | C1 | Normal JSON request | Unchanged (200/422 as before) | test | ✅ |
+| 3.7-03 | C6 | Log fields named like secrets (`password`, `token`, `secret`, `authorization`, `api_key`, …), any case | Value replaced by `[REDACTED]` | test | ✅ |
+| 3.7-04 | C6 | Secret values that aren't strings (numbers, lists, nested dicts) | Redacted | test | ✅ |
+| 3.7-05 | C6 | `key: value`, `key=value` and `Authorization: Bearer …` inside messages | Value redacted | test | ✅ |
+| 3.7-06 | C2 | Messages that only mention the words ("password reset sent") | Not mangled | test | ✅ |
+| 3.7-07 | C1 | Login and refresh logs | Never contain the password or a token (whole flow) | test | ✅ |
+| 3.7-08 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C3, C4, C5, C7, C8, C10, C11 | N/A: logging behaviour, no auth, state or flow of its own | | | |
 
 ## Failure log
@@ -195,7 +196,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | F4 | CI test (run 46048430388) | Signup answered 202 but stored nothing; every login after it failed (11 tests) | Two bugs: (1) the unit of work orders inserts by `relationship()` only, so the audit row (foreign key to the new user) was inserted first and refused; (2) `except IntegrityError` treated *every* integrity error as "email taken" and hid (1). The step 2 admin service had the same broad catch | User flushed before its audit row (rule written in `audit.record`); only `uq_users_email` means taken (`is_unique_violation`, shared, tested), anything else is re-raised; the admin service also releases its connection before hashing (R2-03) | Fixed (run 46049028389) |
 | F5 | CI test (run 46049028389) | Step 2 test 2.6-09 regressed: reading a loaded object after a failed unit of work raised `MissingGreenlet` | Ending the read transaction first (`end_read`, R2-03) made the next unit of work a fresh transaction; its failure rolled back the whole transaction and expired every loaded object (re-opening R2-02) | `transaction()` always runs the block in a SAVEPOINT; on failure it rolls back the savepoint and commits the empty outer transaction, so nothing loaded earlier is expired | Fixed (run 46049595954) |
 | F6 | CI test (run 46050943060) | `GET /me/sessions` answered 500 (6 tests); the Compose check still passed because the error body's `ip` was `null`, which is "not the spoofed address" | asyncpg returns `inet` as `ipaddress` objects, not `str` (the model said `str`); test 3.2-06 missed it by reading back the cached object; the Compose check asserted only a negative | `IPAddress` column type returns `str`; 3.2-06 re-reads from the database; the Compose check also requires a real address | Fixed (run 46051473324) |
-| F7 | CI test (run 46052147559) | Step 1 test 1.5-20 expected `token=***` for `token = abc123`; 3.7-02 got a 500 | (1) Deliberate change: the broader redaction keeps the original spacing (`token = ***`), still fully redacted; (2) the test ran the app without its lifespan, so `get_db` had no session factory | (1) Expectation updated with a comment; (2) the test starts the lifespan | Fixed |
+| F7 | CI test (run 46052147559) | Step 1 test 1.5-20 expected `token=***` for `token = abc123`; 3.7-02 got a 500 | (1) Deliberate change: the broader redaction keeps the original spacing (`token = ***`), still fully redacted; (2) the test ran the app without its lifespan, so `get_db` had no session factory | (1) Expectation updated with a comment; (2) the test starts the lifespan | Fixed (run 46052631869) |
 
 ## Gate (when all sections are ✅)
 

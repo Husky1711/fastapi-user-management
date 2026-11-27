@@ -419,3 +419,31 @@ def test_s3_4_03_only_the_email_constraint_means_taken() -> None:
     )
     for other in ('violates foreign key constraint "fk_audit_logs_actor_user_id_users"', ""):
         assert not is_unique_violation(violation(other), "uq_users_email")
+
+
+@pytest.fixture
+async def race_email(db_engine: AsyncEngine) -> AsyncIterator[str]:
+    email = _email()
+    yield email
+    async with AsyncSession(db_engine) as session, session.begin():
+        ids = list((await session.execute(select(User.id).where(User.email == email))).scalars())
+        await session.execute(delete(AuditLog).where(AuditLog.actor_user_id.in_(ids)))
+        await session.execute(delete(User).where(User.id.in_(ids)))
+
+
+async def test_s3_4_19_concurrent_signups_with_one_email_create_one_user(
+    db_engine: AsyncEngine, race_email: str
+) -> None:
+    settings = make_settings(database=service_database_settings(pool_size=5, max_overflow=5))
+    app = create_app(settings, health_checks={"database": check_ok})
+    bodies = [
+        {"email": race_email, "password": PASSWORD},
+        {"email": race_email.upper().replace("@EXAMPLE.COM", "@example.com"), "password": PASSWORD},
+    ]
+    async with app.router.lifespan_context(app), client_for(app) as http:
+        responses = await asyncio.gather(*(http.post(SIGNUP, json=body) for body in bodies))
+    assert [r.status_code for r in responses] == [202, 202]
+    assert responses[0].json() == responses[1].json()
+    async with AsyncSession(db_engine) as session:
+        count = await session.execute(select(func.count()).where(User.email == race_email))
+    assert count.scalar_one() == 1
