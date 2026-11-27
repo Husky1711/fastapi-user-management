@@ -1,4 +1,7 @@
-"""Append-only audit trail. Rows outlive the users and organizations they mention."""
+"""Audit trail. Rows outlive the users and organizations they mention.
+
+Meant to be append-only; enforcing that in the database (trigger or grants) is roadmap step 9.
+"""
 
 import uuid
 from datetime import datetime
@@ -8,7 +11,7 @@ from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Identity, Index,
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base
+from app.models.base import Base, utc_now
 
 
 class AuditLog(Base):
@@ -35,4 +38,4 @@ class AuditLog(Base):
     )
     ip: Mapped[str | None] = mapped_column(INET)
     request_id: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())

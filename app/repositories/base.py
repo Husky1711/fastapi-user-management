@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import ClassVar
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,11 @@ class Slice[T]:
 
 
 class Repository:
+    """Every subclass lists in `unscoped` the public methods that do NOT take
+    `organization_id`; all others must require it by keyword (enforced by a test)."""
+
+    unscoped: ClassVar[frozenset[str]]
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 

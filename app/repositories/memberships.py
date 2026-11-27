@@ -9,6 +9,8 @@ from app.repositories.base import Repository, Slice
 
 
 class MembershipRepository(Repository):
+    unscoped = frozenset({"add", "list_for_user"})  # insert; a user's own memberships
+
     def add(self, membership: Membership) -> None:
         self.session.add(membership)
 

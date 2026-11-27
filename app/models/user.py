@@ -8,9 +8,9 @@ from sqlalchemy import CheckConstraint, ForeignKey, Index, LargeBinary, Text, fa
 from sqlalchemy.dialects.postgresql import CITEXT, INET
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, Timestamps, UUIDPrimaryKey, text_enum
+from app.core.emails import EMAIL_MAX_LENGTH
+from app.models.base import Base, Timestamps, UUIDPrimaryKey, text_enum, utc_now
 
-EMAIL_MAX_LENGTH = 254  # RFC 5321 path limit
 TOKEN_HASH_BYTES = 32  # SHA-256 digest; the token itself is never stored
 USER_AGENT_MAX_LENGTH = 256
 
@@ -100,6 +100,6 @@ class OneTimeToken(UUIDPrimaryKey, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     purpose: Mapped[TokenPurpose] = mapped_column(text_enum(TokenPurpose, "purpose"))
     token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
     expires_at: Mapped[datetime]
     used_at: Mapped[datetime | None]

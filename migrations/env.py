@@ -4,6 +4,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -16,7 +17,22 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
+# Several replicas or init containers may run `upgrade head` at the same deploy. The first
+# takes this lock; the others wait, then find the database already at head and do nothing.
+MIGRATION_LOCK_ID = 727_100_001  # arbitrary, constant for this application
+
+
 def _run(connection: Connection) -> None:
+    connection.execute(text("SELECT pg_advisory_lock(:id)"), {"id": MIGRATION_LOCK_ID})
+    connection.commit()  # the lock is held by the connection; Alembic then runs its own
+    try:
+        _migrate(connection)
+    finally:
+        connection.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": MIGRATION_LOCK_ID})
+        connection.commit()
+
+
+def _migrate(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=Base.metadata,

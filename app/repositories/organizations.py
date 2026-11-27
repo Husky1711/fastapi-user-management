@@ -7,6 +7,8 @@ from app.repositories.base import Repository
 
 
 class OrganizationRepository(Repository):
+    unscoped = frozenset({"add", "get", "get_by_slug"})  # the tenant itself
+
     def add(self, organization: Organization) -> None:
         self.session.add(organization)
 

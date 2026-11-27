@@ -6,8 +6,11 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from sqlalchemy import DateTime, Dialect, Enum, FetchedValue, MetaData, func
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
+
+from app.core import clock
 
 # Deterministic constraint names, so Alembic can find (and drop) every constraint by name.
 NAMING_CONVENTION = {
@@ -56,6 +59,7 @@ def text_enum(enum_class: type[StrEnum], name: str) -> Enum:
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+    # Any: SQLAlchemy maps arbitrary Python types to column types here.
     type_annotation_map: ClassVar[dict[Any, Any]] = {datetime: AwareDateTime()}
     # Read server-generated values (defaults, trigger-set `updated_at`) back with RETURNING
     # after INSERT and UPDATE, so async code never triggers a lazy load.
@@ -66,10 +70,23 @@ class UUIDPrimaryKey:
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
 
-class Timestamps:
-    """`created_at` / `updated_at` set by the database (`updated_at` by a trigger)."""
+def utc_now() -> datetime:
+    """Insert default: the app clock (`app.core.clock`), so tests can inject time and every
+    timestamp compared in one CHECK (e.g. `expires_at > created_at`) comes from one clock."""
+    return clock.now()
 
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+def _same_as_created_at(context: DefaultExecutionContext) -> datetime:
+    value: datetime = context.get_current_parameters()["created_at"]
+    return value
+
+
+class Timestamps:
+    """`created_at` and the first `updated_at` from the app clock; later `updated_at` values
+    from the database trigger (so bulk `UPDATE`s can't forget it). The server defaults are a
+    fallback for rows inserted outside the app."""
+
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), server_onupdate=FetchedValue()
+        default=_same_as_created_at, server_default=func.now(), server_onupdate=FetchedValue()
     )

@@ -72,6 +72,14 @@ class Conflict(AppError):
     default_detail = "The request conflicts with the current state of the resource."
 
 
+class Unprocessable(AppError):
+    """Well-formed input that breaks a business rule (bad email, weak password, ...)."""
+
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+    default_code = "request.unprocessable"
+    default_detail = "The request breaks a rule; see `detail`."
+
+
 class RateLimited(AppError):
     status_code = HTTPStatus.TOO_MANY_REQUESTS
     default_code = "rate_limit.exceeded"

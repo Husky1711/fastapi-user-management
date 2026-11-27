@@ -7,6 +7,8 @@ from app.repositories.base import Repository
 
 
 class UserRepository(Repository):
+    unscoped = frozenset({"add", "get", "get_by_email"})  # users are global, not tenant data
+
     def add(self, user: User) -> None:
         self.session.add(user)
 

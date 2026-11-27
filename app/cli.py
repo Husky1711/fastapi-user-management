@@ -12,7 +12,7 @@ import getpass
 import sys
 from typing import TextIO
 
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from app.core.config import Settings, get_settings
 from app.core.emails import InvalidEmail
@@ -38,6 +38,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _read_password(stdin: TextIO) -> str:
+    """Only the line ending is removed: spaces are valid password characters."""
     if stdin.isatty():
         return getpass.getpass("Password: ")
     return stdin.readline().rstrip("\r\n")
@@ -55,6 +56,13 @@ async def _create_admin(
         return EXIT_INVALID_INPUT
     except Conflict:
         print("error: a user with this email already exists; nothing was changed.", file=err)
+        return EXIT_FAILED
+    except ProgrammingError:  # e.g. the users table doesn't exist yet
+        print(
+            "error: the database schema is missing or out of date; run migrations first "
+            "(alembic upgrade head).",
+            file=err,
+        )
         return EXIT_FAILED
     except (OSError, DBAPIError) as error:
         print(f"error: cannot use the database ({type(error).__name__}).", file=err)

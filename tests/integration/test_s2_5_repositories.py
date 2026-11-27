@@ -9,13 +9,13 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import event, select
+from sqlalchemy import delete, event, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock
 from app.core.pagination import MAX_OFFSET, MAX_PAGE_SIZE, PaginationParams
 from app.core.permissions import SYSTEM_ROLES
-from app.models import Membership, Organization, User, UserStatus
+from app.models import Membership, Organization, User, UserStatus, role_permissions
 from app.repositories import (
     MembershipRepository,
     OrganizationRepository,
@@ -27,12 +27,6 @@ from tests.db import SERVICES
 from tests.factories import add, new_membership, new_org, new_role, new_user, system_role
 
 pytestmark = SERVICES
-
-ORG_SCOPED: dict[type[Repository], set[str]] = {
-    # repository -> methods that are deliberately NOT scoped by organization (with reason)
-    MembershipRepository: {"add", "list_for_user"},  # insert; a user's own memberships
-    RoleRepository: {"add", "permission_keys"},  # insert; lookup by a role already resolved
-}
 
 
 async def _org_with_members(db: AsyncSession, count: int) -> tuple[Organization, list[User]]:
@@ -94,10 +88,17 @@ async def test_s2_5_04_role_lookup_prefers_the_orgs_own_role(db: AsyncSession) -
 
 async def test_s2_5_05_permission_keys_of_a_role(db: AsyncSession) -> None:
     repo = RoleRepository(db)
+    org = new_org()
+    await add(db, org)
     for key, (_, permissions) in SYSTEM_ROLES.items():
         role = await system_role(db, key)
-        assert await repo.permission_keys(role.id) == permissions
-    assert await repo.permission_keys(uuid.uuid4()) == frozenset()
+        assert await repo.permission_keys(organization_id=org.id, role_id=role.id) == permissions
+    custom = new_role(org)
+    await add(db, custom)
+    await db.execute(insert(role_permissions).values(role_id=custom.id, permission_key="org:read"))
+    assert await repo.permission_keys(organization_id=org.id, role_id=custom.id) == {"org:read"}
+    missing = await repo.permission_keys(organization_id=org.id, role_id=uuid.uuid4())
+    assert missing == frozenset()
 
 
 async def test_s2_5_06_membership_for_user_and_org_with_role(db: AsyncSession) -> None:
@@ -142,6 +143,13 @@ async def test_s2_5_07_one_orgs_members_never_appear_in_another(db: AsyncSession
     await add(db, custom_b)
     assert await role_repo.get_for_org(organization_id=org_a.id, key="only_b") is None
     assert custom_b not in await role_repo.list_for_org(organization_id=org_a.id)
+    await db.execute(
+        insert(role_permissions).values(role_id=custom_b.id, permission_key="org:read")
+    )
+    leaked = await role_repo.permission_keys(organization_id=org_a.id, role_id=custom_b.id)
+    assert leaked == frozenset()  # org B's role id, asked for through org A
+    own = await role_repo.permission_keys(organization_id=org_b.id, role_id=custom_b.id)
+    assert own == {"org:read"}
 
 
 async def test_s2_5_08_pages_cover_the_list_exactly_once(db: AsyncSession) -> None:
@@ -160,6 +168,21 @@ async def test_s2_5_08_pages_cover_the_list_exactly_once(db: AsyncSession) -> No
     assert sorted(seen) == sorted(u.id for u in users)
     past_end = await repo.list_members(organization_id=org.id, page=PaginationParams(offset=50))
     assert (list(past_end.items), past_end.total) == ([], 5)
+
+
+async def test_s2_5_08_largest_page_and_deepest_offset(db: AsyncSession) -> None:
+    org, _ = await _org_with_members(db, MAX_PAGE_SIZE + 1)
+    repo = MembershipRepository(db)
+    full = await repo.list_members(
+        organization_id=org.id, page=PaginationParams(limit=MAX_PAGE_SIZE)
+    )
+    assert (len(full.items), full.total) == (MAX_PAGE_SIZE, MAX_PAGE_SIZE + 1)
+    rest = await repo.list_members(
+        organization_id=org.id, page=PaginationParams(limit=MAX_PAGE_SIZE, offset=MAX_PAGE_SIZE)
+    )
+    assert len(rest.items) == 1
+    deepest = PaginationParams(offset=MAX_OFFSET)
+    assert (await repo.list_members(organization_id=org.id, page=deepest)).items == []
 
 
 @pytest.mark.parametrize(
@@ -218,12 +241,25 @@ def _public_methods(repository: type[Repository]) -> dict[str, inspect.Signature
     }
 
 
+def _all_repositories() -> list[type[Repository]]:
+    found, pending = [], list(Repository.__subclasses__())
+    while pending:
+        repository = pending.pop()
+        found.append(repository)
+        pending.extend(repository.__subclasses__())
+    return found
+
+
 def test_s2_5_11_org_scoped_methods_require_organization_id_by_keyword() -> None:
-    for repository, unscoped in ORG_SCOPED.items():
+    repositories = _all_repositories()
+    assert len(repositories) >= 4  # every repository module is imported by app.repositories
+    for repository in repositories:
+        # Each repository states its own unscoped methods; nothing is exempt by default.
+        assert "unscoped" in vars(repository), f"{repository.__name__} must declare `unscoped`"
         methods = _public_methods(repository)
-        assert unscoped <= set(methods)
+        assert repository.unscoped <= set(methods)
         for name, signature in methods.items():
-            if name in unscoped:
+            if name in repository.unscoped:
                 continue
             parameter = signature.parameters.get("organization_id")
             assert parameter is not None, f"{repository.__name__}.{name}"
@@ -247,8 +283,15 @@ async def test_s2_5_12_added_rows_are_invisible_until_the_caller_commits(
         await writer.flush()
         assert await UserRepository(reader).get_by_email(email) is None
         await writer.rollback()
-    async with AsyncSession(db_engine) as reader:
         assert await UserRepository(reader).get_by_email(email) is None
+        UserRepository(writer).add(new_user(email=email))
+        await writer.commit()
+    try:
+        async with AsyncSession(db_engine) as reader:
+            assert await UserRepository(reader).get_by_email(email) is not None
+    finally:
+        async with AsyncSession(db_engine) as cleanup, cleanup.begin():
+            await cleanup.execute(delete(User).where(User.email == email))
 
 
 async def test_s2_5_13_repeated_lookups_are_stable_and_write_nothing(

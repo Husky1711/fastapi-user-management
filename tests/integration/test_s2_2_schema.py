@@ -9,13 +9,14 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import DateTime, UniqueConstraint, delete, func, insert, select, text, update
-from sqlalchemy.exc import IntegrityError, StatementError
+from sqlalchemy.exc import DBAPIError, IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.core import clock
 from app.models import (
     AuditLog,
     Base,
@@ -340,11 +341,11 @@ async def test_s2_2_17_updated_at_moves_on_bulk_update_but_not_on_no_op(db: Asyn
 async def test_s2_2_18_expiry_must_be_after_creation(db: AsyncSession) -> None:
     user, org, _ = await _org_with_member(db)
     role = await system_role(db, "member")
-    db_now = (await db.execute(select(func.now()))).scalar_one()
+    at = clock.now()
     for table, row in (
-        ("sessions", new_session(user, expires_at=db_now)),
-        ("one_time_tokens", new_one_time_token(user, expires_at=db_now)),
-        ("invitations", new_invitation(org, role, expires_at=db_now)),
+        ("sessions", new_session(user, created_at=at, expires_at=at)),
+        ("one_time_tokens", new_one_time_token(user, created_at=at, expires_at=at)),
+        ("invitations", new_invitation(org, role, created_at=at, expires_at=at - timedelta(1))),
     ):
         async with rejected(db, f"ck_{table}_expires_after_created"):
             db.add(row)
@@ -418,3 +419,62 @@ async def test_s2_2_21_concurrent_signups_with_one_email_keep_one(db_engine: Asy
     finally:
         async with AsyncSession(db_engine) as session, session.begin():
             await session.execute(delete(User).where(User.email == email))
+
+
+async def test_s2_2_23_length_and_type_boundaries(db: AsyncSession) -> None:
+    org = new_org(name="n" * 200, slug="s" * 63)
+    await add(db, org)
+    await add(db, new_role(org, key="k" * 50, name="r" * 100))
+    for row, constraint in (
+        (new_org(name="n" * 201), "ck_organizations_name_length"),
+        (new_org(slug="s" * 64), "ck_organizations_slug_format"),
+        (new_role(org, key="k" * 51), "ck_roles_key_format"),
+        (new_role(org, key="x"), "ck_roles_key_format"),
+        (new_role(org, key="role_101", name="r" * 101), "ck_roles_name_length"),
+    ):
+        async with rejected(db, constraint):
+            db.add(row)
+    user = new_user()
+    await add(db, user, new_session(user, ip="2001:db8::1"))
+    with pytest.raises(DBAPIError):  # not an IP address: refused, never stored as text
+        async with db.begin_nested():
+            await add(db, new_session(user, ip="not-an-ip"))
+
+
+async def test_s2_2_24_every_table_with_updated_at_has_the_trigger(db: AsyncSession) -> None:
+    with_updated_at = {
+        table.name for table in Base.metadata.sorted_tables if "updated_at" in table.columns
+    }
+    rows = await db.execute(
+        text(
+            "SELECT c.relname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+            "WHERE t.tgname = c.relname || '_set_updated_at' AND NOT t.tgisinternal"
+        )
+    )
+    assert set(rows.scalars()) == with_updated_at
+    _, org, membership = await _org_with_member(db)
+    await db.execute(update(Organization).where(Organization.id == org.id).values(name="Renamed"))
+    admin = await system_role(db, "admin")
+    await db.execute(
+        update(Membership).where(Membership.id == membership.id).values(role_id=admin.id)
+    )
+    for model, row_id in ((Organization, org.id), (Membership, membership.id)):
+        stamps = await db.execute(
+            select(model.created_at, model.updated_at).where(model.id == row_id)
+        )
+        created, updated = stamps.one()
+        assert updated > created
+
+
+async def test_s2_2_25_rows_written_with_an_injected_clock_are_accepted(
+    db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frozen = datetime(2020, 2, 3, 4, 5, 6, tzinfo=UTC)  # far from the database's own clock
+    monkeypatch.setattr(clock, "now", lambda: frozen)
+    user, org, _ = await _org_with_member(db)
+    session, token = new_session(user), new_one_time_token(user)
+    invitation = new_invitation(org, await system_role(db, "member"))
+    await add(db, session, token, invitation, log := new_audit_log())
+    for row in (user, org, session, token, invitation, log):
+        assert row.created_at == frozen
+    assert session.expires_at == frozen + timedelta(days=1)

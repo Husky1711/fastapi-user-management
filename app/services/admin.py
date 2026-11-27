@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.emails import normalize_email
 from app.core.errors import Conflict
 from app.core.security import check_password_rules, hash_password
+from app.infra.database import transaction
 from app.models import User
 from app.repositories import UserRepository
 
@@ -13,7 +14,7 @@ from app.repositories import UserRepository
 async def create_platform_admin(session: AsyncSession, *, email: str, password: str) -> User:
     """Create a verified platform admin.
 
-    Raises `InvalidEmail` / `WeakPassword` (ValueError) for bad input and `Conflict` if the
+    Raises `InvalidEmail` / `WeakPassword` (422) for bad input and `Conflict` (409) if the
     email is taken, including by a deleted account (its row still holds the address).
     """
     email = normalize_email(email)
@@ -24,7 +25,7 @@ async def create_platform_admin(session: AsyncSession, *, email: str, password: 
         email=email, password_hash=password_hash, email_verified=True, is_platform_admin=True
     )
     try:
-        async with session.begin():
+        async with transaction(session):
             if await users.get_by_email(email) is not None:
                 raise Conflict(code="user.email_taken")
             users.add(user)

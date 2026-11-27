@@ -10,6 +10,8 @@ import unicodedata
 from argon2 import PasswordHasher, profiles
 from argon2.exceptions import InvalidHashError, VerificationError
 
+from app.core.errors import Unprocessable
+
 # RFC 9106 "second recommended" profile: Argon2id, t=3, m=64 MiB, p=4.
 _hasher = PasswordHasher.from_parameters(profiles.RFC_9106_LOW_MEMORY)
 
@@ -17,8 +19,10 @@ PASSWORD_MIN_LENGTH = 12  # NIST SP 800-63B allows 8; 12 is the common modern fl
 PASSWORD_MAX_LENGTH = 128  # bounds hashing cost per request
 
 
-class WeakPassword(ValueError):
+class WeakPassword(Unprocessable):
     """The password breaks a password rule. The message is safe to show to the user."""
+
+    default_code = "user.password_weak"
 
 
 def _normalize(password: str) -> str:
@@ -36,6 +40,10 @@ def check_password_rules(password: str) -> None:
         raise WeakPassword(msg)
     if not normalized.strip():
         msg = "Password must not be only spaces."
+        raise WeakPassword(msg)
+    if any(unicodedata.category(char) == "Cc" for char in normalized):
+        # NUL, escape, newline...: never typed on purpose, and they break forms and terminals.
+        msg = "Password must not contain control characters."
         raise WeakPassword(msg)
 
 

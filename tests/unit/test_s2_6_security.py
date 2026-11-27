@@ -10,6 +10,7 @@ from argon2.profiles import RFC_9106_LOW_MEMORY
 
 from app.core import security
 from app.core.emails import EMAIL_MAX_LENGTH, InvalidEmail, normalize_email
+from app.core.errors import AppError
 from app.core.redaction import mask_email
 from app.core.security import (
     PASSWORD_MAX_LENGTH,
@@ -85,6 +86,26 @@ def test_s2_6_04_password_length_boundaries(length: int, accepted: bool) -> None
 def test_s2_6_04_password_of_only_spaces_is_refused() -> None:
     with pytest.raises(WeakPassword, match="spaces"):
         check_password_rules(" " * PASSWORD_MIN_LENGTH)
+
+
+@pytest.mark.parametrize("control", ["\x00", "\x1b", "\n", "\t", "\x7f"])
+def test_s2_6_04_password_with_control_characters_is_refused(control: str) -> None:
+    with pytest.raises(WeakPassword, match="control characters"):
+        check_password_rules(f"long-enough-{control}-password")
+
+
+def test_s2_6_04_spaces_inside_and_around_a_password_are_kept() -> None:
+    check_password_rules("  spaces are fine here  ")
+
+
+def test_s2_6_04_rule_errors_are_client_errors_with_stable_codes() -> None:
+    for error, code in (
+        (WeakPassword("x"), "user.password_weak"),
+        (InvalidEmail(), "user.email_invalid"),
+    ):
+        assert isinstance(error, AppError)
+        assert (error.status_code, error.code) == (422, code)
+    assert InvalidEmail().detail == "Enter an email address like name@example.com."
 
 
 async def test_s2_6_05_unicode_password_typed_two_ways_verifies() -> None:
