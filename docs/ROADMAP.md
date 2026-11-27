@@ -138,7 +138,7 @@ delete; no migrations; lockout columns unused.
 - [x] Refresh rotation with `family_id` and reuse detection (reuse ⇒ revoke family + audit event)
 - [x] Account lockout: failed counter, `locked_until`, reset on success
 - [x] Session strategy from settings (`allow_multiple`, `replace_all`, `limit_sessions`, `replace_same_device`)
-- [x] `GET /me`, `GET /me/sessions`, `DELETE /me/sessions/{id}`, `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
+- [x] `GET /me`, `GET /me/sessions`, `POST /me/sessions/{id}/revoke` (current password for another device, ADR-0011), `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
 - [x] `POST /me/password` (change password; revokes other sessions)
 - [x] Tests for every path, including reuse detection, lockout and expiry
 - [x] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)

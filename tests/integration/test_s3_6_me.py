@@ -4,11 +4,12 @@ import uuid
 from typing import Any, NoReturn
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from app.core.config import AuthSettings
 from app.models import AuditLog, RevokeReason, User, UserSession
 from app.repositories import SessionRepository
 from tests.api import api_client
@@ -37,6 +38,27 @@ async def _account(http: AsyncClient, devices: int = 1) -> tuple[str, list[dict[
         assert response.status_code == 200
         logins.append(response.json())
     return email, logins
+
+
+REAUTH = {"current_password": PASSWORD}
+
+
+async def _end(http: AsyncClient, tokens: dict[str, Any], session_id: object) -> Response:
+    """End one session; the current password goes along (needed for another device)."""
+    path = f"/api/v1/me/sessions/{session_id}/revoke"
+    return await http.post(path, json=REAUTH, headers=_bearer(tokens))
+
+
+async def _revoke_others(http: AsyncClient, tokens: dict[str, Any]) -> Response:
+    return await http.post(
+        "/api/v1/me/sessions/revoke-others", json=REAUTH, headers=_bearer(tokens)
+    )
+
+
+async def _session_id(http: AsyncClient, tokens: dict[str, Any]) -> str:
+    """The id of the session these tokens belong to."""
+    page = (await http.get("/api/v1/me/sessions", headers=_bearer(tokens))).json()
+    return str(next(item["id"] for item in page["items"] if item["current"]))
 
 
 async def _reasons(db: AsyncSession, email: str) -> list[RevokeReason | None]:
@@ -98,7 +120,7 @@ async def test_s3_6_03_ending_one_session_signs_that_device_out(
         email, (phone, laptop) = await _account(http, devices=2)
         listing = (await http.get("/api/v1/me/sessions", headers=_bearer(laptop))).json()
         phone_id = next(s["id"] for s in listing["items"] if not s["current"])
-        response = await http.delete(f"/api/v1/me/sessions/{phone_id}", headers=_bearer(laptop))
+        response = await _end(http, laptop, phone_id)
         phone_after = await http.get("/api/v1/me", headers=_bearer(phone))
         laptop_after = await http.get("/api/v1/me", headers=_bearer(laptop))
     assert response.status_code == 204
@@ -119,7 +141,7 @@ async def test_s3_6_04_other_peoples_and_unknown_sessions_are_not_found(
         session_id = {"someone_elses": their_id, "unknown": str(uuid.uuid4()), "malformed": "abc"}[
             target
         ]
-        response = await http.delete(f"/api/v1/me/sessions/{session_id}", headers=_bearer(mine))
+        response = await _end(http, mine, session_id)
     expected = (
         (422, "request.validation_failed") if target == "malformed" else (404, "session.not_found")
     )
@@ -132,7 +154,7 @@ async def test_s3_6_05_revoke_others_keeps_this_device(
 ) -> None:
     async with api_client(db_connection) as http:
         email, devices = await _account(http, devices=3)
-        response = await http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(devices[1]))
+        response = await _revoke_others(http, devices[1])
         results = [(await http.get("/api/v1/me", headers=_bearer(d))).status_code for d in devices]
     assert response.status_code == 204
     assert results == [401, 200, 401]
@@ -197,7 +219,7 @@ async def test_s3_6_08_invalid_new_passwords_are_422(
     [
         ("GET", "/api/v1/me"),
         ("GET", "/api/v1/me/sessions"),
-        ("DELETE", f"/api/v1/me/sessions/{uuid.uuid4()}"),
+        ("POST", f"/api/v1/me/sessions/{uuid.uuid4()}/revoke"),
         ("POST", "/api/v1/me/sessions/revoke-others"),
         ("POST", "/api/v1/me/password"),
     ],
@@ -215,9 +237,9 @@ async def test_s3_6_10_revoke_others_twice_is_harmless(
 ) -> None:
     async with api_client(db_connection) as http:
         email, devices = await _account(http, devices=2)
-        first = await http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(devices[0]))
+        first = await _revoke_others(http, devices[0])
         before = await _reasons(db, email)
-        second = await http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(devices[0]))
+        second = await _revoke_others(http, devices[0])
     assert (first.status_code, second.status_code) == (204, 204)
     assert await _reasons(db, email) == before
 
@@ -245,7 +267,7 @@ async def test_s3_6_14_ending_your_own_current_session_signs_you_out(
         _, (phone, laptop) = await _account(http, devices=2)
         listing = (await http.get("/api/v1/me/sessions", headers=_bearer(laptop))).json()
         this_one = next(s["id"] for s in listing["items"] if s["current"])
-        response = await http.delete(f"/api/v1/me/sessions/{this_one}", headers=_bearer(laptop))
+        response = await _end(http, laptop, this_one)
         laptop_after = await http.get("/api/v1/me", headers=_bearer(laptop))
         refreshed = await http.post(
             "/api/v1/auth/refresh", json={"refresh_token": laptop["refresh_token"]}
@@ -292,9 +314,57 @@ async def test_s3_6_16_ending_the_same_session_twice_is_404_the_second_time(
         _, (_phone, laptop) = await _account(http, devices=2)
         listing = (await http.get("/api/v1/me/sessions", headers=_bearer(laptop))).json()
         phone_id = next(s["id"] for s in listing["items"] if not s["current"])
-        first = await http.delete(f"/api/v1/me/sessions/{phone_id}", headers=_bearer(laptop))
-        second = await http.delete(f"/api/v1/me/sessions/{phone_id}", headers=_bearer(laptop))
+        first = await _end(http, laptop, phone_id)
+        second = await _end(http, laptop, phone_id)
     assert (first.status_code, second.status_code) == (204, 404)
     assert second.json()["code"] == "session.not_found"
     ended = await db.execute(select(AuditLog).where(AuditLog.action == "auth.session_ended"))
     assert len(ended.scalars().all()) == 1
+
+
+@pytest.mark.parametrize("action", ["end_other_device", "revoke_others", "logout_all"])
+async def test_s3_6_17_ending_other_sessions_needs_the_current_password(
+    db: AsyncSession, db_connection: AsyncConnection, action: str
+) -> None:
+    """ASVS V3.3.4 (level 2): a stolen access token alone can't sign the owner out
+    elsewhere. Missing password: 422; wrong: 401, counted toward the lockout; right: 204."""
+    async with api_client(db_connection) as http:
+        email, (phone, stolen) = await _account(http, devices=2)
+        phone_id = await _session_id(http, phone)
+        path, body_key = {
+            "end_other_device": (f"/api/v1/me/sessions/{phone_id}/revoke", "current_password"),
+            "revoke_others": ("/api/v1/me/sessions/revoke-others", "current_password"),
+            "logout_all": ("/api/v1/auth/logout-all", "current_password"),
+        }[action]
+        missing = await http.post(path, headers=_bearer(stolen))
+        wrong = await http.post(path, json={body_key: "Wrong-Guess-123"}, headers=_bearer(stolen))
+        phone_still_in = await http.get("/api/v1/me", headers=_bearer(phone))
+        right = await http.post(path, json={body_key: PASSWORD}, headers=_bearer(stolen))
+        phone_after = await http.get("/api/v1/me", headers=_bearer(phone))
+    assert (missing.status_code, missing.json()["code"]) == (422, "auth.current_password_required")
+    assert (wrong.status_code, wrong.json()["code"]) == (401, "auth.invalid_credentials")
+    assert (phone_still_in.status_code, right.status_code, phone_after.status_code) == (
+        200,
+        204,
+        401,
+    )
+    db.expunge_all()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one()
+    assert user.failed_login_count == 1  # the wrong guess counts toward the lockout
+    failed = await db.execute(select(AuditLog).where(AuditLog.action == "auth.reauth_failed"))
+    assert len(failed.scalars().all()) == 1
+
+
+async def test_s3_6_18_ending_this_session_or_with_reauth_off_needs_no_password(
+    db_connection: AsyncConnection,
+) -> None:
+    async with api_client(db_connection) as http:
+        _, (laptop,) = await _account(http)
+        this_one = await _session_id(http, laptop)
+        own = await http.post(f"/api/v1/me/sessions/{this_one}/revoke", headers=_bearer(laptop))
+    async with api_client(db_connection, auth=AuthSettings(reauth_to_end_sessions=False)) as http:
+        _, (phone, laptop) = await _account(http, devices=2)
+        phone_id = await _session_id(http, phone)
+        other = await http.post(f"/api/v1/me/sessions/{phone_id}/revoke", headers=_bearer(laptop))
+        everything = await http.post("/api/v1/auth/logout-all", headers=_bearer(laptop))
+    assert (own.status_code, other.status_code, everything.status_code) == (204, 204, 204)

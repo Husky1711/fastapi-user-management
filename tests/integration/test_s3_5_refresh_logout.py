@@ -19,7 +19,6 @@ from app.core.logging import JsonFormatter
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from app.repositories import SessionRepository
-from app.services import auth
 from tests.api import WHOAMI, api_client, whoami_router
 from tests.db import SERVICES, UNREACHABLE_DB, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
@@ -227,7 +226,9 @@ async def test_s3_5_10_logout_all_ends_every_session_of_that_user_only(
         email, phone = await _new_account(http)
         laptop = (await http.post(LOGIN, json={"email": email, "password": PASSWORD})).json()
         _, someone_else = await _new_account(http)
-        response = await http.post(LOGOUT_ALL, headers=_bearer(laptop))
+        response = await http.post(
+            LOGOUT_ALL, json={"current_password": PASSWORD}, headers=_bearer(laptop)
+        )
         phone_after = await _refresh(http, phone["refresh_token"])
         other_after = await _refresh(http, someone_else["refresh_token"])
     assert response.status_code == 204
@@ -288,7 +289,9 @@ async def test_s3_5_16_database_failing_inside_logout_is_a_500_and_changes_nothi
         _, tokens = await _new_account(http)
         monkeypatch.setattr(SessionRepository, method, _lost_connection)
         with caplog.at_level(logging.INFO):
-            response = await http.post(path, headers=_bearer(tokens))
+            response = await http.post(
+                path, json={"current_password": PASSWORD}, headers=_bearer(tokens)
+            )
         monkeypatch.undo()
         still_in = await http.get("/api/v1/me", headers=_bearer(tokens))
     assert (response.status_code, still_in.status_code) == (500, 200)
@@ -296,16 +299,17 @@ async def test_s3_5_16_database_failing_inside_logout_is_a_500_and_changes_nothi
     assert tokens["access_token"] not in logged
 
 
-async def test_s3_5_17_asvs_level_2_limits_end_idle_and_old_sessions(
+async def test_s3_5_17_default_limits_are_asvs_level_2_at_the_boundaries(
     db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """30 minutes idle and 12 hours absolute (ASVS V3.3.2, level 2), at the boundaries."""
+    """Defaults: 30 minutes idle and 12 hours absolute (ASVS V3.3.2, level 2)."""
     start = clock.now()
     now = [start]
     monkeypatch.setattr(clock, "now", lambda: now[0])
-    policy = AuthSettings.model_validate({"refresh_ttl": "PT30M", "session_max_age": "PT12H"})
-    async with api_client(db_connection, auth=policy) as http:
+    async with api_client(db_connection) as http:
         _, tokens = await _new_account(http)
+        _, idle_ok = await _new_account(http)
+        _, idle_out = await _new_account(http)
         token = tokens["refresh_token"]
         for _ in range(24):  # active use: a refresh every 29 minutes keeps it alive...
             now[0] += timedelta(minutes=29)
@@ -313,22 +317,34 @@ async def test_s3_5_17_asvs_level_2_limits_end_idle_and_old_sessions(
             assert response.status_code == 200, now[0] - start
             token = response.json()["refresh_token"]
         assert now[0] - start == timedelta(hours=11, minutes=36)
-        now[0] += timedelta(minutes=29)  # ...but not past 12 hours after the login
-        too_old = await _refresh(http, token)
-        _, idle = await _new_account(http)
-        now[0] += timedelta(minutes=30)  # and 30 minutes without use ends a session
-        too_idle = await _refresh(http, idle["refresh_token"])
-    assert (too_old.status_code, too_idle.status_code) == (401, 401)
+        now[0] = start + timedelta(hours=12) - timedelta(seconds=1)
+        last = await _refresh(http, token)  # ...up to the last second of the 12 hours...
+        now[0] = start + timedelta(hours=12)
+        too_old = await _refresh(http, last.json()["refresh_token"])  # ...and not at 12 h
+        access_at_12h = await http.get("/api/v1/me", headers=_bearer(last.json()))
+        now[0] = start + timedelta(minutes=30) - timedelta(seconds=1)
+        not_idle = await _refresh(http, idle_ok["refresh_token"])  # 30 min idle: 1 s early
+        now[0] = start + timedelta(minutes=30)
+        too_idle = await _refresh(http, idle_out["refresh_token"])  # exactly 30 min idle
+    assert (last.status_code, too_old.status_code, access_at_12h.status_code) == (200, 401, 401)
+    assert (not_idle.status_code, too_idle.status_code) == (200, 401)
 
 
 async def test_s3_5_18_a_failed_rotation_leaves_the_old_token_working(
     db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The old row is marked rotated before the new one is written; if writing fails, the
-    mark is rolled back with it, so the client can simply retry."""
+    """The old row is marked rotated before the new one is written. Here the database
+    refuses the new row itself (it violates `expires_after_created` at flush): the mark is
+    rolled back with it, so the client can simply retry."""
+    add = SessionRepository.add
+
+    def broken_add(self: SessionRepository, row: UserSession) -> None:
+        row.expires_at = row.created_at  # the INSERT fails a CHECK in the database
+        add(self, row)
+
     async with api_client(db_connection) as http:
         _, tokens = await _new_account(http)
-        monkeypatch.setattr(auth, "_add_refresh_token", _lost_connection)
+        monkeypatch.setattr(SessionRepository, "add", broken_add)
         failed = await _refresh(http, tokens["refresh_token"])
         monkeypatch.undo()
         retried = await _refresh(http, tokens["refresh_token"])

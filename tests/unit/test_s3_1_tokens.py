@@ -24,7 +24,7 @@ from app.core.security import (
     stop_password_hashing,
     verify_dummy_password,
 )
-from tests.helpers import strict_settings
+from tests.helpers import make_settings, strict_settings
 
 NOW = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
 # 64 bytes: long enough for every allowed HMAC algorithm (RFC 7518 §3.2).
@@ -260,3 +260,26 @@ def test_s3_1_12_session_limits_accept_asvs_level_2_durations() -> None:
         timedelta(hours=12),
     )
     assert AuthSettings(refresh_ttl=timedelta(minutes=5)).refresh_ttl == timedelta(minutes=5)
+
+
+def test_s3_1_12_defaults_are_asvs_level_2_and_refresh_outlives_access() -> None:
+    """Defaults: 30 minutes idle, 12 hours absolute, re-auth to end other sessions. A refresh
+    token must live at least twice as long as an access token (review round 4, M2)."""
+    defaults = make_settings()
+    assert (defaults.auth.refresh_ttl, defaults.auth.session_max_age) == (
+        timedelta(minutes=30),
+        timedelta(hours=12),
+    )
+    assert defaults.auth.reauth_to_end_sessions
+    make_settings(jwt=JwtSettings(access_ttl_seconds=900))  # exactly twice: accepted
+    with pytest.raises(ValidationError, match="twice"):
+        make_settings(jwt=JwtSettings(access_ttl_seconds=901))
+    with pytest.raises(ValidationError, match="twice"):
+        make_settings(
+            jwt=JwtSettings(access_ttl_seconds=3600),
+            auth=AuthSettings(refresh_ttl=timedelta(hours=1)),
+        )
+    longer = make_settings(
+        jwt=JwtSettings(access_ttl_seconds=3600), auth=AuthSettings(refresh_ttl=timedelta(hours=2))
+    )
+    assert longer.auth.refresh_ttl == timedelta(hours=2)

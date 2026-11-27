@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.client import ClientInfo
 from app.core.config import AuthSettings, JwtSettings, SessionStrategy, Settings
 from app.core.emails import InvalidEmail, normalize_email
-from app.core.errors import Unauthorized
+from app.core.errors import Unauthorized, Unprocessable
 from app.core.security import (
     InvalidToken,
     check_password_rules,
@@ -36,6 +36,11 @@ class InvalidCredentials(Unauthorized):
 
     default_code = "auth.invalid_credentials"
     default_detail = "The email or password is incorrect."
+
+
+class CurrentPasswordRequired(Unprocessable):
+    default_code = "auth.current_password_required"
+    default_detail = "Enter your current password to do this."
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,15 +357,55 @@ async def lock_user(session: AsyncSession, user_id: UUID) -> User | None:
     return await UserRepository(session).get_for_update(user_id)
 
 
+REAUTH_FAILED = "auth.reauth_failed"
+REAUTH_REFUSED = "auth.reauth_refused"
+
+
+async def verify_current_password(
+    session: AsyncSession,
+    settings: Settings,
+    current: CurrentUser,
+    password: str | None,
+    *,
+    client: ClientInfo,
+    now: datetime,
+    failed_action: str = REAUTH_FAILED,
+    refused_action: str = REAUTH_REFUSED,
+) -> str:
+    """Re-authentication of a signed-in user: refused while the account is locked (no
+    guessing past the lockout with a stolen token), and a wrong password counts toward it.
+    Ends the read transaction first (no connection held while Argon2 runs). Returns the
+    stored hash that was verified, for a re-check under the user lock."""
+    if password is None:
+        raise CurrentPasswordRequired
+    user_id, stored_hash = current.user.id, current.user.password_hash
+    if is_locked(current.user, now):
+        async with transaction(session):
+            audit.record(session, action=refused_action, client=client, actor_user_id=user_id)
+        raise InvalidCredentials
+    await end_read(session)
+    if not await verify_password(stored_hash, password):
+        await count_failed_login(session, settings.auth, user_id, client, now, failed_action)
+        raise InvalidCredentials
+    return stored_hash
+
+
 async def logout(
     session: AsyncSession,
+    settings: Settings,
     current: CurrentUser,
     *,
     everywhere: bool,
+    current_password: str | None,
     client: ClientInfo,
     now: datetime,
 ) -> None:
-    """End this session (its whole family), or every session of the user."""
+    """End this session (its whole family), or every session of the user. Ending every
+    session needs the current password again when `AUTH__REAUTH_TO_END_SESSIONS` is on."""
+    if everywhere and settings.auth.reauth_to_end_sessions:
+        await verify_current_password(
+            session, settings, current, current_password, client=client, now=now
+        )
     sessions = SessionRepository(session)
     user_id = current.user.id
     async with transaction(session):

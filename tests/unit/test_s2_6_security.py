@@ -96,10 +96,19 @@ def test_s2_6_04_password_with_control_characters_is_refused(control: str) -> No
 
 @pytest.mark.parametrize(
     "padded",
-    ["a" + " " * 11, "ab" + " " * 10 + "c", " " * 6 + "short" + " " * 6, "a\u3000" * 6],
+    [
+        "a" + " " * 11,
+        "ab" + " " * 10 + "c",
+        " " * 6 + "short" + " " * 6,
+        "a\u3000" * 6,
+        "a" + "\u200b" * 11,  # zero-width spaces
+        "a" + "\u00ad" * 11,  # soft hyphens
+        "short" + "\u200b \u200b" * 4,
+    ],
 )
 def test_s2_6_04_spaces_dont_count_toward_the_minimum_length(padded: str) -> None:
-    """ASVS V2.1.1: 12 characters after runs of spaces are combined (step 3 review round 3)."""
+    """ASVS V2.1.1: 12 characters after runs of spaces are combined, invisible characters
+    not counted (step 3 review rounds 3 and 4)."""
     with pytest.raises(WeakPassword, match="runs of spaces"):
         check_password_rules(padded)
 

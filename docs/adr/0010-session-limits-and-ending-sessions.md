@@ -1,6 +1,6 @@
 # 0010. Session limits are configurable to ASVS level 2; ending sessions needs no password
 
-- Status: Accepted
+- Status: Superseded by [ADR-0011](0011-asvs-level-2-session-defaults.md)
 - Date: 2026-11-28
 
 ## Context

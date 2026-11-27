@@ -164,7 +164,7 @@ async def test_s3_4_05_login_issues_tokens_and_records_the_login(
         body = response.json()
     assert body["token_type"] == "bearer"
     assert body["expires_in"] == 900
-    assert body["refresh_expires_in"] == 14 * 24 * 3600
+    assert body["refresh_expires_in"] == 30 * 60  # ASVS level 2 idle limit (default)
     user = await _must_user(db, email)
     assert (user.failed_login_count, user.locked_until, user.last_login_at) == (0, None, frozen)
     families = await _families(db, user.id)

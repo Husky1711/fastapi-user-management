@@ -8,7 +8,15 @@ from fastapi import APIRouter, Depends, status
 from app.core import clock
 from app.core.deps import AppSettings, Authenticated, Client, DbSession
 from app.core.errors import NotFound
-from app.schemas.auth import LoginIn, RefreshIn, SignupAcceptedOut, SignupIn, TokenOut
+from app.schemas.auth import (
+    LoginIn,
+    ReauthIn,
+    RefreshIn,
+    SignupAcceptedOut,
+    SignupIn,
+    TokenOut,
+    password_of,
+)
 from app.schemas.errors import NOT_FOUND_RESPONSE, UNAUTHORIZED_RESPONSE
 from app.services import auth
 from app.services.auth import IssuedTokens
@@ -86,15 +94,39 @@ async def refresh(
     responses=UNAUTHORIZED_RESPONSE,
     summary="End the current session (its access and refresh tokens stop working at once)",
 )
-async def logout(current: Authenticated, session: DbSession, client: Client) -> None:
-    await auth.logout(session, current, everywhere=False, client=client, now=clock.now())
+async def logout(
+    current: Authenticated, session: DbSession, client: Client, settings: AppSettings
+) -> None:
+    await auth.logout(
+        session,
+        settings,
+        current,
+        everywhere=False,
+        current_password=None,
+        client=client,
+        now=clock.now(),
+    )
 
 
 @router.post(
     "/logout-all",
     status_code=status.HTTP_204_NO_CONTENT,
     responses=UNAUTHORIZED_RESPONSE,
-    summary="End every session of the current user, on every device",
+    summary="End every session of the current user, on every device (needs your password)",
 )
-async def logout_all(current: Authenticated, session: DbSession, client: Client) -> None:
-    await auth.logout(session, current, everywhere=True, client=client, now=clock.now())
+async def logout_all(
+    current: Authenticated,
+    session: DbSession,
+    client: Client,
+    settings: AppSettings,
+    body: ReauthIn | None = None,
+) -> None:
+    await auth.logout(
+        session,
+        settings,
+        current,
+        everywhere=True,
+        current_password=password_of(body),
+        client=client,
+        now=clock.now(),
+    )

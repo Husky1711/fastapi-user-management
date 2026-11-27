@@ -38,6 +38,9 @@ make help                # all commands
   time) is treated as theft: the whole session is ended and the user must log in again. Keep
   one refresh in flight per session and share its result.
 - Responses under `/api/v1` carry `Cache-Control: no-store`; don't cache them.
+- By default a session ends after 30 minutes without a refresh, or 12 hours after login
+  (ASVS level 2). Ending another device's session, "sign out other devices" and logout-all
+  need the current password (`{"current_password": "..."}`).
 
 ## Documentation
 

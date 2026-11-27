@@ -1,15 +1,18 @@
 """Section 3.2: auth columns (migration 0003), session and audit repositories."""
 
+import logging
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import clock
 from app.core.client import ClientInfo
-from app.core.logging import request_id_var
+from app.core.logging import JsonFormatter, request_id_var
 from app.core.pagination import PaginationParams
 from app.core.redaction import REDACTED
+from app.infra.database import transaction
 from app.models import AuditLog, RevokeReason, User, UserSession
 from app.repositories import SessionRepository
 from app.services.audit import record
@@ -212,3 +215,24 @@ async def test_s3_2_07_audit_details_never_hold_secrets_or_full_emails(db: Async
     text_form = str(details)
     for secret in ("hunter2", "grace.hopper", "12345", "abc"):
         assert secret not in text_form
+
+
+async def test_s3_2_11_a_failing_commit_after_a_failed_block_is_logged_and_the_error_kept(
+    db: AsyncSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """If ending the outer transaction fails too, the original error still surfaces and the
+    second failure is logged (error type only) before the rollback (review round 4, L3)."""
+    await db.execute(text("SELECT 1"))  # a read first, like a request's dependencies
+
+    async def lost(*_: object, **__: object) -> None:
+        raise ConnectionResetError("db-password=hunter2 connection lost")
+
+    monkeypatch.setattr(db, "commit", lost)
+    with caplog.at_level(logging.WARNING), pytest.raises(ValueError, match="the block's own"):
+        async with transaction(db):
+            raise ValueError("the block's own error")
+    warnings = [r for r in caplog.records if "failed unit of work" in r.getMessage()]
+    assert len(warnings) == 1
+    logged = JsonFormatter().format(warnings[0])
+    assert "ConnectionResetError" in logged
+    assert "hunter2" not in logged

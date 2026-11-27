@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, status
 from app.core import clock
 from app.core.deps import AppSettings, Authenticated, Client, DbSession
 from app.core.pagination import Page, PaginationParams
+from app.schemas.auth import ReauthIn, password_of
 from app.schemas.errors import NOT_FOUND_RESPONSE, UNAUTHORIZED_RESPONSE
 from app.schemas.me import MeOut, PasswordChangeIn, SessionOut
 from app.services import me
@@ -31,25 +32,51 @@ async def sessions(
     return Page(items=items, total=found.total, limit=page.limit, offset=page.offset)
 
 
-@router.delete(
-    "/sessions/{session_id}",
+@router.post(
+    "/sessions/{session_id}/revoke",
     status_code=status.HTTP_204_NO_CONTENT,
     responses=NOT_FOUND_RESPONSE,
-    summary="Sign out one device",
+    summary="Sign out one device (another device needs your current password)",
 )
 async def end_session(
-    session_id: UUID, current: Authenticated, session: DbSession, client: Client
+    session_id: UUID,
+    current: Authenticated,
+    session: DbSession,
+    client: Client,
+    settings: AppSettings,
+    body: ReauthIn | None = None,
 ) -> None:
-    await me.end_session(session, current, session_id, client=client, now=clock.now())
+    await me.end_session(
+        session,
+        settings,
+        current,
+        session_id,
+        current_password=password_of(body),
+        client=client,
+        now=clock.now(),
+    )
 
 
 @router.post(
     "/sessions/revoke-others",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Sign out every other device (this one stays signed in)",
+    summary="Sign out every other device (needs your current password; this one stays)",
 )
-async def end_other_sessions(current: Authenticated, session: DbSession, client: Client) -> None:
-    await me.end_other_sessions(session, current, client=client, now=clock.now())
+async def end_other_sessions(
+    current: Authenticated,
+    session: DbSession,
+    client: Client,
+    settings: AppSettings,
+    body: ReauthIn | None = None,
+) -> None:
+    await me.end_other_sessions(
+        session,
+        settings,
+        current,
+        current_password=password_of(body),
+        client=client,
+        now=clock.now(),
+    )
 
 
 @router.post(

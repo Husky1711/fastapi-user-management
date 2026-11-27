@@ -59,14 +59,22 @@ def _normalize(password: str) -> str:
 _SPACE_RUNS = re.compile(r"\s+")
 
 
+def _counted_length(password: str) -> int:
+    """Length as ASVS V2.1.1 counts it: runs of spaces count as one, leading and trailing
+    spaces and invisible format characters (zero-width space, soft hyphen) don't count."""
+    visible = "".join(char for char in password if unicodedata.category(char) != "Cf")
+    return len(_SPACE_RUNS.sub(" ", visible).strip())
+
+
 def check_password_rules(password: str) -> None:
-    """ASVS V2.1: at least 12 characters once runs of spaces count as one (so padding with
-    spaces doesn't make a short password long enough), at most 128, no control characters."""
+    """ASVS V2.1: at least 12 characters as `_counted_length` counts them (padding with spaces
+    or invisible characters doesn't make a short password long enough), at most 128, no
+    control characters."""
     normalized = _normalize(password)
-    if len(_SPACE_RUNS.sub(" ", normalized).strip()) < PASSWORD_MIN_LENGTH:
+    if _counted_length(normalized) < PASSWORD_MIN_LENGTH:
         msg = (
-            f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
-            " (runs of spaces count as one)."
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters, not counting"
+            " invisible characters or extra spaces (runs of spaces count as one)."
         )
         raise WeakPassword(msg)
     if len(normalized) > PASSWORD_MAX_LENGTH:

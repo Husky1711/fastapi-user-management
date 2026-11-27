@@ -253,30 +253,35 @@ jobs:
           test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-456\"}")" = 200
           if docker compose logs app | grep -q "Stack-Passw0rd"; then echo "password in logs"; exit 1; fi
           if docker compose logs app | grep -q "$first_refresh"; then echo "token in logs"; exit 1; fi
-      - name: "3.8-10 A stolen access token can't guess a locked account's password, and logout-all ends a refreshed token"
+      - name: "3.8-10, 3.6-17 Logout-all needs the password and ends a refreshed stolen token; a stolen token can't guess past the lockout"
         run: |
           api=http://localhost:8000/api/v1
           post() { curl -s -o body.json -w '%{http_code}' -X POST "$api$1" -H 'Content-Type: application/json' "${@:3}" -d "$2"; }
           email="stolen-$(date +%s)@example.com"; pw=Stack-Passw0rd-789
+          login() { test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 200; }
           test "$(post /auth/signup "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 202
-          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 200
-          stolen=$(jq -r .access_token body.json); stolen_refresh=$(jq -r .refresh_token body.json)
-          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 200
-          owner=$(jq -r .access_token body.json)
-          for guess in 1 2 3 4 5; do
-            test "$(post /me/password "{\"current_password\":\"Wrong-Guess-0$guess\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
-              -H "Authorization: Bearer $stolen")" = 401
-          done
-          # Locked now: even the right current password is refused, and the password stays.
-          test "$(post /me/password "{\"current_password\":\"$pw\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
-            -H "Authorization: Bearer $stolen")" = 401
+          login; stolen_refresh=$(jq -r .refresh_token body.json)
+          login; owner=$(jq -r .access_token body.json)
           test "$(post /auth/refresh "{\"refresh_token\":\"$stolen_refresh\"}")" = 200
           rotated=$(jq -r .refresh_token body.json)
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $owner" $api/auth/logout-all)" = 204
+          # Without the current password the owner's logout-all is refused (ASVS V3.3.4)...
+          test "$(post /auth/logout-all '{}' -H "Authorization: Bearer $owner")" = 422
+          # ...with it, every session ends, including the one refreshed with the stolen token.
+          test "$(post /auth/logout-all "{\"current_password\":\"$pw\"}" -H "Authorization: Bearer $owner")" = 204
           test "$(post /auth/refresh "{\"refresh_token\":\"$rotated\"}")" = 401
           docker compose exec -T db psql -U postgres -d usermgmt -tAc \
             "SELECT count(*) FROM sessions s JOIN users u ON u.id = s.user_id
              WHERE u.email = '$email' AND s.revoked_at IS NULL" | tee /dev/stderr | grep -qx 0
+          # A stolen access token guesses the current password: 5 tries lock the account,
+          # and then even the right password is refused.
+          login; stolen=$(jq -r .access_token body.json)
+          for guess in 1 2 3 4 5; do
+            test "$(post /me/password "{\"current_password\":\"Wrong-Guess-0$guess\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
+              -H "Authorization: Bearer $stolen")" = 401
+          done
+          test "$(post /me/password "{\"current_password\":\"$pw\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
+            -H "Authorization: Bearer $stolen")" = 401
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Attacker-Passw0rd-1\"}")" = 401
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

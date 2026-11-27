@@ -10,8 +10,8 @@ from app.core.client import ClientInfo
 from app.core.config import Settings
 from app.core.errors import NotFound, Unprocessable
 from app.core.pagination import PaginationParams
-from app.core.security import InvalidToken, check_password_rules, hash_password, verify_password
-from app.infra.database import end_read, transaction
+from app.core.security import InvalidToken, check_password_rules, hash_password
+from app.infra.database import transaction
 from app.models import RevokeReason, User, UserSession
 from app.repositories import SessionRepository, Slice
 from app.services import audit
@@ -19,9 +19,8 @@ from app.services.auth import (
     CurrentUser,
     InvalidCredentials,
     can_log_in,
-    count_failed_login,
-    is_locked,
     lock_user,
+    verify_current_password,
 )
 
 CHANGE_FAILED_ACTION = "auth.password_change_failed"
@@ -41,13 +40,21 @@ async def list_sessions(
 
 async def end_session(
     session: AsyncSession,
+    settings: Settings,
     current: CurrentUser,
     session_id: UUID,
     *,
+    current_password: str | None,
     client: ClientInfo,
     now: datetime,
 ) -> None:
-    """End one of the user's sessions. Someone else's id is "not found", like an unknown one."""
+    """End one of the user's sessions. Someone else's id is "not found", like an unknown one.
+    Ending another device's session needs the current password again (ASVS V3.3.4) when
+    `AUTH__REAUTH_TO_END_SESSIONS` is on; ending this one is a logout and doesn't."""
+    if session_id != current.session_id and settings.auth.reauth_to_end_sessions:
+        await verify_current_password(
+            session, settings, current, current_password, client=client, now=now
+        )
     async with transaction(session):
         await lock_user(session, current.user.id)
         ended = await SessionRepository(session).revoke_family(
@@ -65,8 +72,18 @@ async def end_session(
 
 
 async def end_other_sessions(
-    session: AsyncSession, current: CurrentUser, *, client: ClientInfo, now: datetime
+    session: AsyncSession,
+    settings: Settings,
+    current: CurrentUser,
+    *,
+    current_password: str | None,
+    client: ClientInfo,
+    now: datetime,
 ) -> None:
+    if settings.auth.reauth_to_end_sessions:
+        await verify_current_password(
+            session, settings, current, current_password, client=client, now=now
+        )
     async with transaction(session):
         await lock_user(session, current.user.id)
         ended = await SessionRepository(session).revoke_all(
@@ -98,17 +115,17 @@ async def change_password(
     and is refused while the account is locked, like a login. Every other session ends;
     this one stays signed in."""
     check_password_rules(new_password)
-    user_id, stored_hash = current.user.id, current.user.password_hash
-    if is_locked(current.user, now):  # no guessing past the lockout with a stolen token
-        async with transaction(session):
-            audit.record(
-                session, action=CHANGE_REFUSED_ACTION, client=client, actor_user_id=user_id
-            )
-        raise InvalidCredentials
-    await end_read(session)  # no pool connection is held while Argon2 runs
-    if not await verify_password(stored_hash, current_password):
-        await count_failed_login(session, settings.auth, user_id, client, now, CHANGE_FAILED_ACTION)
-        raise InvalidCredentials
+    user_id = current.user.id
+    stored_hash = await verify_current_password(
+        session,
+        settings,
+        current,
+        current_password,
+        client=client,
+        now=now,
+        failed_action=CHANGE_FAILED_ACTION,
+        refused_action=CHANGE_REFUSED_ACTION,
+    )
     if _same(new_password, current_password):
         raise PasswordUnchanged
     new_hash = await hash_password(new_password)

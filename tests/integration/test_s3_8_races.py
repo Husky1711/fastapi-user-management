@@ -164,14 +164,16 @@ REVOCATIONS = ["logout_all", "password_change", "end_that_session", "revoke_othe
 def _revoke(
     http: AsyncClient, owner: dict[str, Any], revocation: str, stolen_family: uuid.UUID
 ) -> Awaitable[Response]:
+    reauth = {"current_password": PASSWORD}
     if revocation == "logout_all":
-        return http.post(LOGOUT_ALL, headers=_bearer(owner))
+        return http.post(LOGOUT_ALL, json=reauth, headers=_bearer(owner))
     if revocation == "password_change":
         change = _change(PASSWORD, OWNER_PASSWORD)
         return http.post(PASSWORD_ROUTE, json=change, headers=_bearer(owner))
     if revocation == "end_that_session":
-        return http.delete(f"/api/v1/me/sessions/{stolen_family}", headers=_bearer(owner))
-    return http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(owner))
+        path = f"/api/v1/me/sessions/{stolen_family}/revoke"
+        return http.post(path, json=reauth, headers=_bearer(owner))
+    return http.post("/api/v1/me/sessions/revoke-others", json=reauth, headers=_bearer(owner))
 
 
 @pytest.mark.parametrize("revocation", REVOCATIONS)
@@ -275,7 +277,8 @@ async def test_s3_8_04_a_stale_password_change_cannot_undo_the_owners_remedy(
                 change = _change(PASSWORD, OWNER_PASSWORD)
                 fixed = await http.post(PASSWORD_ROUTE, json=change, headers=_bearer(owner))
             else:
-                fixed = await http.post(LOGOUT_ALL, headers=_bearer(owner))
+                reauth = {"current_password": PASSWORD}
+                fixed = await http.post(LOGOUT_ALL, json=reauth, headers=_bearer(owner))
         owner_password = OWNER_PASSWORD if remedy == "password_change" else PASSWORD
         owner_login = await _login(http, email, owner_password)
         attacker_login = await _login(http, email, ATTACKER_PASSWORD)

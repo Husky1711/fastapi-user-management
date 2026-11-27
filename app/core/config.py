@@ -94,11 +94,14 @@ MAX_SESSION_AGE = timedelta(days=365)
 
 class AuthSettings(_Section):
     signup_enabled: bool = True
-    # Idle limit: a refresh token lives this long, and each refresh issues a new one. ISO 8601
-    # duration (P14D, PT30M) or seconds. ASVS level 2 needs PT30M here or PT12H below.
-    refresh_ttl: timedelta = timedelta(days=14)
-    # Absolute limit: a session can't be refreshed beyond this long after its first login.
-    session_max_age: timedelta = timedelta(days=30)
+    # Session limits, ISO 8601 durations (PT30M) or seconds. The defaults are ASVS level 2
+    # (V3.3.2): 30 minutes idle (each refresh issues a token that lives this long) and
+    # 12 hours from the first login, whatever the use. Longer is a product decision (ADR-0011).
+    refresh_ttl: timedelta = timedelta(minutes=30)
+    session_max_age: timedelta = timedelta(hours=12)
+    # ASVS V3.3.4 (level 2): ending other sessions (one other device, revoke-others,
+    # logout-all) needs the current password again.
+    reauth_to_end_sessions: bool = True
     lockout_threshold: int = Field(default=5, ge=3, le=20)
     lockout_minutes: int = Field(default=15, ge=1, le=1440)
     session_strategy: SessionStrategy = SessionStrategy.ALLOW_MULTIPLE
@@ -172,6 +175,15 @@ class Settings(BaseSettings):
     cors: CorsSettings = Field(default_factory=CorsSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     health: HealthSettings = Field(default_factory=HealthSettings)
+
+    @model_validator(mode="after")
+    def _refresh_outlives_access(self) -> Self:
+        """A client refreshes when its access token expires: the refresh token must still be
+        alive then, with room to spare, or every session ends at the first refresh."""
+        access = timedelta(seconds=self.jwt.access_ttl_seconds)
+        if self.auth.refresh_ttl < 2 * access:
+            raise ValueError("AUTH__REFRESH_TTL must be at least twice JWT__ACCESS_TTL_SECONDS")
+        return self
 
     @property
     def is_strict(self) -> bool:

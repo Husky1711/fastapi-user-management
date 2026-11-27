@@ -40,3 +40,15 @@ class TokenOut(BaseModel):
     token_type: Literal["bearer"] = "bearer"  # noqa: S105 - the OAuth 2 token type name
     expires_in: int = Field(description="Seconds until the access token expires.")
     refresh_expires_in: int = Field(description="Seconds until the refresh token expires.")
+
+
+class ReauthIn(BaseModel):
+    """The current password again, for actions that need it (ending other sessions)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str | None = Field(default=None, max_length=MAX_PASSWORD_INPUT)
+
+
+def password_of(body: ReauthIn | None) -> str | None:
+    return body.current_password if body is not None else None
