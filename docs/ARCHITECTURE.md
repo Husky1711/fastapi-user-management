@@ -60,11 +60,17 @@ half-done work.
 
 **Per-user lock order.** Every write that creates or ends sessions or changes credentials
 (login, refresh, logout, logout-all, ending sessions, password change) first locks the user
-row (`UserRepository.get_for_update`, or `auth.lock_user`), then touches session rows. These
+row through `auth.lock_user` (the only entry point; `SELECT … FOR NO KEY UPDATE`, which
+doesn't block inserts that merely reference the user), then touches session rows. These
 flows therefore run one after another per user, so a revocation can't miss a token a
 concurrent refresh just issued, and the fixed order prevents deadlocks. Anything checked before
-`end_read` and slow hashing (the verified password hash, a live session, the lockout) is
-checked again under that lock before the write.
+`end_read` and slow hashing (the verified password hash, a live session, the account's
+status and lockout) is checked again under that lock before the write.
+
+**`core/deps.py` and services.** `get_current_user` in `core/deps.py` calls
+`services.auth.authenticate`, while services import other `core` modules. This one
+dependency from `core` to `services` is deliberate: `deps.py` is the FastAPI glue that turns
+a request into service inputs, and it is the only `core` module that imports a service.
 
 ## 3. Folder layout
 

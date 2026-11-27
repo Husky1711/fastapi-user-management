@@ -212,6 +212,7 @@ missing CRUD.
 - [ ] Invitations: create, list, revoke, accept (existing user or sign up through invite)
 - [ ] Setting `REQUIRE_VERIFIED_EMAIL` to block login until verified
 - [ ] Tests for expiry, reuse, enumeration resistance
+- [ ] Notify the user by email after a password change (ASVS V2.2.3, from step 3)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
@@ -268,6 +269,7 @@ tokens never cleaned.
 - [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
+- [ ] Refuse breached passwords (ASVS V2.1.7, from step 3): offline list or k-anonymity range query; new dependency needs owner approval
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 - [ ] Enforce append-only `audit_logs` in the database (trigger or revoked UPDATE/DELETE) (from step 2 review, R1-17)
