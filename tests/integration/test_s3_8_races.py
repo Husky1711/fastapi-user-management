@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 from app.core import security
 from app.main import create_app
 from app.models import AuditLog, User, UserSession
-from app.services import auth, me
+from app.services import auth
 from tests.api import api_client
 from tests.db import SERVICES, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
@@ -184,7 +184,8 @@ async def test_s3_8_02_a_login_checked_against_the_old_password_is_refused(
             user.password_hash = weak
             await db.flush()
         gate = Gate()
-        monkeypatch.setattr(auth, "verify_password", gate.wrap(auth.verify_password, after=True))
+        verify = gate.wrap(security.verify_password, after=True)
+        monkeypatch.setattr("app.services.auth.verify_password", verify)
         async with paused_request(gate, _login(http, email)) as attacker:
             change = _change(PASSWORD, OWNER_PASSWORD)
             changed = await http.post(PASSWORD_ROUTE, json=change, headers=_bearer(owner))
@@ -225,7 +226,8 @@ async def test_s3_8_04_a_stale_password_change_cannot_undo_the_owners_remedy(
     async with api_client(db_connection) as http:
         email, (stolen, owner) = await _account(http, devices=2)
         gate = Gate()
-        monkeypatch.setattr(me, "hash_password", gate.wrap(me.hash_password, after=True))
+        hashing = gate.wrap(security.hash_password, after=True)
+        monkeypatch.setattr("app.services.me.hash_password", hashing)
         attack = _change(PASSWORD, ATTACKER_PASSWORD)
         attacking = http.post(PASSWORD_ROUTE, json=attack, headers=_bearer(stolen))
         async with paused_request(gate, attacking) as attacker:
