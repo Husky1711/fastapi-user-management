@@ -5,26 +5,19 @@ import logging
 
 import pytest
 from fastapi import APIRouter
-from pydantic import SecretStr
 from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, MetaData, Table, Text, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from app.core.config import DatabaseSettings
 from app.core.deps import DbSession
 from app.core.logging import JsonFormatter
 from app.main import create_app
 from app.models.base import NAMING_CONVENTION
+from tests.db import UNREACHABLE_DB, UNREACHABLE_PASSWORD
 from tests.helpers import check_ok, client_for, make_settings
 
-UNREACHABLE_PASSWORD = "unreachable-db-s3cret"
 # The dialect only; creating an engine does not connect.
 POSTGRES = create_async_engine("postgresql+asyncpg://app@localhost/app").dialect
-UNREACHABLE_DB = DatabaseSettings(
-    # Port 1 on loopback: nothing listens there, so the connection is refused at once.
-    url=SecretStr(f"postgresql+asyncpg://app:{UNREACHABLE_PASSWORD}@127.0.0.1:1/app"),
-    pool_timeout_seconds=2,
-)
 
 
 def test_s2_1_06_naming_convention_names_every_constraint() -> None:

@@ -18,3 +18,11 @@ def redact(text: str, *, limit: int | None = None) -> str:
     without_urls = _URL_CREDENTIALS.sub(r"\1***@", text)
     cleaned = _KEY_VALUE_SECRET.sub(r"\1=***", without_urls)
     return cleaned if limit is None else cleaned[:limit]
+
+
+def mask_email(email: str) -> str:
+    """`grace@example.com` -> `g***@example.com`: enough to recognise, not to harvest."""
+    local, at, domain = email.rpartition("@")
+    if not at:
+        return "***"
+    return f"{local[:1]}***@{domain}"

@@ -146,6 +146,21 @@ jobs:
           test "$code" -ne 0
           echo "$out" | grep -q "password authentication failed"
           if echo "$out" | grep -q "Wrong-Pw-7731"; then echo "password printed"; exit 1; fi
+      - name: "2.6-12 Operator creates the first admin on the stack; a second run changes nothing"
+        run: |
+          echo 'Stack-Admin-Passw0rd' \
+            | docker compose exec -T app python -m app.cli create-admin --email ops@example.com \
+            | tee created.txt
+          grep -q 'Created platform admin o\*\*\*@example.com' created.txt
+          docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+            "SELECT is_platform_admin AND email_verified AND password_hash LIKE '\$argon2id\$%'
+             FROM users WHERE email = 'OPS@example.com'" | tee /dev/stderr | grep -qx t
+          set +e
+          echo 'Other-Passw0rd-123' \
+            | docker compose exec -T app python -m app.cli create-admin --email ops@example.com
+          code=$?
+          set -e
+          test "$code" -eq 1
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

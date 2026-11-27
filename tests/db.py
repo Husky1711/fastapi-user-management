@@ -11,6 +11,13 @@ from app.core.config import DatabaseSettings
 SERVICE_DATABASE_URL = os.getenv("DATABASE__URL", "")
 SERVICE_REDIS_URL = os.getenv("REDIS__URL", "")
 
+UNREACHABLE_PASSWORD = "unreachable-db-s3cret"
+UNREACHABLE_DB = DatabaseSettings(
+    # Port 1 on loopback: nothing listens there, so the connection is refused at once.
+    url=SecretStr(f"postgresql+asyncpg://app:{UNREACHABLE_PASSWORD}@127.0.0.1:1/app"),
+    pool_timeout_seconds=2,
+)
+
 # Apply with `pytestmark = SERVICES` (module) or `@pytest.mark.usefixtures` style per test.
 SERVICES = [
     pytest.mark.services,
