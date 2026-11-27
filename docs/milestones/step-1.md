@@ -1,11 +1,11 @@
 # Milestone 1: Project skeleton & tooling
 
 - PR: https://github.com/Husky1711/fastapi-user-management/pull/2
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45921977725
-  (139 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
-  scenarios passed on the real stack; coverage 97.9 %; open "Summary" for every result)
-- Verdict: **IN PROGRESS**. Round 3 passed with four areas at 8, below the ≥ 9 bar, so the
-  round-3 findings were fixed (R3-xx) and review round 4 is pending. Under the owner's standing
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45923959839
+  (145 tests passed, 6 skipped in the Test job, which are the e2e tests that run in the Compose job; 6 user
+  scenarios passed on the real stack; coverage 98.0 %; open "Summary" for every result)
+- Verdict: **IN PROGRESS**. Rounds 3 and 4 passed but left areas at 8, below the ≥ 9 bar, so
+  their findings were fixed (R3-xx, R4-xx) and review round 5 is pending. Under the owner's standing
   instruction the step merges automatically once every touched area is ≥ 9.
 
 > Process note: the testing process was introduced partway through this step, so the first
@@ -18,12 +18,12 @@
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Clean branch and tooling | ✅ | 5 / 5 | Old code removed from `v2`; stays on `main` |
-| 1.2 | Settings and safety checks for strict environments | ✅ | 27 / 27 | Staging now strict as well |
-| 1.3 | Logging and request middleware | ✅ | 35 / 35 | Logs written by a background thread |
+| 1.2 | Settings and safety checks for strict environments | ✅ | 28 / 28 | Staging now strict as well |
+| 1.3 | Logging and request middleware | ✅ | 37 / 37 | Bounded log queue; credentials redacted |
 | 1.4 | Error format (RFC 9457) | ✅ | 18 / 18 | Documented in OpenAPI |
 | 1.5 | Health probes, readiness cache, infrastructure clients | ✅ | 21 / 21 | |
 | 1.6 | Docker, Compose, CI and automatic test report | ✅ | 11 / 11 | Locked dependencies; loopback-only ports |
-| | **Total** | **✅** | **117 / 117** | |
+| | **Total** | **✅** | **120 / 120** | |
 
 ## Scenario plan and results
 
@@ -55,7 +55,7 @@
 | 1.2-03 | C6 | Default JWT secret in staging / production | Rejected | test `s1_2_03` (×2) | ✅ |
 | 1.2-04 | C3 | JWT secret of 31 / 32 / 33 characters | 31 rejected; 32 and 33 accepted | test `s1_2_04` (×3) | ✅ |
 | 1.2-05 | C6 | `DEBUG=true` in a strict environment | Rejected | test `s1_2_05` | ✅ |
-| 1.2-06 | C6 | Default DB credentials in a strict environment | Rejected | test `s1_2_06` | ✅ |
+| 1.2-06 | C6 | Default DB credentials in a strict environment | Rejected as a well-known password | test `s1_2_06` | ✅ |
 | 1.2-07 | C6 | Several problems at once | All reported together | test `s1_2_07` | ✅ |
 | 1.2-08 | C3 | Development and test with unsafe values | Allowed (checks apply only to strict environments) | test `s1_2_08` (×2) | ✅ |
 | 1.2-09 | C6 | `CORS *` with credentials | Rejected in every environment | test `s1_2_09` | ✅ |
@@ -63,20 +63,21 @@
 | 1.2-11 | C2 | Nested values and JSON lists from env vars | Parsed | test `s1_2_11` | ✅ |
 | 1.2-12 | C2, C6 | Invalid env values: `ENVIRONMENT=prod`, pool 0 / 101 / "five", `LOG__LEVEL=verbose`, malformed CORS JSON, `JWT__ALGORITHM=none` / `RS256`, timeout 0, unknown nested key | Startup stops with a validation error | test `s1_2_12` (×10) | ✅ |
 | 1.2-13 | C3 | Pool size at its limits 1 and 100 | Accepted | test `s1_2_13` (×2) | ✅ |
-| 1.2-14 | C6 | Settings printed or dumped | Secret not visible | test `s1_2_14` | ✅ |
+| 1.2-14 | C6 | Settings printed or dumped (repr, str, `model_dump`) | Neither the JWT secret nor the DB or Redis password is visible; the URLs stay usable by infra | test `s1_2_14` | ✅ |
 | 1.2-15 | C6 | Production set only through real env vars | Detected as unsafe | test `s1_2_15` | ✅ |
 | 1.2-16 | C2 | Unrelated `VERSION` env var (set by many CI systems) | App and API-schema version unchanged | tests `s1_2_16` (×2) | ✅ |
 | 1.2-17 | C6 | JWT algorithm limited to HMAC | HS512 accepted (none / RS256 rejected in 1.2-12) | test `s1_2_17` | ✅ |
 | 1.2-18 | C6, C10 | Changing settings after the safety check (nested field, top level, origin list) | Refused | test `s1_2_18` | ✅ |
 | 1.2-19 | C11 | App built with unsafe staging / production settings | Refuses to start | test `s1_2_19` (×2) | ✅ |
-| 1.2-20 | C11 | Real container started as production with the default JWT secret and the default DB credentials | Exits non-zero, naming both problems | CI step "1.2-20" (greps both messages) | ✅ |
-| 1.2-21 | C11 | Real container started as production with safe settings (strong secret, dedicated DB role) | Ready 200; HSTS sent; `/docs` and `/openapi.json` 404 | CI step "1.2-21" | ✅ |
+| 1.2-20 | C11 | Real container started as production with the published defaults (JWT secret, DB and Redis passwords) | Exits non-zero, naming all three problems | CI step "1.2-20" (greps all three messages) | ✅ |
+| 1.2-21 | C11 | Real container started as production with safe settings (strong secret, dedicated DB role, dedicated Redis user) | Ready 200; HSTS sent; `/docs` and `/openapi.json` 404 | CI step "1.2-21" | ✅ |
 | 1.2-22 | C8 | Settings requested repeatedly | Loaded once, same object | test `s1_2_22` | ✅ |
 | 1.2-23 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 1.2-24 | C12, C10 | App settings exported in the shell or CI | Removed for every test, so results don't depend on the machine | autouse fixture + test `s1_2_24` | ✅ |
 | 1.2-25 | C6, C3 | JWT secret with 9 vs 10 distinct characters | 9 rejected as repetitive; 10 accepted | test `s1_2_25` (×2) | ✅ |
 | 1.2-26 | C6 | Strict environment with a password-less `DATABASE__URL` (none / empty) | Rejected | test `s1_2_26` (×2) | ✅ |
 | 1.2-27 | C6, C2 | `REDIS__URL` without password, user only, malformed; with password (redis / rediss) | First three rejected; last two accepted | test `s1_2_27` (×5) | ✅ |
+| 1.2-28 | C6 | Well-known passwords (the published dev Redis password, `changeme`, `password`, `postgres`) in strict environments | Rejected for DB and Redis | test `s1_2_28` (×4) | ✅ |
 | — | C7 | N/A: loaded once at startup before any request, then immutable (1.2-18); no shared mutable state | | | |
 | — | C9 | N/A: loading reads only env vars and a local file; no network dependency | | | |
 
@@ -116,9 +117,11 @@
 | 1.3-30 | C7 | Request id context after a request, same task | Reset to none (a missing reset would leak ids between requests) | test `s1_3_30` | ✅ |
 | 1.3-31 | C9, C6 | A layer outside the error boundary fails | Clean 500 problem JSON with request id; internal text hidden; logged once | test `s1_3_31` | ✅ |
 | 1.3-32 | C9 | Error after streaming started | Logged exactly once by the app (the server adds its own record when it aborts the connection; accepted, R3-04) | test `s1_3_32` | ✅ |
-| 1.3-33 | C9 | Request path logs while stdout is slow | Records are queued; only the background writer touches stdout | test `s1_3_33` | ✅ |
+| 1.3-33 | C9, C3 | The log writer is stuck (blocked pipe) while 50 lines are logged into a queue of 5 | Logging never blocks; the queue never exceeds its size; the rest are dropped and counted; the count is logged once the writer recovers | test `s1_3_33` | ✅ |
 | 1.3-34 | C1 | A library's log line (uvicorn) written from the queue | Keeps the request id captured at log time | test `s1_3_34` | ✅ |
 | 1.3-35 | C6, C2 | CORS preflight from a disallowed origin, or with a disallowed method | 400 problem JSON `cors.preflight_rejected`; no CORS grant | test `s1_3_35` (×2) | ✅ |
+| 1.3-36 | C10 | A logged object is changed after the log call | The line shows its value at log time | test `s1_3_36` | ✅ |
+| 1.3-37 | C6 | Credentials in a log message, a structured field and a traceback | All redacted (`scheme://***@host`, `password=***`) | test `s1_3_37` | ✅ |
 | — | C10 | N/A: logging and middleware store no data | | | |
 
 ### Section 1.4: Error format (RFC 9457)
@@ -141,8 +144,8 @@
 | 1.4-14 | C11 | Browser app on an allowed origin reads an error on the real server | CORS header and exposed `X-Request-ID` | e2e `s1_4_14` | ✅ |
 | 1.4-15 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | 1.4-16 | C2, C6 | Validation error on a 500-char client-chosen key with a secret-like value | Key cut to 64 chars in the field path; value never echoed | test `s1_4_16` | ✅ |
-| 1.4-17 | C1 | API schema | `ProblemOut` documented; `/health/ready` lists 500 (problem JSON) and 503 | test `s1_4_17` | ✅ |
-| 1.4-18 | C1 | Versioned API routes | Document 422 (`ValidationProblemOut`, problem JSON) and 500 | test `s1_4_18` | ✅ |
+| 1.4-17 | C1 | API schema | Error models registered; `/health/ready` documents 500 as `application/problem+json` only, plus 503 | test `s1_4_17` | ✅ |
+| 1.4-18 | C1 | A real route mounted under `/api/v1` (generated schema) | 422 (`ValidationProblemOut`) and 500 documented as `application/problem+json` only; an invalid request really returns problem JSON | test `s1_4_18` | ✅ |
 | — | C7 | Covered by 1.3-15 and 1.3-30: concurrent requests on the 404 error path each get their own request id, and the id is reset after each request | | | |
 | — | C8 | N/A: error handling holds no state; the same input always gives the same output | | | |
 | — | C10 | N/A: no data stored | | | |
@@ -169,7 +172,7 @@
 | 1.5-16 | C3 | No checks at all (lifespan not started, or an empty set) | Not ready (fails closed) | tests `s1_5_16` (×2) | ✅ |
 | 1.5-17 | C7 | 30 concurrent probes over HTTP with a counting check | The check runs once; all 200 | test `s1_5_17` | ✅ |
 | 1.5-18 | C9, C11 | App started while PostgreSQL is down | Starts; live 200, ready 503; ready 200 once the DB is back | CI step "1.5-18" | ✅ |
-| 1.5-19 | C6, C11 | Redis and PostgreSQL outage logs on the real stack (1.5-13/14) | At least two failure lines; no credentials; no traceback | CI step "1.5-19" | ✅ |
+| 1.5-19 | C11 | Redis and PostgreSQL outage logs on the real stack (1.5-13/14) | One failure line per failing dependency; no traceback (credential leaks are tested by 1.5-21) | CI step "1.5-19" | ✅ |
 | 1.5-20 | C6 | Key=value secrets (`password=…`, `PASSWORD=…` in a query, `token = …`) in an error | Redacted | test `s1_5_20` (×3) | ✅ |
 | 1.5-21 | C6, C11 | Real app with a wrong DB password | Not ready; the log says "password authentication failed for user postgres" and never contains the password; no traceback | CI step "1.5-21" | ✅ |
 | — | C2 | N/A: probes take no input; wrong method on a probe is covered by 1.4-07 | | | |
@@ -191,7 +194,6 @@
 | 1.6-10 | C6 | Local stack exposure | App, PostgreSQL and Redis published on 127.0.0.1 only; Redis refuses clients without the password (`NOAUTH`) | CI step "1.6-10" | ✅ |
 | 1.6-11 | C10, C12 | Dependencies installed in CI and Docker | Exactly the committed `uv.lock` (`uv sync --locked`, uv 0.13.10 pinned in both) | CI jobs + Docker build | ✅ |
 | — | C7, C8 | N/A: each CI run starts from a clean machine; no shared state between runs | | | |
-| — | C10 | N/A: no application data | | | |
 | — | C11 | Covered by 1.1-03 (README quick start on the real stack) | | | |
 
 ## Failure log
@@ -256,15 +258,31 @@ Every failure found while building, testing and reviewing this step.
 | R3-11 | Review round 3 | Carried: lockfile, pinning, credential checks | — | Lockfile and credential checks done (R1-19, R2-10); pinning stays in step 9 | Fixed (pinning carried) |
 | F12 | CI: tests | OpenAPI test assumed app-wide error docs reach included routers | FastAPI applies them only to routes declared on the app | Error docs set on the health and API routers (1.4-17/18) | Fixed |
 | F13 | Author before push | Docker's uv 0.5 couldn't read the lockfile written by uv 0.13 | Version mismatch | uv 0.13.10 pinned in CI and Docker (1.6-11) | Fixed |
+| R4-01 | Review round 4 (Medium) | Strict environments accepted the dev Redis password published in the repo | Only "has a password" was checked | Well-known passwords rejected for DB and Redis (1.2-28); CI production check uses a dedicated Redis user (1.2-21) and greps all three refusals (1.2-20) | Fixed |
+| R4-02 | Review round 4 (Medium) | Printing the settings showed the DB and Redis passwords | URLs were plain strings | URLs are `SecretStr`, unwrapped only in `app/infra/` (1.2-14) | Fixed |
+| R4-03 | Review round 4 (Medium) | Unbounded log queue could exhaust memory if stdout stalled | `queue.Queue()` without a limit | Bounded (`LOG__QUEUE_SIZE`, default 10 000), drops counted and reported (1.3-33) | Fixed |
+| R4-04 | Review round 4 | Error docs also advertised `application/json`; versioned-route docs untested | `"model"` in responses; dict-only test | Schemas registered by hand; generated schema tested on a real `/api/v1` route (1.4-17/18) | Fixed |
+| R4-05 | Review round 4 | "stdout is slow" scenario never slowed stdout | Weak test | Stuck-writer test (1.3-33) | Fixed |
+| R4-06 | Review round 4 | Messages formatted late; records lost while reconfiguring | Deferred formatting; swap order | Message and traceback frozen at log time (1.3-36); handler swapped before the old writer stops | Fixed |
+| R4-07 | Review round 4 | Unhandled-exception logs weren't redacted | Redaction only in readiness | Redaction in the formatter for every message, field and traceback (1.3-37) | Fixed |
+| R4-08 | Review round 4 | Stale records (carried `uv.lock`, a contradictory N/A, 1.5-19 wording) | Not updated | Corrected | Fixed |
+| R4-09 | Review round 4 | Security-audit gate check undefined on this branch | It's added by PR #3 | Stated below: applies from step 3 | Fixed |
+| R4-10 | Review round 4 | Host-run app couldn't reach the password-protected dev Redis; `make install` unlocked | Defaults drifted | Default Redis URL carries the dev password; `make install` uses `--locked`, `make lock` for updates | Fixed |
+| R4-11 | Review round 4 | Carried items (R3-03, R3-04, pinning) | — | Verified as recorded | Carried |
 
-**Totals:** 117 scenarios, 117 passing. 56 failures found: 52 fixed, 1 fixed with a documented
+**Totals:** 120 scenarios, 120 passing. 67 failures found: 62 fixed, 1 fixed with a documented
 rule waiver (F5), 1 process change (F8), 1 accepted with a reason (R3-04), 1 carried to step 3
-(R3-03). Image digest and action SHA pinning stays in step 9.
+(R3-03), 1 carried-items check (R4-11). Image digest and action SHA pinning stays in step 9.
+
+**Security audit (gate check 6):** not applicable to step 1. It applies to steps 3, 4, 5, 6, 7
+and 9 (vendored skill and rule in PR #3), the steps that handle accounts, sessions and access.
+Step 1 has no user data, authentication or authorization; its safety checks are covered by
+sections 1.2 to 1.6 and the independent review.
 
 ## Gate
 
 ### 1. Automated: PASS
-Lint, `mypy --strict` (40 files), 139 tests against real PostgreSQL 16 and Redis 7 with 97.9 %
+Lint, `mypy --strict` (41 files), 145 tests against real PostgreSQL 16 and Redis 7 with 98.0 %
 coverage, all installed from the committed lockfile, and the Compose job (README quick start,
 loopback-only ports and Redis auth, `.env` reaching the app, 6 user scenarios, non-root and
 image checks, Redis and PostgreSQL outages, app started with the DB down, outage and
@@ -316,26 +334,27 @@ Real-stack scenarios: 1.1-03, 1.2-20, 1.2-21, 1.3-25, 1.3-26, 1.4-13, 1.4-14, 1.
 | 1 | `919dbc7` | **FAIL**: 4 High, 9 Medium, 7 Low | [`reviews/step-1-round-1.md`](reviews/step-1-round-1.md); every finding addressed (R1-01 to R1-20) |
 | 2 | `180a554` | **FAIL**: 1 High, 3 Medium, 8 Low; 18 of 20 round-1 findings confirmed resolved | [`reviews/step-1-round-2.md`](reviews/step-1-round-2.md); every finding addressed (R2-01 to R2-12) |
 | 3 | `e90cc09` | **PASS**: 0 Critical/High, 2 Medium, 9 Low; all round-2 findings resolved or carried | [`reviews/step-1-round-3.md`](reviews/step-1-round-3.md); findings addressed (R3-01 to R3-11) |
-| 4 | pending | | |
+| 4 | `ccea397` | **PASS**: 0 Critical/High, 3 Medium, 8 Low; Security and Scalability at 8 | [`reviews/step-1-round-4.md`](reviews/step-1-round-4.md); findings addressed (R4-01 to R4-11) |
+| 5 | pending | | |
 
 ## Scorecard (independent reviewer)
 
-| Area | Old code | Round 1 | Round 2 | Round 3 |
-| --- | --- | --- | --- | --- |
-| Folder structure & architecture | 6 | 8 | 8 | 9 |
-| API design | 5 | 7 | 7 | 8 |
-| Database schema | 5 | not built yet | not built yet | not built yet |
-| Scalability & load balancing | 4 | 7 | 8 | 8 |
-| DSA / algorithms | 4 | not built yet | not built yet | not built yet |
-| Code quality & correctness | 3 | 7 | 8 | 9 |
-| Duplication & reuse | 3 | 8 | 8 | 9 |
-| Maintainability | 3 | 7 | 7 | 8 |
-| Security | 2 | 6 | 7 | 8 |
-| **Overall** | **4** | **7** | **8** | **8** (8.4 average) |
+| Area | Old code | Round 1 | Round 2 | Round 3 | Round 4 |
+| --- | --- | --- | --- | --- | --- |
+| Folder structure & architecture | 6 | 8 | 8 | 9 | 9 |
+| API design | 5 | 7 | 7 | 8 | 9 |
+| Database schema | 5 | not built yet | not built yet | not built yet | not built yet |
+| Scalability & load balancing | 4 | 7 | 8 | 8 | 8 |
+| DSA / algorithms | 4 | not built yet | not built yet | not built yet | not built yet |
+| Code quality & correctness | 3 | 7 | 8 | 9 | 9 |
+| Duplication & reuse | 3 | 8 | 8 | 9 | 9 |
+| Maintainability | 3 | 7 | 7 | 8 | 9 |
+| Security | 2 | 6 | 7 | 8 | 8 |
+| **Overall** | **4** | **7** | **8** | **8** (8.4) | **9** (8.7) |
 
 Evidence for each score is in the review records.
 
 ## Carried forward
 
-- Commit `uv.lock`, then switch CI and Docker to `uv sync --locked` (owner action, needs internet).
 - Pin images by digest and actions by SHA (step 9).
+- Disconnect on a Pydantic-body route logged as 499 (step 3, R3-03).
