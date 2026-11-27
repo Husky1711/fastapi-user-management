@@ -57,7 +57,8 @@ app/
     security.py           # Argon2 hashing, JWT encode/decode, token hashing
     deps.py               # get_db, get_current_user, get_current_org, require_permission, client_info
     errors.py             # AppError hierarchy + RFC 9457 problem+json handlers
-    logging.py            # structured JSON logging, request id
+    logging.py            # structured JSON logging to stdout; request id context
+    middleware.py         # request id, security headers, access log; error boundary (500s)
     pagination.py         # Page[T], limit/offset params
     clock.py              # now() in UTC; replaced in tests
   api/
@@ -70,15 +71,16 @@ app/
       roles.py            # roles & permissions management
       admin.py            # platform-admin endpoints
       audit.py
-    health.py             # /health/live, /health/ready, /metrics
+    health.py             # /health/live, /health/ready (/metrics in step 8)
   models/                 # SQLAlchemy models, one file per aggregate
-  schemas/                # Pydantic request/response models, one file per area
+  schemas/                # Pydantic request/response models, one file per area (e.g. health.py)
   repositories/
-  services/
+  services/               # business logic, e.g. health.py (readiness checks, cache)
   infra/
+    database.py           # async engine, ping
+    redis.py              # async client, ping
     email/                # EmailSender protocol; console + smtp backends
     rate_limit.py         # GCRA in one Lua script
-    redis.py
   events/                 # event types + dispatcher
 migrations/               # Alembic
 tests/

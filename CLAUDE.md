@@ -18,12 +18,11 @@ measurable "10/10" table in `docs/VISION.md` §5.
 
 ## Current state
 
-- The code at the repo root (`main.py`, `routes/`, `services/`, `models/`, `utils/`, …) is the
-  **legacy** implementation. From roadmap step 1 it lives in `legacy/` and is reference only:
-  do not import it, run it, or fix bugs in it.
-- The new application is built in `app/`, step by step, following `docs/ROADMAP.md`.
-- The current `README.md` describes the legacy code and overstates some features; it is
-  rewritten in step 10.
+- `v2` is built from scratch: it holds only the new application (`app/`), its tests and docs.
+- The **old implementation lives untouched on `main`** (last commit `209a9bd`). Use it only as a
+  reference to cross-check APIs, tables and behaviour (milestone gate check 4). Never copy its
+  code or patterns; it scored 4/10.
+- The new application grows step by step, following `docs/ROADMAP.md`.
 
 ## How to work
 
@@ -31,10 +30,10 @@ measurable "10/10" table in `docs/VISION.md` §5.
    owner asks otherwise.
 2. Create a branch from up-to-date **`v2`** (the integration branch, see below):
    `step-<n>/<short-topic>` (e.g. `step-3/refresh-rotation`). Docs-only work: `docs/<topic>`.
-3. Write the test first when practical, then the code.
-4. Run the full check before every commit: `make lint typecheck test`
-   (available from step 1).
-5. Tick the finished items in `docs/ROADMAP.md` in the same PR.
+3. Work section by section (see "Testing, logging and scoring"): scenario plan first, then
+   tests, then code. Never move to the next section with the current one untested.
+4. Run the full check before every commit: `make check`.
+5. Tick the finished items in `docs/ROADMAP.md` and update the step report in the same PR.
 6. Open a pull request **into `v2`** using the template. Never push directly to `v2` or `main`;
    never force-push a shared branch.
 7. If you discover the plan or architecture is wrong, stop and say so in the PR. Change the
@@ -54,6 +53,60 @@ measurable "10/10" table in `docs/VISION.md` §5.
 `test:`, `docs:`, `chore:`, `ci:`. Subject in the imperative, ≤ 72 characters. One logical
 change per commit.
 
+## Testing, logging and scoring (mandatory)
+
+Full process: `docs/milestones/README.md`. These rules are not optional and are not skipped
+for small changes or to save time.
+
+**Mindset.** Test as the most experienced tester and a doubtful senior engineer: assume the
+code is broken and try to prove it. Passing tests you wrote for the happy path proves nothing.
+
+**Level 1: every section.**
+1. At the start of a step, split it into sections and create `docs/milestones/step-<n>.md`
+   from the template, with the section log.
+2. Before coding a section, write its scenario plan covering **every category C1–C12** of the
+   scenario checklist (happy path, invalid input, boundaries, authentication, authorization,
+   security abuse, concurrency, repeat calls, dependency failure, data integrity, real user
+   flow, regression). A category is either covered or marked N/A with a reason.
+3. A section is done only when all its scenarios pass in CI. **Never start the next section
+   while the current one is untested.**
+4. Then update the section log (✅, scenario counts), commit and push.
+
+**Level 2: every step.** When all sections are ✅, retest the whole step together on the real
+stack and run the gate: automated, tester, user, cross-check vs the old code on `main`,
+independent review, plus a security audit for security-relevant steps.
+
+**Autonomous progression (owner's standing instruction, 2026-11-27).** Don't ask the owner
+whether to continue. Enforce these standards yourself and keep fixing and re-checking until the
+step meets them. When a step's gate passes with **every touched scorecard area ≥ 9** (or a
+lower score whose fix belongs to a named later step, recorded as carried forward), merge the
+step's pull request into `v2` and start the next step. Report progress to the owner; ask only
+for things on the list at the end of this file.
+
+**Session rule.** Before any session ends, every finished section is tested, committed, pushed
+and marked ✅. Unfinished work is committed and marked 🔄 with a note on what is left. A new
+session starts by reading the section log and continues from the first section that isn't ✅.
+
+**Records.**
+- *Automatic test report*: CI publishes every test's result plus coverage on every run. It is
+  the proof; never type test results by hand.
+- *Written log* in the step report: section log, scenario plan with results per category,
+  totals (passed / failed / fixed), and a link to the CI run.
+- *Failure log*: every failure found (CI, gate, review) with cause and fix. Never hide or
+  silently fix a failure; record it.
+- *Scenario ids* in test names (`test_s<step>_<section>_<n>_<what>`) link plan, test and report.
+
+**Independent review.** Gate check 5 is always done by the `milestone-reviewer` agent
+(`.claude/agents/milestone-reviewer.md`): a fresh, read-only reviewer that verifies the report
+against the code and CI. Its output goes into the step report unchanged. Fix its Critical and
+High findings, then run it again until it returns PASS. Never edit its verdict.
+
+**Scoring.** After each step, the **independent reviewer** (never the author) scores the nine
+review areas against the old code's baseline, one line of evidence per score, and updates
+`docs/milestones/SCORECARD.md`. Areas not built yet are marked "not built yet", not given a
+number. A step is production-grade when every area it touches scores ≥ 9, or a lower score is
+carried forward to a named later step whose scope it belongs to.
+
 ## Definition of done (every PR)
 
 - [ ] Matches `docs/ARCHITECTURE.md` (or updates it with reasons)
@@ -63,6 +116,7 @@ change per commit.
 - [ ] New settings appear in `.env.example` with a safe default and a comment
 - [ ] New endpoints have a `response_model`, documented error codes and a rate-limit policy
 - [ ] No secrets, tokens, passwords or full emails in logs, errors or fixtures
+- [ ] Scenario checklist C1–C12 covered for each section touched; section log and failure log updated
 - [ ] `docs/ROADMAP.md` boxes ticked; README/docs updated if behaviour changed
 
 ## Code rules
@@ -87,7 +141,7 @@ change per commit.
 | Errors | `raise NotFound(...)`, `raise Forbidden(...)` (from `app/core/errors.py`) | `HTTPException` in services; returning error dicts |
 | Response shape | Pydantic `*Out` schema with `from_attributes=True` | Hand-built dicts |
 | Lists | `Page[T]` + `PaginationParams` | Unbounded `.all()` |
-| Settings | `from app.core.config import settings` | Copying settings into module constants; `os.getenv` |
+| Settings | `get_settings()` (or `request.app.state.settings`) from `app/core/config.py` | Copying settings into module constants; `os.getenv` |
 | Time | `app.core.clock.now()` (UTC, aware) | `datetime.utcnow()` |
 | Passwords | `security.hash_password` / `verify_password` (Argon2id) | Any other hashing |
 | Logging | `get_logger()` from `app/core/logging.py`, with structured fields | f-strings with secrets; `print` |
@@ -131,16 +185,20 @@ If you are about to write the same 3+ lines a second time, extract them.
 
 ## Commands
 
-Available from roadmap step 1:
-
 ```bash
-make install     # uv sync
-make run         # docker compose up (app + postgres + redis)
+make install     # uv sync --locked (exactly the committed uv.lock)
+make lock        # uv lock, after changing dependencies (commit uv.lock)
+make run         # docker compose up (app + postgres + redis) → http://localhost:8000/docs
 make lint        # ruff check + ruff format --check
 make typecheck   # mypy --strict
 make test        # pytest with coverage
-make migrate     # alembic upgrade head
+make migrate     # alembic upgrade head (from step 2)
+make check       # lint + typecheck + test, exactly what CI runs
 ```
+
+Tests that need real PostgreSQL and Redis are marked `services` and run when
+`RUN_SERVICE_TESTS=1` (CI sets it). Locally: `make run` in one terminal, then
+`RUN_SERVICE_TESTS=1 DATABASE__URL=... REDIS__URL=... make test`.
 
 ## Things to ask the owner about (don't guess)
 
@@ -148,3 +206,4 @@ make migrate     # alembic upgrade head
 - Reversing an ADR
 - Adding a new runtime dependency that isn't in `docs/ARCHITECTURE.md` §1
 - Anything destructive on a real database or on GitHub (deleting branches, tags, releases)
+- Merging `v2` into `main` (the release, roadmap step 10)

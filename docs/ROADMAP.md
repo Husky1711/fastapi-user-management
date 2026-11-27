@@ -9,7 +9,11 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
   release (ADR-0007).
 - One step = one branch off `v2` = one pull request into `v2`. Large steps may split into
   several PRs; each PR still leaves `v2` installable with CI green.
-- A step is done only when every task is ticked **and** its exit criteria are met.
+- Each step is split into sections. Each section is tested against the full scenario checklist
+  before the next one starts (`docs/milestones/README.md`).
+- A step is done only when every task is ticked, its exit criteria are met, **and it passes the
+  step gate** (`docs/milestones/README.md`) with an independent scorecard where every touched
+  area is ≥ 9 (or carried to a named later step). The next step then starts automatically.
 - Tick boxes in this file in the same PR that does the work.
 - If a step reveals that the plan is wrong, change this file in that PR and say why.
 
@@ -17,8 +21,8 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 
 | Step | Title | Status |
 | --- | --- | --- |
-| 0 | Foundation docs | 🔄 In review |
-| 1 | Project skeleton & tooling | ⬜ Not started |
+| 0 | Foundation docs | ✅ Done |
+| 1 | Project skeleton & tooling | ✅ Done (review round 5: 9.0/10) |
 | 2 | Database foundation | ⬜ Not started |
 | 3 | Authentication core | ⬜ Not started |
 | 4 | Rate limiting | ⬜ Not started |
@@ -37,12 +41,12 @@ mean rewriting each file twice. So:
 
 0. `main` is not touched until release. Anything that runs the old API (e.g.
    `user_management_UI`) keeps using `main`.
-1. On `v2`, step 1 moves the current code into `legacy/`, untouched, for reference only. It
-   is not run, tested or imported by the new app.
-2. Steps 1–8 build the new app in `app/`, test-first, in the target architecture.
-3. Step 10 deletes `legacy/` and merges `v2` into `main` as the v1.0.0 release.
+1. `v2` starts clean: step 1 deletes the old code from the branch. It stays complete on `main`
+   for reference and cross-checking.
+2. Steps 1–8 build the new app in `app/` from scratch, test-first, in the target architecture.
+3. Step 10 merges `v2` into `main` as the v1.0.0 release.
 
-Known bugs in the legacy code (from the review) are **not** fixed in `legacy/`; each one is
+Known bugs in the old code (from the review) are **not** fixed on `main`; each one is
 listed below against the step where the new code makes it impossible, so nothing is lost.
 
 ---
@@ -57,6 +61,7 @@ listed below against the step where the new code makes it impossible, so nothing
 - [x] `docs/ROADMAP.md` — this file
 - [x] `docs/adr/` — the decisions agreed so far
 - [x] Pull request template
+- [x] Testing, logging and scoring process (`docs/milestones/README.md`, `SCORECARD.md`)
 
 **Exit criteria:** reviewed and merged by the project owner.
 
@@ -67,20 +72,21 @@ listed below against the step where the new code makes it impossible, so nothing
 **Goal:** an empty-but-production-shaped app that installs, starts, lints, type-checks and
 tests in CI.
 
-- [ ] Move all current Python code, `config_manager.py` and `requirement.txt` into `legacy/`
-- [ ] `pyproject.toml` managed by `uv`; lockfile committed; Python 3.12+
-- [ ] `app/` skeleton matching `docs/ARCHITECTURE.md` §3 (empty packages with `__init__.py`)
-- [ ] `app/core/config.py` — `Settings` with nested sections; `.env.example` listing every variable
-- [ ] Production safety check: startup fails on default/short JWT secret, `CORS *` + credentials, or debug on
-- [ ] `app/core/logging.py` — JSON logs to stdout, request id middleware (one pure ASGI middleware)
-- [ ] `app/core/errors.py` — `AppError` hierarchy and RFC 9457 handlers for app, validation and unexpected errors
-- [ ] `app/api/health.py` — `/health/live`, `/health/ready` (checks DB + Redis)
-- [ ] `app/main.py` — `create_app()` factory with lifespan (no `on_event`)
-- [ ] `Dockerfile` (multi-stage, non-root user) and `docker-compose.yml` (app, Postgres 16, Redis 7)
-- [ ] `ruff`, `mypy --strict`, `pytest` configured in `pyproject.toml`
-- [ ] `Makefile` (or `justfile`) with `install`, `run`, `lint`, `typecheck`, `test`, `migrate`
-- [ ] GitHub Actions: lint, type-check, test with Postgres + Redis services, on every PR
-- [ ] First tests: app starts, health endpoints, error format, production safety check
+- [x] Remove the old code from `v2` (it stays on `main` for reference)
+- [x] `pyproject.toml` managed by `uv`; Python 3.12+
+- [x] `uv.lock` committed (generated in CI, checksum-verified); CI and Docker use `uv sync --locked`
+- [x] `app/` skeleton matching `docs/ARCHITECTURE.md` §3 (empty packages with `__init__.py`)
+- [x] `app/core/config.py` — `Settings` with nested sections; `.env.example` listing every variable
+- [x] Safety check for staging and production: startup fails on default/short JWT secret, default DB credentials or debug on; `CORS *` + credentials rejected everywhere
+- [x] `app/core/logging.py` — JSON logs to stdout; `app/core/middleware.py` — request id, security headers, access log, error boundary (pure ASGI)
+- [x] `app/core/errors.py` — `AppError` hierarchy and RFC 9457 handlers for app, validation and unexpected errors
+- [x] `app/api/health.py` — `/health/live`, `/health/ready` (checks DB + Redis)
+- [x] `app/main.py` — `create_app()` factory with lifespan (no `on_event`)
+- [x] `Dockerfile` (multi-stage, non-root user) and `docker-compose.yml` (app, Postgres 16, Redis 7)
+- [x] `ruff`, `mypy --strict`, `pytest` configured in `pyproject.toml`
+- [x] `Makefile` (or `justfile`) with `install`, `run`, `lint`, `typecheck`, `test`, `migrate`
+- [x] GitHub Actions: lint, type-check, test with Postgres + Redis services, on every PR
+- [x] First tests: app starts, health endpoints, error format, production safety check
 
 **Fixes from review:** missing `pydantic-settings` dependency; `settings.environment`
 AttributeError; `config_manager.py` copying files that don't exist; deprecated `on_event`;
@@ -130,6 +136,8 @@ delete; no migrations; lockout columns unused.
 - [ ] `GET /me`, `GET /me/sessions`, `DELETE /me/sessions/{id}`, `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
 - [ ] `POST /me/password` (change password; revokes other sessions)
 - [ ] Tests for every path, including reuse detection, lockout and expiry
+- [ ] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)
+- [ ] Log redaction also masks fields named like secrets (`password`, `token`, …), non-string values and `key: value` / `Authorization:` forms (from step 1 review, R5-03)
 
 **Fixes from review:** unsalted SHA-256 passwords; `/debug-login` and `/debug-refresh`
 (not recreated); revocation that hashed the hash and revoked nothing; revoke-others killing the
@@ -220,6 +228,7 @@ missing CRUD.
 - [ ] DB pool sizing from settings; uvicorn proxy headers; graceful shutdown
 - [ ] Load test (k6 or Locust) in `tests/load/`; record results in `docs/PERFORMANCE.md`
 - [ ] Meet the performance targets in `docs/VISION.md` §5
+- [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
@@ -237,7 +246,9 @@ tokens never cleaned.
 - [ ] ASVS L2 V2/V3/V4 checklist in `docs/security/asvs.md`, each item linked to code or test
 - [ ] Security headers reviewed; CORS allow-list only
 - [ ] `pip-audit` and `bandit` in CI; Dependabot enabled
+- [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
+- [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
 
@@ -250,7 +261,6 @@ tokens never cleaned.
 - [ ] `docs/EXTENDING.md` with worked examples (new permission, new endpoint, profile table, event subscriber, email provider)
 - [ ] New `README.md`: what it is, quick start, configuration, links to docs
 - [ ] `docs/API_MIGRATION.md`: every legacy endpoint → new endpoint, for `user_management_UI`
-- [ ] Delete `legacy/`
 - [ ] Tag the last legacy commit on `main` (e.g. `legacy-final`), then merge `v2` into `main`
 - [ ] Mark the GitHub repo as a template; tag `v1.0.0`; `CHANGELOG.md`
 - [ ] Re-score the backend against `docs/VISION.md` §5 and record the result

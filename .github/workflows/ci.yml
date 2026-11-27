@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [v2, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.13.10"  # same as the Dockerfile; uv.lock's format depends on it
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run mypy
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: usermgmt_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      RUN_SERVICE_TESTS: "1"
+      DATABASE__URL: postgresql+asyncpg://postgres:postgres@localhost:5432/usermgmt_test
+      REDIS__URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Run tests
+        run: >-
+          uv run pytest
+          --junitxml=reports/junit.xml
+          --cov-report=xml:reports/coverage.xml
+          --cov-report=html:reports/htmlcov
+      - name: Publish test report to the run summary
+        if: always()
+        run: uv run python scripts/test_report.py "Unit & integration" reports/junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload test report and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: reports/
+
+  compose:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    env:
+      WAIT: scripts/ci/wait-for-status.sh
+    steps:
+      - uses: actions/checkout@v4
+      - name: "1.1-03 README quick start: copy .env.example, start the stack (detached)"
+        run: |
+          cp .env.example .env
+          docker compose up --build --detach --wait --wait-timeout 120
+          $WAIT http://localhost:8000/health/ready 200 30
+      - name: "1.6-02 Container runs as a non-root user"
+        run: |
+          uid=$(docker compose exec -T app id -u)
+          echo "uid=$uid"; test "$uid" != "0"
+      - name: "1.6-03 Image contains no tests, docs, env files or git data"
+        run: docker compose exec -T app sh -c 'test ! -e /app/tests && test ! -e /app/docs && test ! -e /app/.env && test ! -e /app/.git'
+      - name: "1.6-10 Ports are published on loopback only; Redis refuses clients without the password"
+        run: |
+          for svc in "app 8000" "db 5432" "redis 6379"; do
+            set -- $svc
+            addr=$(docker compose port "$1" "$2")
+            echo "$1 -> $addr"
+            case "$addr" in 127.0.0.1:*) ;; *) echo "$1 is not bound to loopback"; exit 1 ;; esac
+          done
+          docker compose exec -T -e REDISCLI_AUTH= redis redis-cli ping | tee /dev/stderr | grep -q NOAUTH
+      - name: "1.6-09 A setting edited in .env reaches the app"
+        run: |
+          echo 'CORS__ALLOW_ORIGINS=["http://localhost:3000"]' >> .env
+          docker compose up --detach --wait --wait-timeout 120
+          docker compose exec -T app sh -c 'echo "$CORS__ALLOW_ORIGINS"' | grep -q "http://localhost:3000"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: User scenarios against the running stack (gate check 3)
+        env:
+          E2E_BASE_URL: http://localhost:8000
+          E2E_ALLOWED_ORIGIN: http://localhost:3000
+        run: |
+          uv sync --locked
+          uv run pytest tests/e2e --no-cov -v --junitxml=reports/e2e-junit.xml
+      - name: Publish user-scenario report to the run summary
+        if: always()
+        run: uv run python scripts/test_report.py "User scenarios (real stack)" reports/e2e-junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload user-scenario report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: reports/
+      - name: "1.5-13 Redis down -> not ready (503), live still 200; Redis back -> ready (200)"
+        run: |
+          docker compose stop redis
+          $WAIT http://localhost:8000/health/ready 503 15
+          $WAIT http://localhost:8000/health/live 200 5
+          docker compose start redis
+          $WAIT http://localhost:8000/health/ready 200 30
+      - name: "1.5-14 PostgreSQL down -> not ready (503), live still 200; back -> ready (200)"
+        run: |
+          docker compose stop db
+          $WAIT http://localhost:8000/health/ready 503 15
+          $WAIT http://localhost:8000/health/live 200 5
+          docker compose start db
+          $WAIT http://localhost:8000/health/ready 200 60
+      - name: "1.5-19 Outage logs from 1.5-13/14: one line per failing dependency, no traceback"
+        run: |
+          logs=$(docker compose logs app)
+          echo "$logs" | grep '"readiness check failed"' | head -5
+          test "$(echo "$logs" | grep -c '"readiness check failed"')" -ge 2
+          if echo "$logs" | grep -q 'postgres:postgres@\|redis-dev-password'; then echo "credentials in logs"; exit 1; fi
+          if echo "$logs" | grep '"readiness check failed"' | grep -q 'Traceback'; then echo "traceback in logs"; exit 1; fi
+      - name: "1.5-21 Wrong DB password: not ready, and the password never reaches the logs"
+        run: |
+          docker compose run --detach --no-deps --name app-badpw --publish 8002:8000 \
+            -e DATABASE__URL="postgresql+asyncpg://postgres:Wrong-Pw-7731@db:5432/usermgmt" app
+          $WAIT http://localhost:8002/health/live 200 30
+          $WAIT http://localhost:8002/health/ready 503 10
+          logs=$(docker logs app-badpw 2>&1)
+          echo "$logs" | grep '"readiness check failed"' | head -3
+          echo "$logs" | grep -q '"readiness check failed"'
+          if echo "$logs" | grep -q 'Wrong-Pw-7731'; then echo "password in logs"; exit 1; fi
+          if echo "$logs" | grep -q 'Traceback'; then echo "traceback in logs"; exit 1; fi
+          docker rm -f app-badpw
+      - name: "1.5-18 App started while PostgreSQL is down: starts, not ready; ready once the DB is back"
+        run: |
+          docker compose stop db
+          docker compose up --detach --no-deps --force-recreate app
+          $WAIT http://localhost:8000/health/live 200 30
+          $WAIT http://localhost:8000/health/ready 503 5
+          docker compose start db
+          $WAIT http://localhost:8000/health/ready 200 60
+      - name: "1.2-21 Production with safe settings starts, sends HSTS, hides docs"
+        run: |
+          docker compose exec -T db psql -U postgres -c "CREATE ROLE app_ci LOGIN PASSWORD 'ci-strong-password'"
+          docker compose exec -T redis redis-cli ACL SETUSER app_ci on '>ci-strong-redis-password' '~*' '&*' '+@all'
+          secret=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+          docker compose run --detach --no-deps --name app-prod --publish 8001:8000 \
+            -e ENVIRONMENT=production -e JWT__SECRET_KEY="$secret" \
+            -e DATABASE__URL="postgresql+asyncpg://app_ci:ci-strong-password@db:5432/usermgmt" \
+            -e REDIS__URL="redis://app_ci:ci-strong-redis-password@redis:6379/0" app
+          $WAIT http://localhost:8001/health/ready 200 30
+          curl -s -D - -o /dev/null http://localhost:8001/health/live | grep -qi "^strict-transport-security: max-age"
+          $WAIT http://localhost:8001/docs 404 5
+          $WAIT http://localhost:8001/openapi.json 404 5
+          docker rm -f app-prod
+      - name: "1.2-20 Production refuses to start with the published default secret and passwords"
+        run: |
+          set +e
+          output=$(docker compose run --rm --no-deps -e ENVIRONMENT=production app 2>&1)
+          status=$?
+          set -e
+          echo "$output" | tail -5
+          test "$status" -ne 0
+          echo "$output" | grep -q "Unsafe configuration for production"
+          echo "$output" | grep -q "JWT__SECRET_KEY is the development default"
+          echo "$output" | grep -q "DATABASE__URL uses a well-known default password"
+          echo "$output" | grep -q "REDIS__URL uses a well-known default password"
+      - name: Container logs
+        if: always()
+        run: docker compose logs app
+      - name: Stop stack
+        if: always()
+        run: docker compose down --volumes
