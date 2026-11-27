@@ -70,11 +70,15 @@ async def paused_request(gate: Gate, request: Awaitable[Response]) -> AsyncItera
     """Start `request`, wait until it reaches the gate, run the block, then let it finish.
     The finished task is yielded; read its result after the block."""
     task: asyncio.Task[Response] = asyncio.ensure_future(request)
-    async with asyncio.timeout(WAIT_LIMIT_SECONDS):
-        await gate.reached.wait()
-        yield task
+    try:
+        async with asyncio.timeout(WAIT_LIMIT_SECONDS):
+            await gate.reached.wait()
+            yield task
+    finally:  # always let the paused request finish, or it holds its locks past the test
         gate.release.set()
-        await task
+        async with asyncio.timeout(WAIT_LIMIT_SECONDS):
+            await asyncio.gather(task, return_exceptions=True)
+    task.result()  # re-raise what the paused request raised, if anything
 
 
 def _bearer(tokens: dict[str, Any]) -> dict[str, str]:
@@ -130,11 +134,13 @@ async def _user(db: AsyncSession, email: str) -> User:
 
 
 async def _wait_until_queued_on_the_user_lock(engine: AsyncEngine) -> None:
-    """Return once another connection waits to take the per-user lock (and not any lock)."""
+    """Return once another connection is blocked reading the users table (the per-user
+    lock), not on any lock. The match is on the start of the statement: PostgreSQL keeps
+    only its first 1024 bytes, so the trailing `FOR NO KEY UPDATE` may be cut off."""
     query = text(
         "SELECT count(*) FROM pg_stat_activity"
         " WHERE datname = current_database() AND wait_event_type = 'Lock'"
-        " AND query LIKE '%FROM users%FOR NO KEY UPDATE%'"
+        " AND cardinality(pg_blocking_pids(pid)) > 0 AND query LIKE 'SELECT users.id%'"
     )
     async with asyncio.timeout(WAIT_LIMIT_SECONDS), engine.connect() as connection:
         # PostgreSQL can't signal us, so this polls its state; the order is still decided
