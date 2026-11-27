@@ -110,5 +110,6 @@ class SessionRepository(Repository):
             .values(revoked_at=now, revoked_reason=reason)
             .execution_options(synchronize_session=False)
         )
+        # Any: an UPDATE without RETURNING has no rows to type; only rowcount is read.
         result = cast("CursorResult[Any]", await self.session.execute(statement))
         return result.rowcount

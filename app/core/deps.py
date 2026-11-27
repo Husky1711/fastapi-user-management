@@ -4,7 +4,7 @@ import ipaddress
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -60,11 +60,22 @@ def client_info(request: Request) -> ClientInfo:
 
 
 def _ip_or_none(host: str | None) -> str | None:
-    """Only real addresses are recorded (some servers and test clients report a name)."""
+    """Only real addresses are recorded (some servers and test clients report a name). An
+    IPv6 zone id (`fe80::1%eth0`) is local to the server and `inet` refuses it: dropped."""
+    if not host:
+        return None
     try:
-        return str(ipaddress.ip_address(host)) if host else None
+        address = ipaddress.ip_address(host.partition("%")[0])
     except ValueError:
         return None
+    return str(address)
+
+
+def no_store(response: Response) -> None:
+    """API answers hold tokens or personal data: no browser or proxy may keep a copy
+    (RFC 6749 §5.1 for token responses; ASVS V8.2.1)."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
 
 
 Authenticated = Annotated[CurrentUser, Depends(get_current_user)]

@@ -14,11 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
+from app.core.client import ClientInfo
 from app.core.config import AuthSettings, SessionStrategy
 from app.core.logging import JsonFormatter
 from app.infra.database import is_unique_violation
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
+from app.services import auth
 from tests.api import api_client
 from tests.db import SERVICES, UNREACHABLE_DB, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
@@ -410,25 +412,45 @@ async def test_s3_4_16_database_down_at_login_is_a_generic_500_without_secrets(
         assert secret not in response.text
 
 
+class _DriverError(Exception):
+    """Stands in for asyncpg's error, which carries SQLSTATE and constraint name."""
+
+    def __init__(self, sqlstate: str, constraint_name: str | None) -> None:
+        super().__init__(f"{sqlstate} {constraint_name}")
+        self.sqlstate, self.constraint_name = sqlstate, constraint_name
+
+
+def _integrity_error(sqlstate: str, constraint_name: str | None) -> IntegrityError:
+    adapted = Exception("adapted")
+    adapted.__cause__ = _DriverError(sqlstate, constraint_name)
+    return IntegrityError("INSERT", {}, adapted)
+
+
 def test_s3_4_03_only_the_email_constraint_means_taken() -> None:
-    def violation(message: str) -> IntegrityError:
-        return IntegrityError("INSERT", {}, Exception(message))
+    assert is_unique_violation(_integrity_error("23505", "uq_users_email"), "uq_users_email")
+    for sqlstate, name in [
+        ("23505", "uq_users_email_v2"),  # a longer name that contains it
+        ("23503", "uq_users_email"),  # right name, but not a unique violation
+        ("23503", "fk_audit_logs_actor_user_id_users"),
+        ("23505", None),
+    ]:
+        assert not is_unique_violation(_integrity_error(sqlstate, name), "uq_users_email")
 
-    assert is_unique_violation(
-        violation('duplicate key violates "uq_users_email"'), "uq_users_email"
-    )
-    for other in ('violates foreign key constraint "fk_audit_logs_actor_user_id_users"', ""):
-        assert not is_unique_violation(violation(other), "uq_users_email")
 
-
-@pytest.fixture
-async def race_email(db_engine: AsyncEngine) -> AsyncIterator[str]:
-    email = _email()
-    yield email
-    async with AsyncSession(db_engine) as session, session.begin():
-        ids = list((await session.execute(select(User.id).where(User.email == email))).scalars())
-        await session.execute(delete(AuditLog).where(AuditLog.actor_user_id.in_(ids)))
-        await session.execute(delete(User).where(User.id.in_(ids)))
+async def test_s3_4_03_any_other_integrity_error_at_signup_is_raised(
+    db_connection: AsyncConnection,
+) -> None:
+    """A real CHECK violation (bypassing the schema's 200-character cap) is a bug, not
+    "email taken": it must surface, never be swallowed as a 202."""
+    async with AsyncSession(bind=db_connection, join_transaction_mode="create_savepoint") as db:
+        with pytest.raises(IntegrityError):
+            await auth.signup(
+                db,
+                email=_email(),
+                password=PASSWORD,
+                full_name="N" * 201,
+                client=ClientInfo(ip=None, user_agent=None),
+            )
 
 
 async def test_s3_4_19_concurrent_signups_with_one_email_create_one_user(
@@ -471,3 +493,55 @@ async def test_s3_4_21_full_name_is_capped_at_200_characters(
         response = await http.post(SIGNUP, json=body)
     assert response.status_code == status
     assert (await _user(db, email) is not None) == (status == 202)
+
+
+async def test_s3_4_22_token_and_account_answers_are_never_cached(
+    db_connection: AsyncConnection,
+) -> None:
+    async with api_client(db_connection) as http:
+        email = _email()
+        signup = await http.post(SIGNUP, json={"email": email, "password": PASSWORD})
+        login = await _login(http, email)
+        tokens = login.json()
+        answers = [
+            signup,
+            login,
+            await http.post(
+                "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+            ),
+        ]
+        bearer = {"Authorization": f"Bearer {answers[-1].json()['access_token']}"}
+        answers += [
+            await http.get("/api/v1/me", headers=bearer),
+            await http.get("/api/v1/me/sessions", headers=bearer),
+            await http.post("/api/v1/auth/logout", headers=bearer),
+        ]
+    for answer in answers:
+        assert answer.is_success, answer.request.url
+        assert answer.headers["cache-control"] == "no-store", answer.request.url
+        assert answer.headers["pragma"] == "no-cache"
+
+
+async def test_s3_4_23_disabled_signup_is_not_advertised(db_connection: AsyncConnection) -> None:
+    async with api_client(db_connection, auth=AuthSettings(signup_enabled=False)) as http:
+        hidden = (await http.get("/openapi.json")).json()["paths"]
+    async with api_client(db_connection) as http:
+        shown = (await http.get("/openapi.json")).json()["paths"]
+    assert SIGNUP not in hidden
+    assert SIGNUP in shown
+    assert LOGIN in hidden
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known gap, roadmap step 6: until email verification gates login, signing up "
+    "with an email and then logging in with that password shows whether the email was free",
+)
+async def test_s3_4_24_signup_then_login_does_not_reveal_whether_the_email_was_free(
+    db_connection: AsyncConnection,
+) -> None:
+    async with api_client(db_connection) as http:
+        email = _email()
+        await _registered(http, email)
+        response = await _login(http, email)
+    assert response.status_code == 401  # refused until the address is verified (step 6)

@@ -11,10 +11,21 @@ _URL_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^@/\s]+@", re.IGNORECASE)
 # "password=hunter2", "token: abc", '"api_key": "abc"' (DSNs, query strings, headers, JSON)
 # → the value becomes ***. A word alone ("password reset sent") is left as it is.
 _KEY_VALUE_SECRET = re.compile(
-    r"""(["']?\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token"""
-    r"""|refresh[_-]?token|client[_-]?secret)["']?\s*[=:]\s*)(["']?)[^\s;&,'"}]+""",
+    r"""(["']?\b(?:[a-z0-9]+[_-])*(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key"""
+    r"""|client[_-]?secret)["']?\s*[=:]\s*)"""
+    # a quoted value runs to its closing quote (passphrases have spaces); a bare one to a
+    # space or separator
+    r"""("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s;&,'"}]+)""",
     re.IGNORECASE,
 )
+
+
+def _mask_value(match: re.Match[str]) -> str:
+    value = match.group(2)
+    quote = value[0] if value[0] in "\"'" else ""
+    return f"{match.group(1)}{quote}***{quote}"
+
+
 # "Authorization: Bearer abc" → "Authorization: Bearer ***" (always, after the header name)
 _AUTH_HEADER = re.compile(
     r"(\bauthorization\s*[:=]\s*(?:bearer|basic)\s+)[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE
@@ -29,7 +40,7 @@ _AUTH_SCHEME = re.compile(
 def redact(text: str, *, limit: int | None = None) -> str:
     """Remove credentials (URLs, key/value pairs, auth headers); optionally cap the length."""
     cleaned = _URL_CREDENTIALS.sub(r"\1***@", text)
-    cleaned = _KEY_VALUE_SECRET.sub(r"\1\2***", cleaned)
+    cleaned = _KEY_VALUE_SECRET.sub(_mask_value, cleaned)
     cleaned = _AUTH_HEADER.sub(r"\1***", cleaned)
     cleaned = _AUTH_SCHEME.sub(r"\1 ***", cleaned)
     return cleaned if limit is None else cleaned[:limit]
@@ -44,12 +55,31 @@ def mask_email(email: str) -> str:
 
 
 REDACTED = "[REDACTED]"
-# Field names whose values are always secret, whatever the value looks like.
-_SECRET_FIELD = re.compile(
-    r"pass(word|wd|phrase)?|pwd|secret|token|authorization|api[_-]?key|cookie|credential"
-    r"|private[_-]?key",
-    re.IGNORECASE,
+# Field names whose values are always secret, whatever the value looks like. A name is split
+# into words (`_`, `-`, `.`, spaces, camelCase); it is secret when its last word is one of
+# these, or its last two words are one of the pairs: `new_password`, `apiKey`, `token_hash`
+# are secret, `compass`, `bypass_cache`, `token_type` are not.
+_SECRET_LAST_WORDS = frozenset(
+    {
+        "password",
+        "passwd",
+        "passphrase",
+        "pass",
+        "pwd",
+        "secret",
+        "token",
+        "authorization",
+        "cookie",
+        "cookies",
+        "credential",
+        "credentials",
+        "apikey",
+    }
 )
+_SECRET_LAST_PAIRS = frozenset(
+    {("api", "key"), ("private", "key"), ("secret", "key"), ("password", "hash"), ("token", "hash")}
+)
+_WORD_BREAK = re.compile(r"[_\-.\s]+|(?<=[a-z0-9])(?=[A-Z])")
 _EMAIL = re.compile(r"([A-Za-z0-9._%+'-])[A-Za-z0-9._%+'-]*@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
 
 
@@ -59,7 +89,10 @@ def mask_emails(text: str) -> str:
 
 
 def is_secret_field(name: str) -> bool:
-    return _SECRET_FIELD.search(name) is not None
+    words = [word.lower() for word in _WORD_BREAK.split(name) if word]
+    if not words:
+        return False
+    return words[-1] in _SECRET_LAST_WORDS or tuple(words[-2:]) in _SECRET_LAST_PAIRS
 
 
 def redact_value(value: object) -> object:

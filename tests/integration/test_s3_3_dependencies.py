@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import event, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
-from app.core import clock
+from app.core import clock, deps
 from app.core.logging import JsonFormatter
 from app.core.security import issue_access_token
 from app.main import create_app
@@ -230,3 +230,18 @@ async def test_s3_3_12_tokens_never_reach_the_logs(
     assert me.access_token not in logged
     assert me.access_token[:40] not in logged
     assert json.dumps(me.user.email) not in logged
+
+
+@pytest.mark.parametrize(
+    ("host", "recorded"),
+    [
+        ("203.0.113.9", "203.0.113.9"),
+        ("2001:db8::1", "2001:db8::1"),
+        ("fe80::1%eth0", "fe80::1"),  # zone id is local to the server; inet refuses it
+        ("testclient", None),  # some servers and test clients report a name
+        ("", None),
+        (None, None),
+    ],
+)
+def test_s3_3_14_only_real_addresses_are_recorded(host: str | None, recorded: str | None) -> None:
+    assert deps._ip_or_none(host) == recorded

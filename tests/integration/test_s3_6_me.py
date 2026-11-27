@@ -1,14 +1,16 @@
 """Section 3.6: the signed-in user's profile, sessions and password."""
 
 import uuid
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from app.models import AuditLog, RevokeReason, User, UserSession
+from app.repositories import SessionRepository
 from tests.api import api_client
 from tests.db import SERVICES
 
@@ -254,3 +256,44 @@ async def test_s3_6_14_ending_your_own_current_session_signs_you_out(
         401,
         200,
     )
+
+
+def _lost_connection(*_: object, **__: object) -> NoReturn:
+    raise OperationalError("UPDATE sessions", {}, ConnectionResetError("connection lost"))
+
+
+async def test_s3_6_15_database_failing_inside_a_password_change_changes_nothing(
+    db: AsyncSession, db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    new_password = "Brand-New-Passw0rd-1"
+    async with api_client(db_connection) as http:
+        email, (phone, laptop) = await _account(http, devices=2)
+        monkeypatch.setattr(SessionRepository, "revoke_all", _lost_connection)
+        change = {"current_password": PASSWORD, "new_password": new_password}
+        response = await http.post("/api/v1/me/password", json=change, headers=_bearer(laptop))
+        monkeypatch.undo()
+        phone_after = await http.get("/api/v1/me", headers=_bearer(phone))
+        old_login = await http.post(
+            "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
+        )
+    assert (response.status_code, phone_after.status_code, old_login.status_code) == (
+        500,
+        200,
+        200,
+    )  # the whole change rolled back: old password and other devices still work
+    assert new_password not in response.text
+
+
+async def test_s3_6_16_ending_the_same_session_twice_is_404_the_second_time(
+    db: AsyncSession, db_connection: AsyncConnection
+) -> None:
+    async with api_client(db_connection) as http:
+        _, (_phone, laptop) = await _account(http, devices=2)
+        listing = (await http.get("/api/v1/me/sessions", headers=_bearer(laptop))).json()
+        phone_id = next(s["id"] for s in listing["items"] if not s["current"])
+        first = await http.delete(f"/api/v1/me/sessions/{phone_id}", headers=_bearer(laptop))
+        second = await http.delete(f"/api/v1/me/sessions/{phone_id}", headers=_bearer(laptop))
+    assert (first.status_code, second.status_code) == (204, 404)
+    assert second.json()["code"] == "session.not_found"
+    ended = await db.execute(select(AuditLog).where(AuditLog.action == "auth.session_ended"))
+    assert len(ended.scalars().all()) == 1

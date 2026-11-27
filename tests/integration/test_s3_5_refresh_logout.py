@@ -5,11 +5,12 @@ import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import timedelta
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
@@ -17,6 +18,7 @@ from app.core.config import AuthSettings
 from app.core.logging import JsonFormatter
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
+from app.repositories import SessionRepository
 from tests.api import WHOAMI, api_client, whoami_router
 from tests.db import SERVICES, UNREACHABLE_DB, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
@@ -252,26 +254,42 @@ async def test_s3_5_12_disabled_user_cannot_refresh(
     assert len(await _rows(db)) == count_before  # no new session
 
 
-@pytest.mark.parametrize("path", [REFRESH, LOGOUT, LOGOUT_ALL])
-async def test_s3_5_15_database_down_at_refresh_or_logout_is_a_generic_500(
-    caplog: pytest.LogCaptureFixture, path: str
+async def test_s3_5_15_database_down_at_refresh_is_a_generic_500(
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = make_settings(database=UNREACHABLE_DB)
-    app = create_app(settings, health_checks={"database": check_ok})
+    app = create_app(make_settings(database=UNREACHABLE_DB), health_checks={"database": check_ok})
     refresh_token = security.new_opaque_token()
-    access_token, _ = security.issue_access_token(  # valid, so the database lookup runs
-        settings.jwt, user_id=uuid.uuid4(), session_id=uuid.uuid4(), now=clock.now()
-    )
     with caplog.at_level(logging.INFO):
         async with app.router.lifespan_context(app), client_for(app) as http:
-            if path == REFRESH:
-                response = await http.post(path, json={"refresh_token": refresh_token})
-            else:
-                response = await http.post(
-                    path, headers={"Authorization": f"Bearer {access_token}"}
-                )
+            response = await http.post(REFRESH, json={"refresh_token": refresh_token})
     assert response.status_code == 500
     logged = "\n".join(JsonFormatter().format(r) for r in caplog.records)
-    for secret in (refresh_token, access_token):
-        assert secret not in logged
-        assert secret not in response.text
+    assert refresh_token not in logged
+    assert refresh_token not in response.text
+
+
+def _lost_connection(*_: object, **__: object) -> NoReturn:
+    raise OperationalError("UPDATE sessions", {}, ConnectionResetError("connection lost"))
+
+
+@pytest.mark.parametrize(
+    ("path", "method"), [(LOGOUT, "revoke_family"), (LOGOUT_ALL, "revoke_all")]
+)
+async def test_s3_5_16_database_failing_inside_logout_is_a_500_and_changes_nothing(
+    db: AsyncSession,
+    db_connection: AsyncConnection,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    path: str,
+    method: str,
+) -> None:
+    async with api_client(db_connection) as http:
+        _, tokens = await _new_account(http)
+        monkeypatch.setattr(SessionRepository, method, _lost_connection)
+        with caplog.at_level(logging.INFO):
+            response = await http.post(path, headers=_bearer(tokens))
+        monkeypatch.undo()
+        still_in = await http.get("/api/v1/me", headers=_bearer(tokens))
+    assert (response.status_code, still_in.status_code) == (500, 200)
+    logged = "\n".join(JsonFormatter().format(r) for r in caplog.records)
+    assert tokens["access_token"] not in logged

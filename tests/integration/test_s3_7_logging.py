@@ -76,6 +76,10 @@ async def test_s3_7_02_ordinary_body_errors_still_get_their_answer(
         "api_key",
         "apiKey",
         "cookie",
+        "x-api-key",
+        "password_hash",
+        "refreshToken",
+        "db_pass",
     ],
 )
 def test_s3_7_03_fields_named_like_secrets_are_replaced(
@@ -113,6 +117,9 @@ def test_s3_7_04_secret_values_of_any_type_are_redacted(caplog: pytest.LogCaptur
         ("token: t0k3n-value seen", "t0k3n-value"),
         ("Basic dXNlcjpwYXNzd29yZA== sent", "dXNlcjpwYXNzd29yZA"),
         ("Authorization: Bearer abc", "abc"),
+        ('body {"password": "correct horse battery staple"}', "horse battery staple"),
+        ("new_password='a;b,c}d&e' sent", "b,c}d&e"),
+        ('{"client_secret": "with \\" quote inside"}', "quote inside"),
         ("user grace.hopper@example.com logged in", "grace.hopper"),
     ],
 )
@@ -138,3 +145,10 @@ def test_s3_7_06_messages_that_only_mention_the_words_are_untouched(
     caplog: pytest.LogCaptureFixture, message: str
 ) -> None:
     assert _log(caplog, message)["message"] == message
+
+
+@pytest.mark.parametrize("name", ["compass", "bypass_cache", "token_type", "passive", "keyboard"])
+def test_s3_7_09_fields_that_only_contain_a_secret_word_are_kept(
+    caplog: pytest.LogCaptureFixture, name: str
+) -> None:
+    assert _log(caplog, "event", **{name: "visible-value"})[name] == "visible-value"

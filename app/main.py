@@ -10,6 +10,7 @@ from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, FastAPI
+from fastapi.routing import APIRoute
 
 from app import __version__
 from app.api import health
@@ -47,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.redis = redis
-    start_password_hashing(settings.auth.password_hash_workers)
+    await asyncio.to_thread(start_password_hashing, settings.auth.password_hash_workers)
     # Rebuilt on every start, so the checks always point at this lifespan's live resources.
     injected: Mapping[str, HealthCheck] | None = app.state.injected_health_checks
     checks = (
@@ -64,6 +65,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await engine.dispose()
         await asyncio.to_thread(stop_password_hashing)  # lets in-flight hashes finish
         log.info("shutdown")
+
+
+def _hide_from_schema(app: FastAPI, path: str) -> None:
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.path == path:
+            route.include_in_schema = False
 
 
 def _add_problem_schemas(app: FastAPI) -> None:
@@ -130,5 +137,7 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(build_api_router(*api_routers))
+    if not settings.auth.signup_enabled:  # the route answers 404; don't advertise it either
+        _hide_from_schema(app, "/api/v1/auth/signup")
     _add_problem_schemas(app)
     return app

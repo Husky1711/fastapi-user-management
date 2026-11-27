@@ -79,10 +79,16 @@ async def _end_after_failure(session: AsyncSession) -> None:
         await session.rollback()
 
 
+UNIQUE_VIOLATION = "23505"
+
+
 def is_unique_violation(error: IntegrityError, constraint: str) -> bool:
     """True only for a violation of this unique constraint; every other integrity error is a
-    bug and must not be mistaken for "already exists"."""
-    return constraint in str(error.orig)
+    bug and must not be mistaken for "already exists". Decided by the driver's SQLSTATE
+    (23505) and exact constraint name, not by searching the message text."""
+    cause = error.orig.__cause__ if error.orig is not None else None  # the asyncpg error
+    sqlstate = getattr(cause, "sqlstate", None)
+    return sqlstate == UNIQUE_VIOLATION and getattr(cause, "constraint_name", None) == constraint
 
 
 async def end_read(session: AsyncSession) -> None:

@@ -397,3 +397,40 @@ async def test_s3_8_09_a_user_removed_mid_login_gets_401_not_500(
         401,
         "auth.invalid_credentials",
     )
+    refused = await db.execute(select(AuditLog).where(AuditLog.action == "auth.login_refused"))
+    rows = refused.scalars().all()
+    if password == PASSWORD:  # reached the locked re-check: refused, audited with no actor
+        assert [row.actor_user_id for row in rows] == [None]
+    else:  # wrong password: nothing left to count, nothing audited
+        assert rows == []
+
+
+async def test_s3_8_12_a_login_that_replaces_all_sessions_also_ends_a_refresh_in_flight(
+    db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = make_settings(
+        database=service_database_settings(pool_size=5, max_overflow=5),
+        auth=AuthSettings(session_strategy=SessionStrategy.REPLACE_ALL),
+    )
+    app = create_app(settings, health_checks={"database": check_ok})
+    gate = Gate()
+    monkeypatch.setattr(auth, "_rotate", gate.wrap(auth._rotate, after=False))
+    password_hash = await security.hash_password(PASSWORD)
+    async with (
+        committed_user(db_engine, password_hash) as email,
+        app.router.lifespan_context(app),
+        client_for(app) as http,
+    ):
+        old = (await _login(http, email)).json()
+        refreshing = http.post(REFRESH, json={"refresh_token": old["refresh_token"]})
+        async with paused_request(gate, refreshing) as rotated:
+            logging_in = asyncio.ensure_future(_login(http, email))
+            await _wait_until_queued_on_the_user_lock(db_engine)  # behind the rotation
+        newest = (await logging_in).json()
+        successor = rotated.result().json()
+        dead = await http.post(REFRESH, json={"refresh_token": successor["refresh_token"]})
+        async with AsyncSession(db_engine) as session:
+            survivors = await _active_families(session, email)
+        newest_family = await _family_of(http, newest)
+    assert dead.status_code == 401  # replace_all saw the successor and ended it
+    assert survivors == {newest_family}

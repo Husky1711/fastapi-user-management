@@ -68,7 +68,7 @@ async def _create_admin(
     email: str, password: str, settings: Settings, out: TextIO, err: TextIO
 ) -> int:
     engine = create_engine(settings.database)
-    start_password_hashing(settings.auth.password_hash_workers)
+    await asyncio.to_thread(start_password_hashing, settings.auth.password_hash_workers)
     try:
         async with create_session_factory(engine)() as session:
             user = await create_platform_admin(session, email=email, password=password)
