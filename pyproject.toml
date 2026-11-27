@@ -64,7 +64,7 @@ ignore = ["N818"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["app", "tests", "scripts"]
+files = ["app", "tests", "scripts", "migrations"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 

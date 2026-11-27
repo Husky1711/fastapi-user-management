@@ -35,5 +35,5 @@ test: ## Run tests with coverage
 
 check: lint typecheck test ## Everything CI runs
 
-migrate: ## Apply database migrations (available from roadmap step 2)
-	@echo "Migrations arrive in roadmap step 2."
+migrate: ## Apply database migrations (uses DATABASE__URL; with Compose: docker compose exec app alembic upgrade head)
+	uv run alembic upgrade head

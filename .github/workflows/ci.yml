@@ -76,6 +76,29 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - run: uv sync --locked
+      - name: "2.3-01/02/04 Migrations: upgrade, downgrade to empty, upgrade again, repeat is a no-op"
+        env:
+          PSQL_URL: postgresql://postgres:postgres@localhost:5432/usermgmt_test
+        run: |
+          leftovers() {
+            psql "$PSQL_URL" -tAc "
+              SELECT 'table ' || tablename FROM pg_tables
+                WHERE schemaname = 'public' AND tablename <> 'alembic_version'
+              UNION ALL
+              SELECT 'function ' || p.proname FROM pg_proc p
+                WHERE p.pronamespace = 'public'::regnamespace
+                  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+              UNION ALL
+              SELECT 'extension ' || extname FROM pg_extension WHERE extname = 'citext'"
+          }
+          uv run alembic upgrade head
+          test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'")" = 11
+          uv run alembic downgrade base
+          left=$(leftovers); echo "left after downgrade: [$left]"; test -z "$left"
+          uv run alembic upgrade head
+          uv run alembic upgrade head 2>&1 | tee second-run.log
+          if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
+          uv run alembic current | tee /dev/stderr | grep -q "0002 (head)"
       - name: Run tests
         run: >-
           uv run pytest
@@ -104,6 +127,25 @@ jobs:
           cp .env.example .env
           docker compose up --build --detach --wait --wait-timeout 120
           $WAIT http://localhost:8000/health/ready 200 30
+      - name: "2.3-05 Operator applies migrations on the stack; schema and seed data exist"
+        run: |
+          docker compose exec -T app alembic upgrade head
+          docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+            "SELECT string_agg(key, ',' ORDER BY key) FROM roles WHERE organization_id IS NULL" \
+            | tee /dev/stderr | grep -qx "admin,member,owner"
+          $WAIT http://localhost:8000/health/ready 200 10
+      - name: "2.3-06 Migration with a wrong DB password fails clearly, without printing it"
+        run: |
+          set +e
+          out=$(docker compose run --rm --no-deps \
+            -e DATABASE__URL="postgresql+asyncpg://postgres:Wrong-Pw-7731@db:5432/usermgmt" \
+            app alembic upgrade head 2>&1)
+          code=$?
+          set -e
+          echo "$out" | tail -3
+          test "$code" -ne 0
+          echo "$out" | grep -q "password authentication failed"
+          if echo "$out" | grep -q "Wrong-Pw-7731"; then echo "password printed"; exit 1; fi
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

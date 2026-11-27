@@ -2,15 +2,16 @@
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, ClassVar
 
-from sqlalchemy import DateTime, Dialect, FetchedValue, MetaData, func
+from sqlalchemy import DateTime, Dialect, Enum, FetchedValue, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
 # Deterministic constraint names, so Alembic can find (and drop) every constraint by name.
 NAMING_CONVENTION = {
-    "ix": "ix_%(column_0_N_label)s",
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s",
@@ -30,6 +31,27 @@ class AwareDateTime(TypeDecorator[datetime]):
             msg = "naive datetime; use app.core.clock.now()"
             raise ValueError(msg)
         return value
+
+
+def _enum_values(enum_class: type[StrEnum]) -> list[str]:
+    return [member.value for member in enum_class]
+
+
+def text_enum(enum_class: type[StrEnum], name: str) -> Enum:
+    """Enum stored as text plus a CHECK constraint (`ck_<table>_<name>`), not a Postgres enum.
+
+    Adding a value later is a constraint change, not an `ALTER TYPE` that can't run in a
+    transaction.
+    """
+    return Enum(
+        enum_class,
+        name=name,
+        native_enum=False,
+        create_constraint=True,
+        values_callable=_enum_values,
+        validate_strings=True,
+        length=32,
+    )
 
 
 class Base(DeclarativeBase):
