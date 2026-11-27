@@ -49,12 +49,14 @@ flowchart TD
 
 **Transactions.** One request has one database session (`get_db`), shared by its dependencies
 and its one service call. Dependencies only read. The service method writes inside
-`async with transaction(session):` (`app/infra/database.py`). It runs as a SAVEPOINT inside
-the transaction the dependencies' reads began and commits everything before the response is
-built. On error only the savepoint is rolled back, so objects the dependencies loaded (the
-current user) stay readable, unless the failed block changed them: those are expired and must
-not be read afterwards (reload them in a new unit of work if needed). It is entered once per service call; a nested call raises
-`NestedUnitOfWork` instead of committing half-done work.
+`async with transaction(session):` (`app/infra/database.py`). The block always runs in a
+SAVEPOINT and everything is committed before the response is built. On error only the
+savepoint is rolled back and the (now empty) outer transaction is committed, so objects loaded
+earlier (the current user) stay readable, unless the failed block changed them: those are
+expired and must not be read afterwards. Before slow work (password hashing) a service calls
+`end_read(session)` so no pool connection is held idle. All writes go inside the block. It is
+entered once per service call; a nested call raises `NestedUnitOfWork` instead of committing
+half-done work.
 
 ## 3. Folder layout
 
@@ -129,6 +131,7 @@ erDiagram
         bool is_platform_admin
         int failed_login_count
         timestamptz locked_until
+        timestamptz last_login_at
         timestamptz created_at
         timestamptz deleted_at
     }
@@ -159,10 +162,12 @@ erDiagram
     SESSIONS {
         uuid id PK
         uuid user_id FK
-        uuid family_id "refresh rotation chain"
+        uuid family_id "refresh rotation chain = access token sid"
+        timestamptz family_started_at "caps refreshing"
         bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz revoked_at
+        text revoked_reason "rotated | logout | reuse_detected | ..."
         inet ip
         text user_agent
     }

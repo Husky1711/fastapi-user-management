@@ -42,30 +42,41 @@ class NestedUnitOfWork(RuntimeError):
 
 @asynccontextmanager
 async def transaction(session: AsyncSession) -> AsyncIterator[None]:
-    """The service's unit of work: commit if the block succeeds, roll back if it raises.
+    """The service's unit of work: commit if the block succeeds, undo it if it raises.
 
-    Request dependencies (current user, permission checks) read through the same session
-    first, and those reads autobegin a transaction. The unit of work then runs in a SAVEPOINT
-    inside it: on failure only the savepoint is rolled back, which expires only the objects
-    changed in the block, so what the dependencies loaded stays readable. On success the
-    savepoint is released and the whole transaction committed, before the response is built.
+    The block always runs in a SAVEPOINT (inside the transaction the request's dependencies
+    may already have begun). On failure only the savepoint is rolled back, which expires only
+    the objects changed in the block, and the now-empty outer transaction is committed, so
+    what was loaded before (the current user) stays readable (step 2 reviews R2-02, R3-06).
+    On success everything is committed before the response is built.
 
-    Not reentrant: one unit of work per service call. A nested call raises instead of
-    committing the outer call's half-done work early.
+    All writes belong inside the block. Not reentrant: one unit of work per service call; a
+    nested call raises instead of committing the outer call's half-done work.
     """
     if session.info.get(_IN_UNIT_OF_WORK):
         raise NestedUnitOfWork("transaction() is already running on this session")
     session.info[_IN_UNIT_OF_WORK] = True
     try:
-        if session.in_transaction():
+        if not session.in_transaction():
+            await session.begin()
+        try:
             async with session.begin_nested():
                 yield
-            await session.commit()
-        else:
-            async with session.begin():
-                yield
+        except BaseException:
+            await _end_after_failure(session)
+            raise
+        await session.commit()
     finally:
         session.info.pop(_IN_UNIT_OF_WORK, None)
+
+
+async def _end_after_failure(session: AsyncSession) -> None:
+    """The savepoint is already rolled back; end the outer transaction without expiring
+    loaded objects. If the connection itself failed, fall back to a rollback."""
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
 
 
 def is_unique_violation(error: IntegrityError, constraint: str) -> bool:
