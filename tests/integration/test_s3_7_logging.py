@@ -112,6 +112,7 @@ def test_s3_7_04_secret_values_of_any_type_are_redacted(caplog: pytest.LogCaptur
         ('body {"refresh_token": "abc123xyz"}', "abc123xyz"),
         ("token: t0k3n-value seen", "t0k3n-value"),
         ("Basic dXNlcjpwYXNzd29yZA== sent", "dXNlcjpwYXNzd29yZA"),
+        ("Authorization: Bearer abc", "abc"),
         ("user grace.hopper@example.com logged in", "grace.hopper"),
     ],
 )
@@ -124,7 +125,14 @@ def test_s3_7_05_secrets_inside_messages_are_masked(
 
 @pytest.mark.parametrize(
     "message",
-    ["password reset email sent", "token expired", "the secret garden", "invalid api key format"],
+    [
+        "password reset email sent",
+        "token expired",
+        "the secret garden",
+        "invalid api key format",
+        "Basic information about the account",
+        "Bearer token missing",
+    ],
 )
 def test_s3_7_06_messages_that_only_mention_the_words_are_untouched(
     caplog: pytest.LogCaptureFixture, message: str

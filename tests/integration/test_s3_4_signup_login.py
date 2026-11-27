@@ -447,3 +447,27 @@ async def test_s3_4_19_concurrent_signups_with_one_email_create_one_user(
     async with AsyncSession(db_engine) as session:
         count = await session.execute(select(func.count()).where(User.email == race_email))
     assert count.scalar_one() == 1
+
+
+async def test_s3_4_20_a_password_over_the_rules_is_still_just_wrong_at_login(
+    db: AsyncSession, db_connection: AsyncConnection
+) -> None:
+    long_password = "L" * 129  # over the 128-character rule, under the 1024 input cap
+    async with api_client(db_connection) as http:
+        email = _email()
+        await _registered(http, email)
+        response = await _login(http, email, long_password)
+    assert (response.status_code, response.json()["code"]) == (401, "auth.invalid_credentials")
+    assert (await _must_user(db, email)).failed_login_count == 1
+
+
+@pytest.mark.parametrize(("length", "status"), [(200, 202), (201, 422)])
+async def test_s3_4_21_full_name_is_capped_at_200_characters(
+    db: AsyncSession, db_connection: AsyncConnection, length: int, status: int
+) -> None:
+    email = _email()
+    body = {"email": email, "password": PASSWORD, "full_name": "N" * length}
+    async with api_client(db_connection) as http:
+        response = await http.post(SIGNUP, json=body)
+    assert response.status_code == status
+    assert (await _user(db, email) is not None) == (status == 202)

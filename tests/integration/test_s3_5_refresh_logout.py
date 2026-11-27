@@ -1,6 +1,7 @@
 """Section 3.5: refresh rotation, reuse detection, logout and logout-all."""
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import timedelta
@@ -13,10 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
 from app.core.config import AuthSettings
+from app.core.logging import JsonFormatter
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from tests.api import WHOAMI, api_client, whoami_router
-from tests.db import SERVICES, committed_user, service_database_settings
+from tests.db import SERVICES, UNREACHABLE_DB, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
 
 pytestmark = SERVICES
@@ -248,3 +250,28 @@ async def test_s3_5_12_disabled_user_cannot_refresh(
         response = await _refresh(http, tokens["refresh_token"])
     assert response.status_code == 401
     assert len(await _rows(db)) == count_before  # no new session
+
+
+@pytest.mark.parametrize("path", [REFRESH, LOGOUT, LOGOUT_ALL])
+async def test_s3_5_15_database_down_at_refresh_or_logout_is_a_generic_500(
+    caplog: pytest.LogCaptureFixture, path: str
+) -> None:
+    settings = make_settings(database=UNREACHABLE_DB)
+    app = create_app(settings, health_checks={"database": check_ok})
+    refresh_token = security.new_opaque_token()
+    access_token, _ = security.issue_access_token(  # valid, so the database lookup runs
+        settings.jwt, user_id=uuid.uuid4(), session_id=uuid.uuid4(), now=clock.now()
+    )
+    with caplog.at_level(logging.INFO):
+        async with app.router.lifespan_context(app), client_for(app) as http:
+            if path == REFRESH:
+                response = await http.post(path, json={"refresh_token": refresh_token})
+            else:
+                response = await http.post(
+                    path, headers={"Authorization": f"Bearer {access_token}"}
+                )
+    assert response.status_code == 500
+    logged = "\n".join(JsonFormatter().format(r) for r in caplog.records)
+    for secret in (refresh_token, access_token):
+        assert secret not in logged
+        assert secret not in response.text

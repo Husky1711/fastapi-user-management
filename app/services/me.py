@@ -18,10 +18,14 @@ from app.services import audit
 from app.services.auth import (
     CurrentUser,
     InvalidCredentials,
+    can_log_in,
     count_failed_login,
     is_locked,
     lock_user,
 )
+
+CHANGE_FAILED_ACTION = "auth.password_change_failed"
+CHANGE_REFUSED_ACTION = "auth.password_change_refused"
 
 
 class PasswordUnchanged(Unprocessable):
@@ -95,11 +99,15 @@ async def change_password(
     this one stays signed in."""
     check_password_rules(new_password)
     user_id, stored_hash = current.user.id, current.user.password_hash
-    if is_locked(current.user, now):
-        raise InvalidCredentials  # no guessing past the lockout with a stolen token
+    if is_locked(current.user, now):  # no guessing past the lockout with a stolen token
+        async with transaction(session):
+            audit.record(
+                session, action=CHANGE_REFUSED_ACTION, client=client, actor_user_id=user_id
+            )
+        raise InvalidCredentials
     await end_read(session)  # no pool connection is held while Argon2 runs
     if not await verify_password(stored_hash, current_password):
-        await count_failed_login(session, settings.auth, user_id, client, now)
+        await count_failed_login(session, settings.auth, user_id, client, now, CHANGE_FAILED_ACTION)
         raise InvalidCredentials
     if _same(new_password, current_password):
         raise PasswordUnchanged
@@ -109,8 +117,9 @@ async def change_password(
         refusal = await _refusal_under_lock(session, user, current.session_id, stored_hash, now)
         if user is not None and refusal is None:
             await _replace_password(session, user, current.session_id, new_hash, now)
-        action = "auth.password_change_refused" if refusal else "auth.password_changed"
-        audit.record(session, action=action, client=client, actor_user_id=user_id)
+        action = CHANGE_REFUSED_ACTION if refusal else "auth.password_changed"
+        actor = user_id if user is not None else None  # a removed user can't be referenced
+        audit.record(session, action=action, client=client, actor_user_id=actor)
     if refusal is not None:  # raised after the commit, so the "refused" audit entry is kept
         raise refusal
 
@@ -119,8 +128,9 @@ async def _refusal_under_lock(
     session: AsyncSession, user: User | None, family_id: UUID, verified_hash: str, now: datetime
 ) -> InvalidCredentials | InvalidToken | None:
     """What was checked before the slow hashing may have changed since: the session may
-    have ended, the account may be locked, or the password changed by another request."""
-    if user is None or user.deleted_at is not None or is_locked(user, now):
+    have ended, the account may be locked, disabled or removed, or the password changed by
+    another request."""
+    if user is None or not can_log_in(user, now):
         return InvalidCredentials()
     if user.password_hash != verified_hash:
         return InvalidCredentials()

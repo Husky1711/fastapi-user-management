@@ -75,11 +75,17 @@ def check_password_rules(password: str) -> None:
 _executor: ThreadPoolExecutor | None = None
 
 
+_dummy_hash: str | None = None  # made at startup; verified against for unknown emails
+
+
 def start_password_hashing(workers: int = DEFAULT_HASH_WORKERS) -> None:
-    """(Re)create the hashing pool. Called by the app lifespan and the CLI."""
-    global _executor
+    """(Re)create the hashing pool. Called by the app lifespan and the CLI. The dummy hash
+    is made here too, so the first unknown-email login costs the same as any other."""
+    global _executor, _dummy_hash
     stop_password_hashing()
     _executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="argon2")
+    if _dummy_hash is None:
+        _dummy_hash = _hasher.hash(secrets.token_urlsafe(16))
 
 
 def stop_password_hashing() -> None:
@@ -117,14 +123,11 @@ async def verify_password(password_hash: str, password: str) -> bool:
     )
 
 
-_dummy_hash: str | None = None
-
-
 async def verify_dummy_password(password: str) -> bool:
     """Spend exactly the work of a real verify, for a user that doesn't exist, so response
     time doesn't reveal which emails are registered. Always False."""
     global _dummy_hash
-    if _dummy_hash is None:
+    if _dummy_hash is None:  # only when the lifespan didn't start the pool (some tests)
         _dummy_hash = await hash_password(secrets.token_urlsafe(16))
     await verify_password(_dummy_hash, password)
     return False

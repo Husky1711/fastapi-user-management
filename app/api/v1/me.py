@@ -27,18 +27,7 @@ async def sessions(
     current: Authenticated, session: DbSession, page: Annotated[PaginationParams, Query()]
 ) -> Page[SessionOut]:
     found = await me.list_sessions(session, current, page=page, now=clock.now())
-    items = [
-        SessionOut(
-            id=row.family_id,
-            started_at=row.family_started_at,
-            last_used_at=row.last_used_at,
-            expires_at=row.expires_at,
-            ip=row.ip,
-            user_agent=row.user_agent,
-            current=row.family_id == current.session_id,
-        )
-        for row in found.items
-    ]
+    items = [SessionOut.of(row, current_family=current.session_id) for row in found.items]
     return Page(items=items, total=found.total, limit=page.limit, offset=page.offset)
 
 

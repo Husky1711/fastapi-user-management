@@ -15,14 +15,22 @@ _KEY_VALUE_SECRET = re.compile(
     r"""|refresh[_-]?token|client[_-]?secret)["']?\s*[=:]\s*)(["']?)[^\s;&,'"}]+""",
     re.IGNORECASE,
 )
-# "Authorization: Bearer eyJ…" / "Basic dXNl…" → "Bearer ***"
-_AUTH_SCHEME = re.compile(r"\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE)
+# "Authorization: Bearer abc" → "Authorization: Bearer ***" (always, after the header name)
+_AUTH_HEADER = re.compile(
+    r"(\bauthorization\s*[:=]\s*(?:bearer|basic)\s+)[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE
+)
+# Elsewhere "Bearer eyJ…" / "Basic dXNl…" only when the word after it looks like a credential
+# (a digit or token symbol, or 16+ characters), so prose like "Basic information" survives.
+_AUTH_SCHEME = re.compile(
+    r"\b(Bearer|Basic)\s+(?=\S*[0-9\-._~+/=]|\S{16})[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE
+)
 
 
 def redact(text: str, *, limit: int | None = None) -> str:
     """Remove credentials (URLs, key/value pairs, auth headers); optionally cap the length."""
     cleaned = _URL_CREDENTIALS.sub(r"\1***@", text)
     cleaned = _KEY_VALUE_SECRET.sub(r"\1\2***", cleaned)
+    cleaned = _AUTH_HEADER.sub(r"\1***", cleaned)
     cleaned = _AUTH_SCHEME.sub(r"\1 ***", cleaned)
     return cleaned if limit is None else cleaned[:limit]
 

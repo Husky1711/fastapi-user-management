@@ -5,6 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models import UserSession
 from app.schemas.auth import MAX_PASSWORD_INPUT
 
 
@@ -29,6 +30,19 @@ class SessionOut(BaseModel):
     ip: str | None
     user_agent: str | None
     current: bool = Field(description="True for the session making this request.")
+
+    @classmethod
+    def of(cls, row: UserSession, *, current_family: uuid.UUID) -> "SessionOut":
+        """A session row as the user sees it: the family is the session."""
+        return cls(
+            id=row.family_id,
+            started_at=row.family_started_at,
+            last_used_at=row.last_used_at,
+            expires_at=row.expires_at,
+            ip=row.ip,
+            user_agent=row.user_agent,
+            current=row.family_id == current_family,
+        )
 
 
 class PasswordChangeIn(BaseModel):

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,19 +67,8 @@ async def authenticate(
     """The user behind an access token, if the token is valid, the user active and the
     session (family) still live. One query. Raises `InvalidToken` for every failure."""
     claims = decode_access_token(settings, token, now=now)
-    live_session = exists().where(
-        UserSession.user_id == User.id,
-        UserSession.family_id == claims.session_id,
-        UserSession.revoked_at.is_(None),
-        UserSession.expires_at > now,
-    )
-    statement = select(User).where(
-        User.id == claims.user_id,
-        User.status == UserStatus.ACTIVE,
-        User.deleted_at.is_(None),
-        live_session,
-    )
-    user = (await session.execute(statement)).scalar_one_or_none()
+    users = UserRepository(session)
+    user = await users.get_authenticated(claims.user_id, claims.session_id, now=now)
     if user is None:
         raise InvalidToken
     return CurrentUser(user=user, session_id=claims.session_id)
@@ -128,7 +116,7 @@ async def login(
         await verify_dummy_password(password)
         raise InvalidCredentials
     if not await verify_password(user.password_hash, password):
-        await count_failed_login(session, settings.auth, user.id, client, now)
+        await count_failed_login(session, settings.auth, user.id, client, now, LOGIN_FAILED)
         raise InvalidCredentials
     verified = Verified(hash=user.password_hash, rehash=None)
     if password_needs_rehash(user.password_hash):
@@ -151,9 +139,10 @@ async def _complete_login(
     can't log in now: locked or disabled meanwhile, or the password changed meanwhile (the
     password that was checked is no longer the account's password)."""
     async with transaction(session):
-        user = await UserRepository(session).get_for_update(user_id)
-        if user is None or not _can_log_in(user, now) or user.password_hash != verified.hash:
-            audit.record(session, action="auth.login_refused", client=client, actor_user_id=user_id)
+        user = await lock_user(session, user_id)
+        if user is None or not can_log_in(user, now) or user.password_hash != verified.hash:
+            actor = user_id if user is not None else None  # a removed user can't be referenced
+            audit.record(session, action="auth.login_refused", client=client, actor_user_id=actor)
             return None
         _mark_login(user, now, verified.rehash)
         await _apply_session_strategy(session, settings.auth, user.id, client, now)
@@ -173,8 +162,9 @@ def is_locked(user: User, now: datetime) -> bool:
     return user.locked_until is not None and user.locked_until > now
 
 
-def _can_log_in(user: User, now: datetime) -> bool:
-    return user.status == UserStatus.ACTIVE and not is_locked(user, now)
+def can_log_in(user: User, now: datetime) -> bool:
+    """Active, not deleted and not locked: what login and password change both require."""
+    return user.status == UserStatus.ACTIVE and user.deleted_at is None and not is_locked(user, now)
 
 
 def _mark_login(user: User, now: datetime, new_hash: str | None) -> None:
@@ -185,9 +175,18 @@ def _mark_login(user: User, now: datetime, new_hash: str | None) -> None:
         user.password_hash = new_hash
 
 
+LOGIN_FAILED = "auth.login_failed"
+
+
 async def count_failed_login(
-    session: AsyncSession, policy: AuthSettings, user_id: UUID, client: ClientInfo, now: datetime
+    session: AsyncSession,
+    policy: AuthSettings,
+    user_id: UUID,
+    client: ClientInfo,
+    now: datetime,
+    action: str,
 ) -> None:
+    """Count a wrong password toward the lockout and audit it as `action`."""
     async with transaction(session):
         failures = await UserRepository(session).record_failed_login(
             user_id,
@@ -195,10 +194,12 @@ async def count_failed_login(
             threshold=policy.lockout_threshold,
             lock_for=timedelta(minutes=policy.lockout_minutes),
         )
+        if failures is None:  # the user was removed meanwhile: nothing to count
+            return
         details = {"failed_count": failures.count}
         audit.record(
             session,
-            action="auth.login_failed",
+            action=action,
             client=client,
             actor_user_id=user_id,
             details=details,
@@ -296,7 +297,7 @@ async def refresh(
         found = await sessions.get_by_token_hash(token_hash)
         tokens = None
         if found is not None:
-            user = await UserRepository(session).get_for_update(found.user_id, include_deleted=True)
+            user = await lock_user(session, found.user_id)
             row = await sessions.get_by_token_hash(token_hash, for_update=True)
             if user is not None and row is not None:
                 tokens = await _rotate(session, settings, user, row, client, now)
@@ -343,8 +344,9 @@ async def _rotate(
 
 
 async def lock_user(session: AsyncSession, user_id: UUID) -> User | None:
-    """Take the per-user lock every session or credential change takes first."""
-    return await UserRepository(session).get_for_update(user_id, include_deleted=True)
+    """Take the per-user lock every session or credential change takes first (the only
+    entry point). Returns the row deleted or not: callers check what they need."""
+    return await UserRepository(session).get_for_update(user_id)
 
 
 async def logout(

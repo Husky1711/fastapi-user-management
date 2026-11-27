@@ -233,3 +233,24 @@ async def test_s3_6_11_sessions_list_pages(db_connection: AsyncConnection) -> No
     assert {s["id"] for s in first["items"]}.isdisjoint({s["id"] for s in rest["items"]})
     assert (past["items"], past["total"]) == ([], 3)
     assert (bad.status_code, unknown.status_code) == (422, 422)
+
+
+async def test_s3_6_14_ending_your_own_current_session_signs_you_out(
+    db_connection: AsyncConnection,
+) -> None:
+    async with api_client(db_connection) as http:
+        _, (phone, laptop) = await _account(http, devices=2)
+        listing = (await http.get("/api/v1/me/sessions", headers=_bearer(laptop))).json()
+        this_one = next(s["id"] for s in listing["items"] if s["current"])
+        response = await http.delete(f"/api/v1/me/sessions/{this_one}", headers=_bearer(laptop))
+        laptop_after = await http.get("/api/v1/me", headers=_bearer(laptop))
+        refreshed = await http.post(
+            "/api/v1/auth/refresh", json={"refresh_token": laptop["refresh_token"]}
+        )
+        phone_after = await http.get("/api/v1/me", headers=_bearer(phone))
+    assert response.status_code == 204
+    assert (laptop_after.status_code, refreshed.status_code, phone_after.status_code) == (
+        401,
+        401,
+        200,
+    )
