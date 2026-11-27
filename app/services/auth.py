@@ -167,9 +167,13 @@ def is_locked(user: User, now: datetime) -> bool:
     return user.locked_until is not None and user.locked_until > now
 
 
+def is_active(user: User) -> bool:
+    return user.status == UserStatus.ACTIVE and user.deleted_at is None
+
+
 def can_log_in(user: User, now: datetime) -> bool:
-    """Active, not deleted and not locked: what login and password change both require."""
-    return user.status == UserStatus.ACTIVE and user.deleted_at is None and not is_locked(user, now)
+    """Active, not deleted and not locked: what a login requires."""
+    return is_active(user) and not is_locked(user, now)
 
 
 def _mark_login(user: User, now: datetime, new_hash: str | None) -> None:
@@ -254,9 +258,10 @@ def _add_refresh_token(
     family_started_at: datetime,
     now: datetime,
     client: ClientInfo,
+    reauth_attempts: int = 0,
 ) -> IssuedTokens:
-    """Store the next refresh token of a family and issue both tokens. The refresh token's
-    life is capped by the family's maximum age."""
+    """Store the next refresh token of a family and issue both tokens. Both tokens' lives
+    are capped by the family's maximum age; the re-entry budget carries over a rotation."""
     policy = settings.auth
     max_end = family_started_at + policy.session_max_age
     expires_at = min(now + policy.refresh_ttl, max_end)
@@ -275,13 +280,16 @@ def _add_refresh_token(
             last_used_at=now,
             ip=client.ip,
             user_agent=client.user_agent,
+            reauth_attempts=reauth_attempts,
         )
     )
-    access, _ = issue_access_token(settings.jwt, user_id=user_id, session_id=family_id, now=now)
+    access, claims = issue_access_token(
+        settings.jwt, user_id=user_id, session_id=family_id, now=now, not_after=max_end
+    )
     return IssuedTokens(
         access_token=access,
         refresh_token=refresh,
-        access_expires_in=settings.jwt.access_ttl_seconds,
+        access_expires_in=int((claims.expires_at - now).total_seconds()),
         refresh_expires_in=int((expires_at - now).total_seconds()),
     )
 
@@ -347,7 +355,14 @@ async def _rotate(
         user_id=row.user_id, family_id=row.family_id, reason=RevokeReason.ROTATED, now=now
     )
     return _add_refresh_token(
-        session, settings, row.user_id, row.family_id, row.family_started_at, now, client
+        session,
+        settings,
+        row.user_id,
+        row.family_id,
+        row.family_started_at,
+        now,
+        client,
+        reauth_attempts=row.reauth_attempts,
     )
 
 
@@ -361,6 +376,9 @@ REAUTH_FAILED = "auth.reauth_failed"
 REAUTH_REFUSED = "auth.reauth_refused"
 
 
+Refusal = InvalidCredentials | InvalidToken
+
+
 async def verify_current_password(
     session: AsyncSession,
     settings: Settings,
@@ -372,22 +390,105 @@ async def verify_current_password(
     failed_action: str = REAUTH_FAILED,
     refused_action: str = REAUTH_REFUSED,
 ) -> str:
-    """Re-authentication of a signed-in user: refused while the account is locked (no
-    guessing past the lockout with a stolen token), and a wrong password counts toward it.
-    Ends the read transaction first (no connection held while Argon2 runs). Returns the
-    stored hash that was verified, for a re-check under the user lock."""
-    if password is None:
+    """Re-authentication of a signed-in user (ADR-0012). Each session has a budget of
+    `AUTH__REAUTH_MAX_FAILURES` re-entries, reserved under the user lock *before* Argon2
+    runs, so parallel guesses can't exceed it; using it up with wrong passwords ends the
+    session (the thief's, not the owner's account). The account lockout is for anonymous
+    logins and doesn't apply here, so it can't be used to block the owner's remedies.
+    Returns the stored hash that was verified: the caller re-checks it under the user lock
+    with `lock_and_recheck` before writing."""
+    if not password:
         raise CurrentPasswordRequired
-    user_id, stored_hash = current.user.id, current.user.password_hash
-    if is_locked(current.user, now):
-        async with transaction(session):
-            audit.record(session, action=refused_action, client=client, actor_user_id=user_id)
-        raise InvalidCredentials
-    await end_read(session)
+    stored_hash = current.user.password_hash
+    refusal = await _reserve_reauth(session, settings.auth, current, client, now, refused_action)
+    if refusal is not None:
+        raise refusal
+    # The reservation committed: no pool connection is held while Argon2 runs.
     if not await verify_password(stored_hash, password):
-        await count_failed_login(session, settings.auth, user_id, client, now, failed_action)
+        await _reauth_failed(session, settings.auth, current, client, now, failed_action)
         raise InvalidCredentials
     return stored_hash
+
+
+async def _reserve_reauth(
+    session: AsyncSession,
+    policy: AuthSettings,
+    current: CurrentUser,
+    client: ClientInfo,
+    now: datetime,
+    refused_action: str,
+) -> Refusal | None:
+    async with transaction(session):
+        user = await lock_user(session, current.user.id)
+        refusal: Refusal | None = InvalidCredentials()
+        if user is not None and is_active(user):
+            taken = await SessionRepository(session).take_reauth_attempt(
+                user_id=user.id,
+                family_id=current.session_id,
+                now=now,
+                limit=policy.reauth_max_failures,
+            )
+            refusal = InvalidToken() if taken is None else None  # ended, or budget used up
+        if refusal is not None:
+            actor = user.id if user is not None else None
+            audit.record(session, action=refused_action, client=client, actor_user_id=actor)
+    return refusal
+
+
+async def _reauth_failed(
+    session: AsyncSession,
+    policy: AuthSettings,
+    current: CurrentUser,
+    client: ClientInfo,
+    now: datetime,
+    failed_action: str,
+) -> None:
+    """A wrong password re-entered: audited; the budget used up ends this session."""
+    sessions = SessionRepository(session)
+    async with transaction(session):
+        user = await lock_user(session, current.user.id)
+        if user is None:
+            return
+        row = await sessions.active_in_family(
+            user_id=user.id, family_id=current.session_id, now=now
+        )
+        attempts = row.reauth_attempts if row is not None else None
+        details = {"attempts": attempts}
+        audit.record(
+            session, action=failed_action, client=client, actor_user_id=user.id, details=details
+        )
+        if attempts is not None and attempts >= policy.reauth_max_failures:
+            await sessions.revoke_family(
+                user_id=user.id,
+                family_id=current.session_id,
+                reason=RevokeReason.REAUTH_FAILED,
+                now=now,
+            )
+            audit.record(
+                session,
+                action="auth.session_ended_after_reauth_failures",
+                client=client,
+                actor_user_id=user.id,
+                target=("session", current.session_id),
+            )
+
+
+async def lock_and_recheck(
+    session: AsyncSession, current: CurrentUser, verified_hash: str | None, now: datetime
+) -> tuple[User | None, Refusal | None]:
+    """Take the user lock; if a password was re-entered (`verified_hash`), re-check under
+    it what may have changed while Argon2 ran: the account still active, the password still
+    the one verified, the caller's session still live. On success the session's re-entry
+    budget is restored. Call inside the write's `transaction`."""
+    user = await lock_user(session, current.user.id)
+    if verified_hash is None:
+        return user, None
+    if user is None or not is_active(user) or user.password_hash != verified_hash:
+        return user, InvalidCredentials()
+    live = await SessionRepository(session).reset_reauth_attempts(
+        user_id=user.id, family_id=current.session_id, now=now
+    )
+    return user, None if live else InvalidToken()
 
 
 async def logout(
@@ -402,19 +503,27 @@ async def logout(
 ) -> None:
     """End this session (its whole family), or every session of the user. Ending every
     session needs the current password again when `AUTH__REAUTH_TO_END_SESSIONS` is on."""
+    verified = None
     if everywhere and settings.auth.reauth_to_end_sessions:
-        await verify_current_password(
+        verified = await verify_current_password(
             session, settings, current, current_password, client=client, now=now
         )
     sessions = SessionRepository(session)
     user_id = current.user.id
     async with transaction(session):
-        await lock_user(session, user_id)
-        if everywhere:
+        _, refusal = await lock_and_recheck(session, current, verified, now)
+        if refusal is None and everywhere:
             await sessions.revoke_all(user_id=user_id, reason=RevokeReason.LOGOUT_ALL, now=now)
-        else:
+        elif refusal is None:
             await sessions.revoke_family(
                 user_id=user_id, family_id=current.session_id, reason=RevokeReason.LOGOUT, now=now
             )
         action = "auth.logged_out_everywhere" if everywhere else "auth.logged_out"
-        audit.record(session, action=action, client=client, actor_user_id=user_id)
+        audit.record(
+            session,
+            action=REAUTH_REFUSED if refusal else action,
+            client=client,
+            actor_user_id=user_id,
+        )
+    if refusal is not None:  # raised after the commit, so the refusal stays audited
+        raise refusal

@@ -29,6 +29,7 @@ class RevokeReason(StrEnum):
     REPLACED = "replaced"  # ended by the session strategy at a new login
     PASSWORD_CHANGED = "password_changed"  # noqa: S105 - a reason name, not a password
     REUSE_DETECTED = "reuse_detected"
+    REAUTH_FAILED = "reauth_failed"  # too many wrong passwords re-entered in this session
 
 
 class TokenPurpose(StrEnum):
@@ -86,6 +87,7 @@ class UserSession(UUIDPrimaryKey, Timestamps, Base):
             "(revoked_at IS NULL) = (revoked_reason IS NULL)", name="revoked_reason_set"
         ),
         CheckConstraint("family_started_at <= created_at", name="family_started_first"),
+        CheckConstraint("reauth_attempts >= 0", name="reauth_attempts_not_negative"),
         # Full index (not partial): deleting a user must also find revoked sessions.
         Index("ix_sessions_user_id", "user_id"),
         # At most one usable token per family: two concurrent refreshes can't both succeed.
@@ -111,6 +113,9 @@ class UserSession(UUIDPrimaryKey, Timestamps, Base):
     last_used_at: Mapped[datetime | None]
     ip: Mapped[str | None] = mapped_column(IPAddress)
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # Password re-entries (ending other sessions, password change) taken since the last
+    # success. Reserved before Argon2 runs, so parallel guesses can't exceed the budget.
+    reauth_attempts: Mapped[int] = mapped_column(default=0, server_default=text("0"))
 
 
 class OneTimeToken(UUIDPrimaryKey, Base):

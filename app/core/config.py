@@ -102,6 +102,8 @@ class AuthSettings(_Section):
     # ASVS V3.3.4 (level 2): ending other sessions (one other device, revoke-others,
     # logout-all) needs the current password again.
     reauth_to_end_sessions: bool = True
+    # Wrong password re-entries allowed per session before that session is ended (ADR-0012).
+    reauth_max_failures: int = Field(default=3, ge=1, le=10)
     lockout_threshold: int = Field(default=5, ge=3, le=20)
     lockout_minutes: int = Field(default=15, ge=1, le=1440)
     session_strategy: SessionStrategy = SessionStrategy.ALLOW_MULTIPLE

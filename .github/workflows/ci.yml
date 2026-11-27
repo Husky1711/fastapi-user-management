@@ -253,7 +253,7 @@ jobs:
           test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-456\"}")" = 200
           if docker compose logs app | grep -q "Stack-Passw0rd"; then echo "password in logs"; exit 1; fi
           if docker compose logs app | grep -q "$first_refresh"; then echo "token in logs"; exit 1; fi
-      - name: "3.8-10, 3.6-17 Logout-all needs the password and ends a refreshed stolen token; a stolen token can't guess past the lockout"
+      - name: "3.8-10, 3.6-17 Logout-all needs the password and ends a refreshed stolen token; a stolen token gets 3 guesses, then its session ends"
         run: |
           api=http://localhost:8000/api/v1
           post() { curl -s -o body.json -w '%{http_code}' -X POST "$api$1" -H 'Content-Type: application/json' "${@:3}" -d "$2"; }
@@ -272,16 +272,18 @@ jobs:
           docker compose exec -T db psql -U postgres -d usermgmt -tAc \
             "SELECT count(*) FROM sessions s JOIN users u ON u.id = s.user_id
              WHERE u.email = '$email' AND s.revoked_at IS NULL" | tee /dev/stderr | grep -qx 0
-          # A stolen access token guesses the current password: 5 tries lock the account,
-          # and then even the right password is refused.
+          # A stolen access token guesses the current password: 3 wrong tries end that
+          # session (ADR-0012), so the right password then gets nowhere...
           login; stolen=$(jq -r .access_token body.json)
-          for guess in 1 2 3 4 5; do
+          for guess in 1 2 3; do
             test "$(post /me/password "{\"current_password\":\"Wrong-Guess-0$guess\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
               -H "Authorization: Bearer $stolen")" = 401
           done
           test "$(post /me/password "{\"current_password\":\"$pw\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
             -H "Authorization: Bearer $stolen")" = 401
-          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Attacker-Passw0rd-1\"}")" = 401
+          test "$(jq -r .code body.json)" = auth.invalid_token
+          # ...and the owner is not locked out: the account still logs in with its password.
+          login
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

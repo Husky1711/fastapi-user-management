@@ -327,6 +327,7 @@ async def test_s3_5_17_default_limits_are_asvs_level_2_at_the_boundaries(
         now[0] = start + timedelta(minutes=30)
         too_idle = await _refresh(http, idle_out["refresh_token"])  # exactly 30 min idle
     assert (last.status_code, too_old.status_code, access_at_12h.status_code) == (200, 401, 401)
+    assert last.json()["expires_in"] == 1  # the access token ends with the session (L5)
     assert (not_idle.status_code, too_idle.status_code) == (200, 401)
 
 

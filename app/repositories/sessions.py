@@ -28,6 +28,8 @@ class SessionRepository(Repository):
             "revoke_all",
             "revoke_same_device",
             "oldest_active_families",
+            "take_reauth_attempt",
+            "reset_reauth_attempts",
         }
     )
 
@@ -99,6 +101,37 @@ class SessionRepository(Repository):
         return await self._revoke(
             reason, now, UserSession.user_id == user_id, UserSession.user_agent == user_agent
         )
+
+    async def take_reauth_attempt(
+        self, *, user_id: UUID, family_id: UUID, now: datetime, limit: int
+    ) -> int | None:
+        """Reserve one password re-entry for this session: the new count, or None if the
+        session is not live or its budget is used up. One atomic UPDATE."""
+        statement = (
+            update(UserSession)
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.family_id == family_id,
+                _active(now),
+                UserSession.reauth_attempts < limit,
+            )
+            .values(reauth_attempts=UserSession.reauth_attempts + 1)
+            .returning(UserSession.reauth_attempts)
+            .execution_options(synchronize_session=False)
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def reset_reauth_attempts(self, *, user_id: UUID, family_id: UUID, now: datetime) -> bool:
+        """After a successful re-entry; False if the session is no longer live."""
+        statement = (
+            update(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.family_id == family_id, _active(now))
+            .values(reauth_attempts=0)
+            .execution_options(synchronize_session=False)
+        )
+        # Any: an UPDATE without RETURNING has no rows to type; only rowcount is read.
+        result = cast("CursorResult[Any]", await self.session.execute(statement))
+        return result.rowcount > 0
 
     async def _revoke(
         self, reason: RevokeReason, now: datetime, *conditions: ColumnElement[bool]

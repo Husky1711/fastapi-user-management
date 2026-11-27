@@ -175,9 +175,17 @@ class AccessClaims:
 
 
 def issue_access_token(
-    settings: JwtSettings, *, user_id: uuid.UUID, session_id: uuid.UUID, now: datetime
+    settings: JwtSettings,
+    *,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    now: datetime,
+    not_after: datetime | None = None,
 ) -> tuple[str, AccessClaims]:
+    """`not_after` caps the lifetime (a session's absolute end comes before the usual TTL)."""
     expires_at = now + timedelta(seconds=settings.access_ttl_seconds)
+    if not_after is not None:
+        expires_at = min(expires_at, not_after)
     claims = AccessClaims(user_id, session_id, secrets.token_urlsafe(16), expires_at)
     payload = {
         "sub": str(user_id),

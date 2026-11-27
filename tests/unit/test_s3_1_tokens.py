@@ -216,6 +216,8 @@ def test_s3_1_11_internationalised_addresses_are_refused(email: str) -> None:
         (AuthSettings, {"session_max_age": timedelta(days=366)}),
         (AuthSettings, {"lockout_threshold": 2}),
         (AuthSettings, {"password_hash_workers": 0}),
+        (AuthSettings, {"reauth_max_failures": 0}),
+        (AuthSettings, {"reauth_max_failures": 11}),
         (AuthSettings, {"session_strategy": "forever"}),
     ],
 )

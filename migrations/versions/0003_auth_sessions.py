@@ -24,6 +24,7 @@ REVOKE_REASONS = (
     "replaced",
     "password_changed",
     "reuse_detected",
+    "reauth_failed",
 )
 
 
@@ -31,6 +32,10 @@ def upgrade() -> None:
     op.add_column("users", sa.Column("last_login_at", TIMESTAMP, nullable=True))
     op.add_column("sessions", sa.Column("revoked_reason", sa.String(32), nullable=True))
     op.add_column("sessions", sa.Column("family_started_at", TIMESTAMP, nullable=True))
+    op.add_column(
+        "sessions",
+        sa.Column("reauth_attempts", sa.Integer(), nullable=False, server_default=sa.text("0")),
+    )
     # Rows written before this migration: a revoked row's reason is unknown ("revoked"), and
     # the family started no later than its oldest row.
     op.execute("UPDATE sessions SET revoked_reason = 'revoked' WHERE revoked_at IS NOT NULL")
@@ -52,6 +57,9 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_sessions_family_started_first"), "sessions", "family_started_at <= created_at"
     )
+    op.create_check_constraint(
+        op.f("ck_sessions_reauth_attempts_not_negative"), "sessions", "reauth_attempts >= 0"
+    )
     # Older data may hold several active rows in one family: keep the newest active. Rows
     # written in the same instant are ordered by id, so exactly one stays active.
     op.execute(
@@ -71,8 +79,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("uq_sessions_family_id_active", table_name="sessions")
-    for name in ("family_started_first", "revoked_reason_set", "revoked_reason"):
+    for name in (
+        "reauth_attempts_not_negative",
+        "family_started_first",
+        "revoked_reason_set",
+        "revoked_reason",
+    ):
         op.drop_constraint(op.f(f"ck_sessions_{name}"), "sessions", type_="check")
+    op.drop_column("sessions", "reauth_attempts")
     op.drop_column("sessions", "family_started_at")
     op.drop_column("sessions", "revoked_reason")
     op.drop_column("users", "last_login_at")

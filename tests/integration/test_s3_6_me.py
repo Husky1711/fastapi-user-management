@@ -183,9 +183,10 @@ async def test_s3_6_06_password_change_signs_out_other_devices(
     assert len(actions.scalars().all()) == 1
 
 
-async def test_s3_6_07_wrong_current_password_counts_toward_lockout(
+async def test_s3_6_07_wrong_current_password_uses_the_sessions_budget(
     db: AsyncSession, db_connection: AsyncConnection
 ) -> None:
+    """ADR-0012: counted against this session's re-entry budget, not the account lockout."""
     async with api_client(db_connection) as http:
         email, (tokens,) = await _account(http)
         wrong = {"current_password": "Not-My-Password-1", "new_password": NEW_PASSWORD}
@@ -193,7 +194,11 @@ async def test_s3_6_07_wrong_current_password_counts_toward_lockout(
     assert (response.status_code, response.json()["code"]) == (401, "auth.invalid_credentials")
     db.expunge_all()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-    assert user.failed_login_count == 1
+    assert user.failed_login_count == 0
+    attempts = await db.execute(
+        select(UserSession.reauth_attempts).where(UserSession.user_id == user.id)
+    )
+    assert list(attempts.scalars()) == [1]
 
 
 @pytest.mark.parametrize(
@@ -350,7 +355,7 @@ async def test_s3_6_17_ending_other_sessions_needs_the_current_password(
     )
     db.expunge_all()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-    assert user.failed_login_count == 1  # the wrong guess counts toward the lockout
+    assert user.failed_login_count == 0  # the session's budget, not the account lockout
     failed = await db.execute(select(AuditLog).where(AuditLog.action == "auth.reauth_failed"))
     assert len(failed.scalars().all()) == 1
 
@@ -369,3 +374,50 @@ async def test_s3_6_18_ending_this_session_or_with_reauth_off_needs_no_password(
         others = await http.post("/api/v1/me/sessions/revoke-others", headers=_bearer(laptop))
         everything = await http.post("/api/v1/auth/logout-all", headers=_bearer(laptop))
     assert [r.status_code for r in (own, other, others, everything)] == [204, 204, 204, 204]
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        ({"current_password": ""}, "auth.current_password_required"),
+        ({"current_password": None}, "auth.current_password_required"),
+        ({}, "auth.current_password_required"),
+        ({"current_password": PASSWORD, "extra": 1}, "request.validation_failed"),
+        ({"current_password": "x" * 1025}, "request.validation_failed"),
+    ],
+)
+async def test_s3_6_19_the_reentry_body_is_validated(
+    db: AsyncSession, db_connection: AsyncConnection, body: dict[str, object], code: str
+) -> None:
+    async with api_client(db_connection) as http:
+        email, (tokens, _other) = await _account(http, devices=2)
+        response = await http.post(
+            "/api/v1/me/sessions/revoke-others", json=body, headers=_bearer(tokens)
+        )
+    assert (response.status_code, response.json()["code"]) == (422, code)
+    db.expunge_all()
+    attempts = await db.execute(
+        select(UserSession.reauth_attempts)
+        .join(User, User.id == UserSession.user_id)
+        .where(User.email == email)
+    )
+    assert set(attempts.scalars()) == {0}  # nothing verified, nothing counted
+
+
+async def test_s3_6_20_a_locked_account_can_still_end_a_thiefs_sessions(
+    db: AsyncSession, db_connection: AsyncConnection
+) -> None:
+    """Review round 5, M1: anonymous wrong logins lock the account, but the owner, signed
+    in, can still end every other session with the right password (ADR-0012)."""
+    async with api_client(db_connection) as http:
+        email, (owner, thief) = await _account(http, devices=2)
+        for guess in range(5):
+            body = {"email": email, "password": f"Wrong-Guess-Number-{guess}"}
+            await http.post("/api/v1/auth/login", json=body, headers={})
+        locked_login = await http.post(
+            "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
+        )
+        ended = await _revoke_others(http, owner)
+        thief_after = await http.get("/api/v1/me", headers=_bearer(thief))
+    assert locked_login.status_code == 401  # the account is locked for logins
+    assert (ended.status_code, thief_after.status_code) == (204, 401)
