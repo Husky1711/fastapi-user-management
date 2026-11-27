@@ -1,7 +1,7 @@
 # Milestone 2: Database foundation
 
 - PR: #4
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45926673123
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/45928196703
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Results are filled in as
@@ -17,12 +17,12 @@ C10 data integrity; enforcement starts in step 5.
 | # | Section | Status | Scenarios (pass / total) | Notes |
 | --- | --- | --- | --- | --- |
 | 2.1 | Database access: engine, sessions, one transaction per request, model base | ✅ | 9 / 9 | CI run 45926673123 |
-| 2.2 | Schema: 10 tables, constraints, indexes, triggers | ⬜ | 0 / 22 | |
-| 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ⬜ | 0 / 7 | |
-| 2.4 | Seed data: permissions and system roles | ⬜ | 0 / 6 | |
+| 2.2 | Schema: 10 tables, constraints, indexes, triggers | ✅ | 22 / 22 | CI run 45928196703 |
+| 2.3 | Alembic migrations: async env, initial schema, round trip, parity with models | ✅ | 7 / 7 | CI run 45928196703 |
+| 2.4 | Seed data: permissions and system roles | ✅ | 6 / 6 | CI run 45928196703 |
 | 2.5 | Repositories with tenant scoping | ⬜ | 0 / 14 | |
 | 2.6 | Password hashing, input rules and the `create-admin` command | ⬜ | 0 / 14 | |
-| | **Total** | | **9 / 72** | |
+| | **Total** | | **44 / 72** | |
 
 ## Design decisions for this step
 
@@ -38,6 +38,12 @@ C10 data integrity; enforcement starts in step 5.
   a trigger: a composite foreign key can't express "or a system role (`organization_id IS NULL`)".
 - **Role keys are unique per organization, with system roles unique too**, using
   `UNIQUE NULLS NOT DISTINCT` (PostgreSQL 15+).
+- **Token hashes are `bytea` of exactly 32 bytes** (SHA-256), not text: half the size of hex,
+  and a CHECK refuses anything that isn't a digest. (ARCHITECTURE §4 updated.)
+- **Every foreign key has a full index** (a test checks this from the models): partial indexes
+  can't serve the cascade when a user or organization is deleted.
+- **Sections 2.2–2.4 were verified together**: the schema's triggers and seed exist only in the
+  migrations, so schema tests (2.2) run on the database the migrations (2.3) build.
 - **Audit history survives deletions**: `audit_logs` foreign keys are `ON DELETE SET NULL`.
 - **Passwords are hashed with Argon2id now** (needed by `create-admin`); login, lockout and
   rehash-on-login arrive in step 3.
@@ -67,28 +73,28 @@ C10 data integrity; enforcement starts in step 5.
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.2-01 | C1 | Insert a valid row in every table | Accepted, with defaults filled | test | ⬜ |
-| 2.2-02 | C10, C2 | Two users with emails differing only in case | Second rejected (`citext` unique) | test | ⬜ |
-| 2.2-03 | C2 | Invalid status / purpose / role values | Rejected by CHECK constraints | test | ⬜ |
-| 2.2-04 | C3 | Email at 254 chars accepted; 255 rejected; empty rejected | As stated | test | ⬜ |
-| 2.2-05 | C10 | Same user added twice to one organization | Rejected (unique membership) | test | ⬜ |
-| 2.2-06 | C10, C6 | Membership with a role from another organization | Rejected by trigger | test | ⬜ |
-| 2.2-07 | C10 | Membership with a system role, or a role of the same org | Accepted | test | ⬜ |
-| 2.2-08 | C10 | Two system roles with the same key; two custom roles with the same key in one org | Both rejected; the same key in different orgs is accepted | test | ⬜ |
-| 2.2-09 | C10 | Delete a user | Memberships, sessions, one-time tokens deleted; audit rows kept with actor set to null | test | ⬜ |
-| 2.2-10 | C10 | Delete an organization | Memberships, custom roles, invitations deleted; audit rows kept with org null | test | ⬜ |
-| 2.2-11 | C10 | Delete a role still used by a membership or invitation | Rejected (RESTRICT) | test | ⬜ |
-| 2.2-12 | C10 | Delete a permission granted to a role | Grant removed with it (CASCADE) | test | ⬜ |
-| 2.2-13 | C2 | Permission key not in `resource:action` form | Rejected | test | ⬜ |
-| 2.2-14 | C10 | Two pending invitations for the same email and org | Rejected; allowed again once the first is accepted or revoked | test | ⬜ |
-| 2.2-15 | C10, C6 | Token hashes (sessions, one-time tokens, invitations) | Unique; stored as 32-byte hashes, never the token | test | ⬜ |
-| 2.2-16 | C3 | Timestamps | All `timestamptz`; a naive datetime is rejected by the model layer | test | ⬜ |
-| 2.2-17 | C1 | `updated_at` after a bulk `UPDATE` | Changed by the trigger | test | ⬜ |
-| 2.2-18 | C3 | Session `expires_at` not after `created_at` | Rejected (CHECK) | test | ⬜ |
-| 2.2-19 | C3 | Negative `failed_login_count` | Rejected (CHECK) | test | ⬜ |
-| 2.2-20 | C1 | Every query pattern used by repositories has a supporting index | Index present (checked from the catalog) | test | ⬜ |
-| 2.2-21 | C7 | Two concurrent inserts of the same email | Exactly one succeeds | test | ⬜ |
-| 2.2-22 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 2.2-01 | C1 | Insert a valid row in every table | Accepted, with defaults filled | test | ✅ |
+| 2.2-02 | C10, C2 | Two users with emails differing only in case | Second rejected (`citext` unique) | test | ✅ |
+| 2.2-03 | C2 | Invalid status / purpose / role values | Rejected by CHECK constraints | test | ✅ |
+| 2.2-04 | C3 | Email at 254 chars accepted; 255 rejected; empty rejected | As stated | test | ✅ |
+| 2.2-05 | C10 | Same user added twice to one organization | Rejected (unique membership) | test | ✅ |
+| 2.2-06 | C10, C6 | Membership with a role from another organization | Rejected by trigger | test | ✅ |
+| 2.2-07 | C10 | Membership with a system role, or a role of the same org | Accepted | test | ✅ |
+| 2.2-08 | C10 | Two system roles with the same key; two custom roles with the same key in one org | Both rejected; the same key in different orgs is accepted | test | ✅ |
+| 2.2-09 | C10 | Delete a user | Memberships, sessions, one-time tokens deleted; audit rows kept with actor set to null | test | ✅ |
+| 2.2-10 | C10 | Delete an organization | Memberships, custom roles, invitations deleted; audit rows kept with org null | test | ✅ |
+| 2.2-11 | C10 | Delete a role still used by a membership or invitation | Rejected (RESTRICT) | test | ✅ |
+| 2.2-12 | C10 | Delete a permission granted to a role | Grant removed with it (CASCADE) | test | ✅ |
+| 2.2-13 | C2 | Permission key not in `resource:action` form | Rejected | test | ✅ |
+| 2.2-14 | C10 | Two pending invitations for the same email and org | Rejected; allowed again once the first is accepted or revoked | test | ✅ |
+| 2.2-15 | C10, C6 | Token hashes (sessions, one-time tokens, invitations) | Unique; stored as 32-byte hashes, never the token | test | ✅ |
+| 2.2-16 | C3 | Timestamps | All `timestamptz`; a naive datetime is rejected by the model layer | test | ✅ |
+| 2.2-17 | C1 | `updated_at` after a bulk `UPDATE` | Changed by the trigger | test | ✅ |
+| 2.2-18 | C3 | Session `expires_at` not after `created_at` | Rejected (CHECK) | test | ✅ |
+| 2.2-19 | C3 | Negative `failed_login_count` | Rejected (CHECK) | test | ✅ |
+| 2.2-20 | C1 | Every foreign key has a full (non-partial) index starting with its columns; every declared index exists | Checked from the models and the catalog | test | ✅ |
+| 2.2-21 | C7 | Two concurrent inserts of the same email | Exactly one succeeds | test | ✅ |
+| 2.2-22 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C8 | Covered by 2.2-05/08/14/21 (repeating an insert is rejected, not duplicated) | | | |
 | — | C9 | N/A: schema rules are enforced inside the database itself | | | |
 | — | C11 | Covered by 2.3-05 | | | |
@@ -97,25 +103,25 @@ C10 data integrity; enforcement starts in step 5.
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.3-01 | C1 | `alembic upgrade head` on an empty database | All tables, constraints, triggers, `citext` created | CI step + test | ⬜ |
-| 2.3-02 | C10 | `downgrade base`, then `upgrade head` again | Clean round trip; nothing left behind after downgrade | CI step | ⬜ |
-| 2.3-03 | C10 | Models vs migrated database | No difference (Alembic compare) | test | ⬜ |
-| 2.3-04 | C8 | `upgrade head` run twice | Second run does nothing | CI step | ⬜ |
-| 2.3-05 | C11 | Developer runs `make migrate` on the Compose stack | Schema created; app ready | CI step | ⬜ |
-| 2.3-06 | C9 | Migration against an unreachable database | Fails with a clear error, no password in the output | CI step | ⬜ |
-| 2.3-07 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 2.3-01 | C1 | `alembic upgrade head` on an empty database | All tables, constraints, triggers, `citext` created | CI step + test | ✅ |
+| 2.3-02 | C10 | `downgrade base`, then `upgrade head` again | Clean round trip; nothing left behind after downgrade | CI step | ✅ |
+| 2.3-03 | C10 | Models vs migrated database | No difference (Alembic compare) | test | ✅ |
+| 2.3-04 | C8 | `upgrade head` run twice | Second run does nothing | CI step | ✅ |
+| 2.3-05 | C11 | Developer runs `make migrate` on the Compose stack | Schema created; app ready | CI step | ✅ |
+| 2.3-06 | C9 | Migration against an unreachable database | Fails with a clear error, no password in the output | CI step | ✅ |
+| 2.3-07 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C2, C3, C6, C7 | N/A: migrations take no user input and run once per deploy (single runner) | | | |
 
 ### Section 2.4: Seed data
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 2.4-01 | C1 | After migration | Every permission in `app/core/permissions.py` exists; roles owner, admin, member exist as system roles | test | ⬜ |
-| 2.4-02 | C1 | Role grants | owner = all; admin = all except `org:delete`, `org:transfer`, `roles:manage`; member = `org:read`, `members:read` | test | ⬜ |
-| 2.4-03 | C10 | Code list and database agree | No permission in one but not the other | test | ⬜ |
-| 2.4-04 | C8 | Seed migration re-run after downgrade | Same rows, no duplicates | CI step 2.3-02 + test | ⬜ |
-| 2.4-05 | C6 | Member role | Holds no write permission | test | ⬜ |
-| 2.4-06 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 2.4-01 | C1 | After migration | Every permission in `app/core/permissions.py` exists; roles owner, admin, member exist as system roles | test | ✅ |
+| 2.4-02 | C1 | Role grants | owner = all; admin = all except `org:delete`, `org:transfer`, `roles:manage`; member = `org:read`, `members:read` | test | ✅ |
+| 2.4-03 | C10 | Code list and database agree | No permission in one but not the other | test | ✅ |
+| 2.4-04 | C8 | Seed migration re-run after downgrade | Same rows, no duplicates | CI step 2.3-02 + test | ✅ |
+| 2.4-05 | C6 | Member role | Holds no write permission | test | ✅ |
+| 2.4-06 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C2, C3, C7, C9, C11 | N/A: fixed data shipped with the code; no input, no concurrency, no runtime dependency | | | |
 
 ### Section 2.5: Repositories
@@ -165,6 +171,10 @@ C10 data integrity; enforcement starts in step 5.
 
 | # | Found by | What failed | Cause | Fix | Status |
 | --- | --- | --- | --- | --- | --- |
+| F2 | CI test (run 45927754158) | 2.2-07 and 2.2-11 failed with a foreign-key error | Tests inserted memberships for users that were never added | Users added before their memberships | Fixed (run 45928196703) |
+| F3 | CI test, 2.3-03 name parity (run 45927754158) | Every CHECK in the database was named twice over (`ck_users_ck_users_status`) | Alembic applies the target metadata's naming convention to explicit CHECK names again | Names wrapped in `op.f()` in the migration (not yet merged, so edited in place) | Fixed (run 45928196703) |
+| F4 | CI type check (run 45927754158) | `mypy --strict`: untyped lambda calls in 2.2-15 | Lambdas in an unannotated dict | Dict annotated `dict[str, Callable[[bytes], Base]]` | Fixed (run 45928196703) |
+| F5 | Self-review before tests ran | `sessions.user_id`, `one_time_tokens.user_id` and `invitations.organization_id` had only partial indexes | Indexes designed for the "active rows" query only | Full indexes; 2.2-20 now checks every foreign key | Fixed (run 45928196703) |
 | F1 | CI type check (run 45926311467) | `mypy --strict` on 2.1 tests: untyped `postgresql.dialect()` call, `**overrides` typed `int \| float` passed to `DatabaseSettings`, list of factories typed `object` | Test helpers written loosely | Dialect taken from an unconnected engine; explicit keyword parameters; precise list type | Fixed (run 45926673123) |
 
 ## Gate (when all sections are ✅)

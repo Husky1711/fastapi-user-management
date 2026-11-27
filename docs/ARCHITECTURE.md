@@ -148,7 +148,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         uuid family_id "refresh rotation chain"
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz revoked_at
         inet ip
@@ -158,7 +158,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         enum purpose "verify_email | reset_password"
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz used_at
     }
@@ -167,7 +167,7 @@ erDiagram
         uuid organization_id FK
         citext email
         uuid role_id FK
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz accepted_at
     }
