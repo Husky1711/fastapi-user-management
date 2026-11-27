@@ -1,7 +1,9 @@
 """Initial schema: users, organizations, roles and permissions, sessions, tokens, audit log.
 
 Constraint names are written out in full (they follow app/models/base.py NAMING_CONVENTION),
-so later migrations can refer to them. Triggers live only here, not in the models.
+so later migrations can refer to them. CHECK names are wrapped in op.f() ("final name"):
+otherwise Alembic applies the naming convention to them a second time (ck_users_ck_users_…).
+Triggers live only here, not in the models.
 
 Revision ID: 0001
 Revises:
@@ -56,17 +58,19 @@ def _create_users() -> None:
         *_timestamps(),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
         sa.UniqueConstraint("email", name="uq_users_email"),
-        sa.CheckConstraint("char_length(email) BETWEEN 3 AND 254", name="ck_users_email_length"),
-        sa.CheckConstraint("char_length(full_name) <= 200", name="ck_users_full_name_length"),
         sa.CheckConstraint(
-            "failed_login_count >= 0", name="ck_users_failed_login_count_not_negative"
+            "char_length(email) BETWEEN 3 AND 254", name=op.f("ck_users_email_length")
+        ),
+        sa.CheckConstraint("char_length(full_name) <= 200", name=op.f("ck_users_full_name_length")),
+        sa.CheckConstraint(
+            "failed_login_count >= 0", name=op.f("ck_users_failed_login_count_not_negative")
         ),
         sa.CheckConstraint(
             "(status = 'deleted') = (deleted_at IS NOT NULL)",
-            name="ck_users_deleted_status_has_deleted_at",
+            name=op.f("ck_users_deleted_status_has_deleted_at"),
         ),
         sa.CheckConstraint(
-            _in("status", ("active", "disabled", "deleted")), name="ck_users_status"
+            _in("status", ("active", "disabled", "deleted")), name=op.f("ck_users_status")
         ),
     )
 
@@ -82,13 +86,15 @@ def _create_organizations() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_organizations"),
         sa.UniqueConstraint("slug", name="uq_organizations_slug"),
         sa.CheckConstraint(
-            "char_length(name) BETWEEN 1 AND 200", name="ck_organizations_name_length"
+            "char_length(name) BETWEEN 1 AND 200", name=op.f("ck_organizations_name_length")
         ),
         sa.CheckConstraint(
             "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(slug) <= 63",
-            name="ck_organizations_slug_format",
+            name=op.f("ck_organizations_slug_format"),
         ),
-        sa.CheckConstraint(_in("status", ("active", "suspended")), name="ck_organizations_status"),
+        sa.CheckConstraint(
+            _in("status", ("active", "suspended")), name=op.f("ck_organizations_status")
+        ),
     )
 
 
@@ -98,7 +104,7 @@ def _create_roles_and_permissions() -> None:
         sa.Column("key", sa.Text(), nullable=False),
         sa.Column("description", sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint("key", name="pk_permissions"),
-        sa.CheckConstraint("key ~ '^[a-z]+:[a-z_]+$'", name="ck_permissions_key_format"),
+        sa.CheckConstraint("key ~ '^[a-z]+:[a-z_]+$'", name=op.f("ck_permissions_key_format")),
     )
     op.create_table(
         "roles",
@@ -121,8 +127,10 @@ def _create_roles_and_permissions() -> None:
             name="uq_roles_organization_id_key",
             postgresql_nulls_not_distinct=True,
         ),
-        sa.CheckConstraint("key ~ '^[a-z][a-z0-9_]{1,49}$'", name="ck_roles_key_format"),
-        sa.CheckConstraint("char_length(name) BETWEEN 1 AND 100", name="ck_roles_name_length"),
+        sa.CheckConstraint("key ~ '^[a-z][a-z0-9_]{1,49}$'", name=op.f("ck_roles_key_format")),
+        sa.CheckConstraint(
+            "char_length(name) BETWEEN 1 AND 100", name=op.f("ck_roles_name_length")
+        ),
     )
     op.create_table(
         "role_permissions",
@@ -177,11 +185,15 @@ def _create_memberships() -> None:
 
 
 def _token_hash_check(table: str) -> sa.CheckConstraint:
-    return sa.CheckConstraint("octet_length(token_hash) = 32", name=f"ck_{table}_token_hash_size")
+    return sa.CheckConstraint(
+        "octet_length(token_hash) = 32", name=op.f(f"ck_{table}_token_hash_size")
+    )
 
 
 def _expiry_check(table: str) -> sa.CheckConstraint:
-    return sa.CheckConstraint("expires_at > created_at", name=f"ck_{table}_expires_after_created")
+    return sa.CheckConstraint(
+        "expires_at > created_at", name=op.f(f"ck_{table}_expires_after_created")
+    )
 
 
 def _user_fk(table: str) -> sa.ForeignKeyConstraint:
@@ -208,7 +220,9 @@ def _create_sessions() -> None:
         sa.UniqueConstraint("token_hash", name="uq_sessions_token_hash"),
         _token_hash_check("sessions"),
         _expiry_check("sessions"),
-        sa.CheckConstraint("char_length(user_agent) <= 256", name="ck_sessions_user_agent_length"),
+        sa.CheckConstraint(
+            "char_length(user_agent) <= 256", name=op.f("ck_sessions_user_agent_length")
+        ),
     )
     op.create_index("ix_sessions_user_id", "sessions", ["user_id"])
     op.create_index("ix_sessions_family_id", "sessions", ["family_id"])
@@ -231,7 +245,8 @@ def _create_one_time_tokens() -> None:
         _token_hash_check("one_time_tokens"),
         _expiry_check("one_time_tokens"),
         sa.CheckConstraint(
-            _in("purpose", ("verify_email", "reset_password")), name="ck_one_time_tokens_purpose"
+            _in("purpose", ("verify_email", "reset_password")),
+            name=op.f("ck_one_time_tokens_purpose"),
         ),
     )
     op.create_index("ix_one_time_tokens_user_id_purpose", "one_time_tokens", ["user_id", "purpose"])
@@ -270,12 +285,12 @@ def _create_invitations() -> None:
         sa.UniqueConstraint("token_hash", name="uq_invitations_token_hash"),
         _token_hash_check("invitations"),
         sa.CheckConstraint(
-            "char_length(email) BETWEEN 3 AND 254", name="ck_invitations_email_length"
+            "char_length(email) BETWEEN 3 AND 254", name=op.f("ck_invitations_email_length")
         ),
         _expiry_check("invitations"),
         sa.CheckConstraint(
             "accepted_at IS NULL OR revoked_at IS NULL",
-            name="ck_invitations_not_accepted_and_revoked",
+            name=op.f("ck_invitations_not_accepted_and_revoked"),
         ),
     )
     op.create_index(
@@ -326,7 +341,9 @@ def _create_audit_logs() -> None:
             name="fk_audit_logs_actor_user_id_users",
             ondelete="SET NULL",
         ),
-        sa.CheckConstraint("action ~ '^[a-z_]+(\\.[a-z_]+)+$'", name="ck_audit_logs_action_format"),
+        sa.CheckConstraint(
+            "action ~ '^[a-z_]+(\\.[a-z_]+)+$'", name=op.f("ck_audit_logs_action_format")
+        ),
     )
     op.create_index(
         "ix_audit_logs_organization_id_created_at", "audit_logs", ["organization_id", "created_at"]

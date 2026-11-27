@@ -7,7 +7,7 @@ run inside a savepoint (`rejected`) so the test can carry on afterwards.
 import asyncio
 import re
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -154,8 +154,9 @@ async def test_s2_2_06_role_of_another_organization_is_refused(db: AsyncSession)
     foreign_role = new_role(other_org)
     await add(db, other_org)
     await add(db, foreign_role)
+    await add(db, outsider := new_user())
     async with rejected(db, "role belongs to another organization"):
-        db.add(new_membership(new_user(), org, foreign_role))
+        db.add(new_membership(outsider, org, foreign_role))
     async with rejected(db, "role belongs to another organization"):
         await db.execute(
             update(Membership).where(Membership.id == membership.id).values(role_id=foreign_role.id)
@@ -171,8 +172,8 @@ async def test_s2_2_06_role_of_another_organization_is_refused(db: AsyncSession)
 async def test_s2_2_07_system_role_or_own_custom_role_is_accepted(db: AsyncSession) -> None:
     _, org, _ = await _org_with_member(db)
     own_role = new_role(org)
-    await add(db, own_role)
-    await add(db, new_membership(new_user(), org, own_role))
+    await add(db, own_role, joiner := new_user())
+    await add(db, new_membership(joiner, org, own_role))
     await add(
         db, new_invitation(org, own_role), new_invitation(org, await system_role(db, "admin"))
     )
@@ -230,8 +231,8 @@ async def test_s2_2_10_deleting_an_organization_keeps_history(db: AsyncSession) 
 async def test_s2_2_11_role_in_use_cannot_be_deleted(db: AsyncSession) -> None:
     _, org, _ = await _org_with_member(db)
     custom = new_role(org)
-    await add(db, custom)
-    await add(db, new_membership(new_user(), org, custom))
+    await add(db, custom, holder := new_user())
+    await add(db, new_membership(holder, org, custom))
     async with rejected(db, "fk_memberships_role_id_roles"):
         await db.execute(delete(Role).where(Role.id == custom.id))
     invited_role = new_role(org, key="invited_only")
@@ -287,7 +288,7 @@ async def test_s2_2_14_one_pending_invitation_per_email_per_org(db: AsyncSession
 async def test_s2_2_15_token_hashes_are_unique_and_32_bytes(db: AsyncSession) -> None:
     user, org, _ = await _org_with_member(db)
     role = await system_role(db, "member")
-    builders = {
+    builders: dict[str, Callable[[bytes], Base]] = {
         "sessions": lambda token_hash: new_session(user, token_hash=token_hash),
         "one_time_tokens": lambda token_hash: new_one_time_token(user, token_hash=token_hash),
         "invitations": lambda token_hash: new_invitation(org, role, token_hash=token_hash),
