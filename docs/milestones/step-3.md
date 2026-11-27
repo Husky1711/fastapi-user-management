@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46050265813
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46051473324
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -14,11 +14,11 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
-| 3.4 | Signup and login: lockout, rehash, session strategies | 🔄 | 17 / 18 | CI run 46049595954; 3.4-17 (real stack, needs `/me`) runs with 3.6-12 |
-| 3.5 | Refresh rotation, reuse detection, logout, logout-all | 🔄 | 13 / 14 | CI run 46050265813; 3.5-13 (real stack) runs with 3.6-12 |
-| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
+| 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 18 / 18 | CI run 46049595954; 3.4-17 in run 46051473324 |
+| 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 14 / 14 | CI run 46050265813; 3.5-13 in run 46051473324 |
+| 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 13 / 13 | CI run 46051473324 |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **66 / 89** | |
+| | **Total** | | **81 / 89** | |
 
 ## Design decisions for this step
 
@@ -124,7 +124,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.4-14 | C3 | Session strategy `limit_sessions` with limit 3, 4th login | Oldest family revoked; 3 remain | test | ✅ |
 | 3.4-15 | C1 | Session strategy `replace_same_device` | Earlier family with the same user agent revoked; others kept | test | ✅ |
 | 3.4-16 | C9 | Database down at login | Generic 500; password and email not logged | test | ✅ |
-| 3.4-17 | C11 | User signs up, logs in, calls `/me` (real stack) | Works end to end | CI step (Compose) | ⬜ |
+| 3.4-17 | C11 | User signs up, logs in, calls `/me` (real stack) | Works end to end | CI step (Compose) | ✅ |
 | 3.4-18 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A: signup and login are public | | | |
 | — | C8 | Covered by 3.4-02 (repeat signup) and 3.4-12 (repeat login) | | | |
@@ -146,7 +146,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.5-10 | C1 | Logout-all | Every family of the user revoked (`logout_all`); other users untouched | test | ✅ |
 | 3.5-11 | C4 | Logout without a token | 401 | test | ✅ |
 | 3.5-12 | C10 | Refresh after the user was disabled | 401; no new session | test | ✅ |
-| 3.5-13 | C11 | Real stack: login, refresh twice, replay the first refresh token, everything revoked | As stated | CI step (Compose) | ⬜ |
+| 3.5-13 | C11 | Real stack: login, refresh twice, replay the first refresh token, everything revoked | As stated | CI step (Compose) | ✅ |
 | 3.5-14 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A: a user acts only on their own sessions (3.2-05 covers cross-user) | | | |
 | — | C9 | Covered by 3.4-16 (same service path) | | | |
@@ -155,19 +155,19 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.6-01 | C1 | `GET /me` | Own profile (`id`, `email`, `full_name`, `email_verified`, `created_at`); no hash, no counters | test | ⬜ |
-| 3.6-02 | C1 | `GET /me/sessions` | Own active sessions, paged, current one marked; no token hashes | test | ⬜ |
-| 3.6-03 | C1 | `DELETE /me/sessions/{id}` | 204; that family revoked (`revoked`) | test | ⬜ |
-| 3.6-04 | C5, C6 | Delete another user's session id; unknown id; malformed id | 404 (not 403); 404; 422 | test | ⬜ |
-| 3.6-05 | C1 | `POST /me/sessions/revoke-others` | Every other family revoked; the current one keeps working | test | ⬜ |
-| 3.6-06 | C1 | `POST /me/password` with the right current password | 204; new hash; other sessions revoked (`password_changed`); current kept | test | ⬜ |
-| 3.6-07 | C4 | Change password with a wrong current password | 401-style refusal (`auth.invalid_credentials`), counts toward lockout | test | ⬜ |
-| 3.6-08 | C2 | New password weak, same as the old one, or missing | 422 with stable codes | test | ⬜ |
-| 3.6-09 | C4 | Every `/me` route without a token | 401 | test | ⬜ |
-| 3.6-10 | C8 | Revoke-others twice | Second call revokes nothing, still 204 | test | ⬜ |
-| 3.6-11 | C3 | Sessions list with 0, 1 and limit+1 sessions | Correct pages | test | ⬜ |
-| 3.6-12 | C11 | Real stack: change password, old password refused, new accepted | As stated | CI step (Compose) | ⬜ |
-| 3.6-13 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.6-01 | C1 | `GET /me` | Own profile (`id`, `email`, `full_name`, `email_verified`, `created_at`); no hash, no counters | test | ✅ |
+| 3.6-02 | C1 | `GET /me/sessions` | Own active sessions, paged, current one marked; no token hashes | test | ✅ |
+| 3.6-03 | C1 | `DELETE /me/sessions/{id}` | 204; that family revoked (`revoked`) | test | ✅ |
+| 3.6-04 | C5, C6 | Delete another user's session id; unknown id; malformed id | 404 (not 403); 404; 422 | test | ✅ |
+| 3.6-05 | C1 | `POST /me/sessions/revoke-others` | Every other family revoked; the current one keeps working | test | ✅ |
+| 3.6-06 | C1 | `POST /me/password` with the right current password | 204; new hash; other sessions revoked (`password_changed`); current kept | test | ✅ |
+| 3.6-07 | C4 | Change password with a wrong current password | 401-style refusal (`auth.invalid_credentials`), counts toward lockout | test | ✅ |
+| 3.6-08 | C2 | New password weak, same as the old one, or missing | 422 with stable codes | test | ✅ |
+| 3.6-09 | C4 | Every `/me` route without a token | 401 | test | ✅ |
+| 3.6-10 | C8 | Revoke-others twice | Second call revokes nothing, still 204 | test | ✅ |
+| 3.6-11 | C3 | Sessions list with 0, 1 and limit+1 sessions | Correct pages | test | ✅ |
+| 3.6-12 | C11 | Real stack: change password, old password refused, new accepted | As stated | CI step (Compose) | ✅ |
+| 3.6-13 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C7 | Covered by 3.5-05 (session races) | | | |
 | — | C9, C10 | Covered by 3.4-16 and the unit-of-work tests of step 2 | | | |
 
@@ -194,7 +194,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | F3 | CI test (run 46047067623) | 3.3-04 `[expired]` violated `ck_sessions_family_started_first` | Test computed `created_at` and `family_started_at` from two `clock.now()` calls microseconds apart | One shared value | Fixed (run 46047567713) |
 | F4 | CI test (run 46048430388) | Signup answered 202 but stored nothing; every login after it failed (11 tests) | Two bugs: (1) the unit of work orders inserts by `relationship()` only, so the audit row (foreign key to the new user) was inserted first and refused; (2) `except IntegrityError` treated *every* integrity error as "email taken" and hid (1). The step 2 admin service had the same broad catch | User flushed before its audit row (rule written in `audit.record`); only `uq_users_email` means taken (`is_unique_violation`, shared, tested), anything else is re-raised; the admin service also releases its connection before hashing (R2-03) | Fixed (run 46049028389) |
 | F5 | CI test (run 46049028389) | Step 2 test 2.6-09 regressed: reading a loaded object after a failed unit of work raised `MissingGreenlet` | Ending the read transaction first (`end_read`, R2-03) made the next unit of work a fresh transaction; its failure rolled back the whole transaction and expired every loaded object (re-opening R2-02) | `transaction()` always runs the block in a SAVEPOINT; on failure it rolls back the savepoint and commits the empty outer transaction, so nothing loaded earlier is expired | Fixed (run 46049595954) |
-| F6 | CI test (run 46050943060) | `GET /me/sessions` answered 500 (6 tests); the Compose check still passed because the error body's `ip` was `null`, which is "not the spoofed address" | asyncpg returns `inet` as `ipaddress` objects, not `str` (the model said `str`); test 3.2-06 missed it by reading back the cached object; the Compose check asserted only a negative | `IPAddress` column type returns `str`; 3.2-06 re-reads from the database; the Compose check also requires a real address | Fixed |
+| F6 | CI test (run 46050943060) | `GET /me/sessions` answered 500 (6 tests); the Compose check still passed because the error body's `ip` was `null`, which is "not the spoofed address" | asyncpg returns `inet` as `ipaddress` objects, not `str` (the model said `str`); test 3.2-06 missed it by reading back the cached object; the Compose check asserted only a negative | `IPAddress` column type returns `str`; 3.2-06 re-reads from the database; the Compose check also requires a real address | Fixed (run 46051473324) |
 
 ## Gate (when all sections are ✅)
 
