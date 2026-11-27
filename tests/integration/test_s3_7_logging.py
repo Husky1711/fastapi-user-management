@@ -9,7 +9,7 @@ from starlette.types import Message
 from app.core.logging import JsonFormatter, get_logger
 from app.core.middleware import CLIENT_CLOSED_REQUEST
 from app.core.redaction import REDACTED
-from tests.helpers import RecordingSend, app_with, http_scope
+from tests.helpers import RecordingSend, app_with, check_ok, http_scope
 
 LOGIN = "/api/v1/auth/login"
 
@@ -59,7 +59,9 @@ async def test_s3_7_02_ordinary_body_errors_still_get_their_answer(
     send = RecordingSend()
     scope = http_scope("POST", LOGIN)
     scope["headers"] = [(b"content-type", b"application/json")]
-    await app_with()(scope, receive, send)
+    app = app_with(checks={"database": check_ok})
+    async with app.router.lifespan_context(app):  # the route's dependencies need it
+        await app(scope, receive, send)
     assert send.messages[0]["status"] == status
 
 

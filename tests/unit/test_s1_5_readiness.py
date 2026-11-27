@@ -121,7 +121,7 @@ def test_s1_5_03_redaction_removes_url_credentials_and_caps_length() -> None:
             "connect?sslmode=require&PASSWORD=hunter2&x=1",
             "connect?sslmode=require&PASSWORD=***&x=1",
         ),
-        ("token = abc123; next", "token=***; next"),
+        ("token = abc123; next", "token = ***; next"),  # spacing kept; value gone
     ],
 )
 def test_s1_5_20_redaction_removes_key_value_secrets(message: str, expected: str) -> None:
