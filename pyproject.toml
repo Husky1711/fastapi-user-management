@@ -15,6 +15,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30",
     "redis>=5.2",
+    "alembic>=1.14",
+    "argon2-cffi>=23.1",
 ]
 
 [dependency-groups]
@@ -62,7 +64,7 @@ ignore = ["N818"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["app", "tests", "scripts"]
+files = ["app", "tests", "scripts", "migrations"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 

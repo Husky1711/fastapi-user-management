@@ -117,9 +117,11 @@ class StuckWriter(logging.Handler):
     def __init__(self) -> None:
         super().__init__()
         self.unblock = threading.Event()
+        self.stuck = threading.Event()  # set once the writer thread is blocked on a record
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        self.stuck.set()
         self.unblock.wait(timeout=10)
         self.lines.append(self.format(record))
 
@@ -128,20 +130,23 @@ def test_s1_3_33_request_path_never_blocks_and_memory_stays_bounded_when_stdout_
     writer = StuckWriter()
     handler = configure_logging("INFO", queue_size=5, writer=writer)
     log = get_logger("test")
-    for i in range(50):  # would block forever (or grow memory) if logging waited on the writer
-        log.info("busy", n=i)
-    assert handler.pending() <= 5
-    assert handler.dropped >= 40
-    dropped = handler.dropped
-    writer.unblock.set()
-    flush_logs()
-    log.info("after recovery")
-    flush_logs()
-    notices = [json.loads(line) for line in writer.lines if '"log records dropped"' in line]
-    assert notices
-    assert notices[-1]["dropped"] == dropped
-    assert json.loads(writer.lines[-1])["message"] == "after recovery"
-    configure_logging("INFO")
+    try:
+        log.info("first")
+        assert writer.stuck.wait(timeout=10)  # the writer now holds "first" and is blocked
+        for i in range(50):  # would block forever (or grow memory) if logging waited on it
+            log.info("busy", n=i)
+        assert handler.pending() == 5
+        assert handler.dropped == 45  # exact: no slot frees while the writer is stuck
+        writer.unblock.set()
+        flush_logs()
+        log.info("after recovery")
+        flush_logs()
+        notices = [json.loads(line) for line in writer.lines if '"log records dropped"' in line]
+        assert [n["dropped"] for n in notices] == [45]
+        assert json.loads(writer.lines[-1])["message"] == "after recovery"
+    finally:  # never leave a stuck writer and a full queue to the next test
+        writer.unblock.set()
+        configure_logging("INFO")
 
 
 def test_s1_3_36_message_is_fixed_at_the_moment_it_is_logged(

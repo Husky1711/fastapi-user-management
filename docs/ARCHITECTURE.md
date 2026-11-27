@@ -47,11 +47,21 @@ flowchart TD
 | `repositories/` | Build and run queries | Commit transactions, apply business rules |
 | `infra/` | Talk to external systems | Import from `services/` or `api/` |
 
+**Transactions.** One request has one database session (`get_db`), shared by its dependencies
+and its one service call. Dependencies only read. The service method writes inside
+`async with transaction(session):` (`app/infra/database.py`). It runs as a SAVEPOINT inside
+the transaction the dependencies' reads began and commits everything before the response is
+built. On error only the savepoint is rolled back, so objects the dependencies loaded (the
+current user) stay readable, unless the failed block changed them: those are expired and must
+not be read afterwards (reload them in a new unit of work if needed). It is entered once per service call; a nested call raises
+`NestedUnitOfWork` instead of committing half-done work.
+
 ## 3. Folder layout
 
 ```
 app/
   main.py                 # create_app(): middleware, routers, lifespan
+  cli.py                  # operator commands: python -m app.cli create-admin
   core/
     config.py             # Settings (pydantic-settings); production safety checks
     security.py           # Argon2 hashing, JWT encode/decode, token hashing
@@ -60,6 +70,8 @@ app/
     logging.py            # structured JSON logging to stdout; request id context
     middleware.py         # request id, security headers, access log; error boundary (500s)
     pagination.py         # Page[T], limit/offset params
+    permissions.py        # permission catalogue and system roles (seeded by a migration)
+    emails.py             # email address syntax rules
     clock.py              # now() in UTC; replaced in tests
   api/
     v1/
@@ -148,7 +160,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         uuid family_id "refresh rotation chain"
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz revoked_at
         inet ip
@@ -158,7 +170,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         enum purpose "verify_email | reset_password"
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz used_at
     }
@@ -167,7 +179,7 @@ erDiagram
         uuid organization_id FK
         citext email
         uuid role_id FK
-        text token_hash UK
+        bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz accepted_at
     }
@@ -187,7 +199,10 @@ erDiagram
 Rules:
 
 - Primary keys are UUIDs (no guessable ids in URLs). Audit log uses `bigint` for write speed.
-- All timestamps are `timestamptz` and written in UTC from code (`datetime.now(UTC)`).
+- All timestamps are `timestamptz`, aware UTC. Inserted values come from the app clock
+  (`app.core.clock.now()`, injectable in tests), so CHECKs comparing two timestamps compare one
+  clock. Later `updated_at` values come from a database trigger (`clock_timestamp()`), so bulk
+  `UPDATE`s can't forget them; app and database clocks are both NTP-synced UTC.
 - Emails are `citext` so `A@x.com` and `a@x.com` are the same account.
 - Enum-like columns are real Postgres enums or CHECK constraints.
 - Every foreign key declares `ON DELETE` behaviour.

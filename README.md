@@ -16,6 +16,11 @@ cp .env.example .env
 make run                 # app + PostgreSQL + Redis
 # http://localhost:8000/docs         interactive API docs
 # http://localhost:8000/health/ready readiness probe
+
+# in a second terminal, once the stack is up:
+docker compose exec app alembic upgrade head          # create the schema and seed roles
+docker compose exec app python -m app.cli create-admin --email you@example.com
+# (type the password at the prompt; it is never passed as an argument)
 ```
 
 Development:

@@ -56,6 +56,8 @@ class DatabaseSettings(_Section):
     pool_size: int = Field(default=5, ge=1, le=100)
     max_overflow: int = Field(default=5, ge=0, le=100)
     pool_timeout_seconds: float = Field(default=10.0, gt=0)
+    # Fail fast when the host doesn't answer (asyncpg's own default is 60 s).
+    connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     echo: bool = False
 
 

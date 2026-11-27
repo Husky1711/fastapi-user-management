@@ -76,6 +76,56 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
       - run: uv sync --locked
+      - name: "2.3-01/02/04/07/08 Migrations: round trip, concurrent upgrades, guarded downgrade, no-op repeat"
+        env:
+          PSQL_URL: postgresql://postgres:postgres@localhost:5432/usermgmt_test
+        run: |
+          leftovers() {
+            psql "$PSQL_URL" -tAc "
+              SELECT 'table ' || tablename FROM pg_tables
+                WHERE schemaname = 'public' AND tablename <> 'alembic_version'
+              UNION ALL
+              SELECT 'function ' || p.proname FROM pg_proc p
+                WHERE p.pronamespace = 'public'::regnamespace
+                  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+              UNION ALL
+              SELECT 'extension ' || extname FROM pg_extension WHERE extname = 'citext'"
+          }
+          uv run alembic upgrade head
+          test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'")" = 11
+          uv run alembic downgrade base
+          left=$(leftovers); echo "left after downgrade: [$left]"; test -z "$left"
+          echo "2.3-07: two upgrades at once on an empty database (the advisory lock serialises them)"
+          uv run alembic upgrade head > first.log 2>&1 & first=$!
+          uv run alembic upgrade head > second.log 2>&1 & second=$!
+          wait "$first"; wait "$second"
+          cat first.log second.log
+          test "$(cat first.log second.log | grep -c 'Running upgrade')" = 2  # 0001 and 0002, once
+          test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM roles")" = 3
+          echo "2.3-08: downgrading the seed is refused while a membership uses a system role"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO users (id, email, password_hash) VALUES (gen_random_uuid(), 'm@example.com', 'x');
+            INSERT INTO organizations (id, name, slug) VALUES (gen_random_uuid(), 'Acme', 'acme');
+            INSERT INTO memberships (id, user_id, organization_id, role_id)
+              SELECT gen_random_uuid(), u.id, o.id, r.id FROM users u, organizations o, roles r
+              WHERE r.key = 'member' AND r.organization_id IS NULL"
+          if uv run alembic downgrade 0001; then echo "downgrade should have been refused"; exit 1; fi
+          uv run alembic current | grep -q "0002 (head)"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users; DELETE FROM organizations"
+          uv run alembic upgrade head 2>&1 | tee second-run.log
+          if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
+          uv run alembic current | tee /dev/stderr | grep -q "0002 (head)"
+      - name: "2.3-10 Migration against an unresponsive host gives up after the connect timeout"
+        run: |
+          start=$(date +%s)
+          if DATABASE__URL="postgresql+asyncpg://app:Unused-Pw-91@10.255.255.1:5432/app" \
+             DATABASE__CONNECT_TIMEOUT_SECONDS=1 timeout 30 uv run alembic upgrade head > slow.log 2>&1
+          then echo "migration should have failed"; exit 1; fi
+          took=$(( $(date +%s) - start ))
+          tail -2 slow.log; echo "took ${took}s"
+          grep -q "TimeoutError" slow.log
+          test "$took" -lt 15
+          if grep -q "Unused-Pw-91" slow.log; then echo "password printed"; exit 1; fi
       - name: Run tests
         run: >-
           uv run pytest
@@ -104,6 +154,46 @@ jobs:
           cp .env.example .env
           docker compose up --build --detach --wait --wait-timeout 120
           $WAIT http://localhost:8000/health/ready 200 30
+      - name: "2.3-05 Operator applies migrations on the stack; schema and seed data exist"
+        run: |
+          docker compose exec -T app alembic upgrade head
+          docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+            "SELECT string_agg(key, ',' ORDER BY key) FROM roles WHERE organization_id IS NULL" \
+            | tee /dev/stderr | grep -qx "admin,member,owner"
+          $WAIT http://localhost:8000/health/ready 200 10
+      - name: "2.3-06 Migration with a wrong DB password fails clearly, without printing it"
+        run: |
+          set +e
+          out=$(docker compose run --rm --no-deps \
+            -e DATABASE__URL="postgresql+asyncpg://postgres:Wrong-Pw-7731@db:5432/usermgmt" \
+            app alembic upgrade head 2>&1)
+          code=$?
+          set -e
+          echo "$out" | tail -3
+          test "$code" -ne 0
+          echo "$out" | grep -q "password authentication failed"
+          if echo "$out" | grep -q "Wrong-Pw-7731"; then echo "password printed"; exit 1; fi
+      - name: "2.6-12 Operator creates the first admin on the stack; a second run changes nothing"
+        run: |
+          echo 'Stack-Admin-Passw0rd' \
+            | docker compose exec -T app python -m app.cli create-admin --email ops@example.com \
+            | tee created.txt
+          grep -q 'Created platform admin o\*\*\*@example.com' created.txt
+          docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+            "SELECT is_platform_admin AND email_verified AND password_hash LIKE '\$argon2id\$%'
+             FROM users WHERE email = 'OPS@example.com'" | tee /dev/stderr | grep -qx t
+          hash_of() {
+            docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+              "SELECT md5(password_hash) FROM users WHERE email = 'ops@example.com'"
+          }
+          before=$(hash_of)
+          set +e
+          echo 'Other-Passw0rd-123' \
+            | docker compose exec -T app python -m app.cli create-admin --email ops@example.com
+          code=$?
+          set -e
+          test "$code" -eq 1
+          test "$(hash_of)" = "$before"
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

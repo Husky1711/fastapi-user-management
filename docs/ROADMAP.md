@@ -23,8 +23,8 @@ How we get from the current code (reviewed at commit `209a9bd`, rated 4/10) to t
 | --- | --- | --- |
 | 0 | Foundation docs | ✅ Done |
 | 1 | Project skeleton & tooling | ✅ Done (review round 5: 9.0/10) |
-| 2 | Database foundation | ⬜ Not started |
-| 3 | Authentication core | ⬜ Not started |
+| 2 | Database foundation | ✅ Done (review round 3: 8.9/10; Scalability 8 carried to step 3) |
+| 3 | Authentication core | 🔄 Next |
 | 4 | Rate limiting | ⬜ Not started |
 | 5 | Organizations, memberships & permissions | ⬜ Not started |
 | 6 | Account lifecycle & email | ⬜ Not started |
@@ -103,15 +103,15 @@ reported.
 
 **Goal:** the full v1 schema in PostgreSQL, managed by Alembic, with tested repositories.
 
-- [ ] Async engine + session factory; `get_db` dependency with one transaction per request
-- [ ] Models per `docs/ARCHITECTURE.md` §4: users, organizations, memberships, roles, permissions, role_permissions, sessions, one_time_tokens, invitations, audit_logs
-- [ ] `citext` extension, enums / CHECK constraints, `ON DELETE` rules, unique and supporting indexes
-- [ ] Alembic configured for async; initial migration; `downgrade` works
-- [ ] Seed migration for permissions and system roles (`owner`, `admin`, `member`)
-- [ ] CLI command to create the first platform admin (`python -m app.cli create-admin`)
-- [ ] Repository base with tenant scoping helpers
-- [ ] Test fixtures: per-test transaction rollback against a real Postgres
-- [ ] CI runs `alembic upgrade head` then `alembic downgrade base` then `upgrade head` again
+- [x] Async engine + session factory; `get_db` dependency (one session per request) and `transaction(session)`, the one unit of work per service call
+- [x] Models per `docs/ARCHITECTURE.md` §4: users, organizations, memberships, roles, permissions, role_permissions, sessions, one_time_tokens, invitations, audit_logs
+- [x] `citext` extension, enums / CHECK constraints, `ON DELETE` rules, unique and supporting indexes
+- [x] Alembic configured for async; initial migration; `downgrade` works
+- [x] Seed migration for permissions and system roles (`owner`, `admin`, `member`)
+- [x] CLI command to create the first platform admin (`python -m app.cli create-admin`)
+- [x] Repository base with tenant scoping helpers
+- [x] Test fixtures: per-test transaction rollback against a real Postgres
+- [x] CI runs `alembic upgrade head` then `alembic downgrade base` then `upgrade head` again
 
 **Fixes from review:** free-text roles; nullable `organization_id` defaulting to 1; missing
 composite index on refresh tokens; no index on `expires_at`; naive vs aware datetimes;
@@ -126,7 +126,11 @@ delete; no migrations; lockout columns unused.
 
 **Goal:** secure sign-up, login, refresh, logout and session management.
 
-- [ ] `core/security.py`: Argon2id hash/verify with `needs_rehash`; PyJWT encode/decode with `iss`, `aud`, `jti`, `sid`
+- [ ] `core/security.py`: PyJWT encode/decode with `iss`, `aud`, `jti`, `sid` (Argon2id hash/verify and `password_needs_rehash` already built in step 2)
+- [ ] Record `last_login_at` on users (new migration; the old code's `last_login`, deferred from step 2) and rehash on login when `password_needs_rehash`
+- [ ] Bound concurrent Argon2 work (a settings-sized semaphore around hash/verify, 64 MiB each), and don't hold a pool connection idle in a transaction while hashing (end the dependencies' read transaction first, or hash before any read), with tests (from step 2 review, R1-08, R2-03)
+- [ ] Scenarios for the unit of work under auth: the current user changed and then the block fails (e.g. a failed-login counter); two concurrent signups over HTTP where a dependency read first (savepoint branch) (from step 2 review, R3-06, R3)
+- [ ] Decide internationalised (IDN) email domains: IDNA-encode or keep refusing, and record it (from step 2 review, R1-18)
 - [ ] Dummy Argon2 verify for unknown emails (no timing leak)
 - [ ] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
 - [ ] `client_info` dependency — IP (trusted proxy aware) and user agent
@@ -240,6 +244,7 @@ missing CRUD.
 - [ ] Load test (k6 or Locust) in `tests/load/`; record results in `docs/PERFORMANCE.md`
 - [ ] Meet the performance targets in `docs/VISION.md` §5
 - [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
+- [ ] Readiness reports not ready until the database is at the code's migration head (or a documented migration job runs first) (from step 2 review, R1-09)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
@@ -262,6 +267,7 @@ tokens never cleaned.
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
+- [ ] Enforce append-only `audit_logs` in the database (trigger or revoked UPDATE/DELETE) (from step 2 review, R1-17)
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
 
