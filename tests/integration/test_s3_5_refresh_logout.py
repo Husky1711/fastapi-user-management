@@ -19,6 +19,7 @@ from app.core.logging import JsonFormatter
 from app.main import create_app
 from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from app.repositories import SessionRepository
+from app.services import auth
 from tests.api import WHOAMI, api_client, whoami_router
 from tests.db import SERVICES, UNREACHABLE_DB, committed_user, service_database_settings
 from tests.helpers import check_ok, client_for, make_settings
@@ -182,7 +183,7 @@ async def test_s3_5_07_refreshing_cannot_extend_a_session_past_its_maximum_age(
     start = clock.now()
     now = [start]
     monkeypatch.setattr(clock, "now", lambda: now[0])
-    policy = AuthSettings(refresh_ttl_days=10, session_max_age_days=15)
+    policy = AuthSettings(refresh_ttl=timedelta(days=10), session_max_age=timedelta(days=15))
     async with api_client(db_connection, auth=policy) as http:
         _, tokens = await _new_account(http)
         now[0] = start + timedelta(days=9)
@@ -293,3 +294,56 @@ async def test_s3_5_16_database_failing_inside_logout_is_a_500_and_changes_nothi
     assert (response.status_code, still_in.status_code) == (500, 200)
     logged = "\n".join(JsonFormatter().format(r) for r in caplog.records)
     assert tokens["access_token"] not in logged
+
+
+async def test_s3_5_17_asvs_level_2_limits_end_idle_and_old_sessions(
+    db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """30 minutes idle and 12 hours absolute (ASVS V3.3.2, level 2), at the boundaries."""
+    start = clock.now()
+    now = [start]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    policy = AuthSettings.model_validate({"refresh_ttl": "PT30M", "session_max_age": "PT12H"})
+    async with api_client(db_connection, auth=policy) as http:
+        _, tokens = await _new_account(http)
+        token = tokens["refresh_token"]
+        for _ in range(24):  # active use: a refresh every 29 minutes keeps it alive...
+            now[0] += timedelta(minutes=29)
+            response = await _refresh(http, token)
+            assert response.status_code == 200, now[0] - start
+            token = response.json()["refresh_token"]
+        assert now[0] - start == timedelta(hours=11, minutes=36)
+        now[0] += timedelta(minutes=29)  # ...but not past 12 hours after the login
+        too_old = await _refresh(http, token)
+        _, idle = await _new_account(http)
+        now[0] += timedelta(minutes=30)  # and 30 minutes without use ends a session
+        too_idle = await _refresh(http, idle["refresh_token"])
+    assert (too_old.status_code, too_idle.status_code) == (401, 401)
+
+
+async def test_s3_5_18_a_failed_rotation_leaves_the_old_token_working(
+    db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The old row is marked rotated before the new one is written; if writing fails, the
+    mark is rolled back with it, so the client can simply retry."""
+    async with api_client(db_connection) as http:
+        _, tokens = await _new_account(http)
+        monkeypatch.setattr(auth, "_add_refresh_token", _lost_connection)
+        failed = await _refresh(http, tokens["refresh_token"])
+        monkeypatch.undo()
+        retried = await _refresh(http, tokens["refresh_token"])
+    assert (failed.status_code, retried.status_code) == (500, 200)
+
+
+async def test_s3_5_19_a_refresh_on_a_node_whose_clock_is_behind_still_works(
+    db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Behind a load balancer the refreshing node's clock may trail the login node's."""
+    start = clock.now()
+    now = [start]
+    monkeypatch.setattr(clock, "now", lambda: now[0])
+    async with api_client(db_connection) as http:
+        _, tokens = await _new_account(http)
+        now[0] = start - timedelta(seconds=2)
+        response = await _refresh(http, tokens["refresh_token"])
+    assert response.status_code == 200

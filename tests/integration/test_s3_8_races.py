@@ -405,12 +405,19 @@ async def test_s3_8_09_a_user_removed_mid_login_gets_401_not_500(
         assert rows == []
 
 
-async def test_s3_8_12_a_login_that_replaces_all_sessions_also_ends_a_refresh_in_flight(
-    db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "policy",
+    [
+        AuthSettings(session_strategy=SessionStrategy.REPLACE_ALL),
+        AuthSettings(session_strategy=SessionStrategy.LIMIT_SESSIONS, max_sessions=1),
+    ],
+    ids=["replace_all", "limit_sessions"],
+)
+async def test_s3_8_12_a_login_that_ends_other_sessions_also_ends_a_refresh_in_flight(
+    db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch, policy: AuthSettings
 ) -> None:
     settings = make_settings(
-        database=service_database_settings(pool_size=5, max_overflow=5),
-        auth=AuthSettings(session_strategy=SessionStrategy.REPLACE_ALL),
+        database=service_database_settings(pool_size=5, max_overflow=5), auth=policy
     )
     app = create_app(settings, health_checks={"database": check_ok})
     gate = Gate()
@@ -432,5 +439,5 @@ async def test_s3_8_12_a_login_that_replaces_all_sessions_also_ends_a_refresh_in
         async with AsyncSession(db_engine) as session:
             survivors = await _active_families(session, email)
         newest_family = await _family_of(http, newest)
-    assert dead.status_code == 401  # replace_all saw the successor and ended it
+    assert dead.status_code == 401  # the strategy saw the successor and ended it
     assert survivors == {newest_family}

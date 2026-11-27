@@ -8,6 +8,7 @@ every nested section, are immutable once loaded, so they can't be changed after 
 safety check has passed.
 """
 
+from datetime import timedelta
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
@@ -86,11 +87,18 @@ class SessionStrategy(StrEnum):
     REPLACE_SAME_DEVICE = "replace_same_device"  # a login ends sessions with the same user agent
 
 
+MIN_REFRESH_TTL = timedelta(minutes=5)
+MAX_REFRESH_TTL = timedelta(days=90)
+MAX_SESSION_AGE = timedelta(days=365)
+
+
 class AuthSettings(_Section):
     signup_enabled: bool = True
-    refresh_ttl_days: int = Field(default=14, ge=1, le=90)
-    # A session can be refreshed for at most this long after its first login.
-    session_max_age_days: int = Field(default=30, ge=1, le=365)
+    # Idle limit: a refresh token lives this long, and each refresh issues a new one. ISO 8601
+    # duration (P14D, PT30M) or seconds. ASVS level 2 needs PT30M here or PT12H below.
+    refresh_ttl: timedelta = timedelta(days=14)
+    # Absolute limit: a session can't be refreshed beyond this long after its first login.
+    session_max_age: timedelta = timedelta(days=30)
     lockout_threshold: int = Field(default=5, ge=3, le=20)
     lockout_minutes: int = Field(default=15, ge=1, le=1440)
     session_strategy: SessionStrategy = SessionStrategy.ALLOW_MULTIPLE
@@ -99,9 +107,13 @@ class AuthSettings(_Section):
     password_hash_workers: int = Field(default=4, ge=1, le=32)
 
     @model_validator(mode="after")
-    def _max_age_covers_refresh_ttl(self) -> Self:
-        if self.session_max_age_days < self.refresh_ttl_days:
-            raise ValueError("AUTH__SESSION_MAX_AGE_DAYS must be at least AUTH__REFRESH_TTL_DAYS")
+    def _session_limits_are_sane(self) -> Self:
+        if not MIN_REFRESH_TTL <= self.refresh_ttl <= MAX_REFRESH_TTL:
+            raise ValueError("AUTH__REFRESH_TTL must be between 5 minutes and 90 days")
+        if not self.refresh_ttl <= self.session_max_age <= MAX_SESSION_AGE:
+            raise ValueError(
+                "AUTH__SESSION_MAX_AGE must be at least AUTH__REFRESH_TTL and at most 365 days"
+            )
         return self
 
 

@@ -210,8 +210,10 @@ def test_s3_1_11_internationalised_addresses_are_refused(email: str) -> None:
         (JwtSettings, {"issuer": ""}),
         (JwtSettings, {"audience": ""}),
         (JwtSettings, {"leeway_seconds": 61}),
-        (AuthSettings, {"refresh_ttl_days": 0}),
-        (AuthSettings, {"refresh_ttl_days": 30, "session_max_age_days": 14}),
+        (AuthSettings, {"refresh_ttl": timedelta(minutes=4)}),
+        (AuthSettings, {"refresh_ttl": timedelta(days=91), "session_max_age": timedelta(days=91)}),
+        (AuthSettings, {"refresh_ttl": timedelta(days=30), "session_max_age": timedelta(days=14)}),
+        (AuthSettings, {"session_max_age": timedelta(days=366)}),
         (AuthSettings, {"lockout_threshold": 2}),
         (AuthSettings, {"password_hash_workers": 0}),
         (AuthSettings, {"session_strategy": "forever"}),
@@ -248,3 +250,13 @@ def test_s3_1_12_secret_must_be_as_long_as_the_hmac_output(
     settings = strict_settings(jwt=JwtSettings(secret_key=SecretStr(secret), algorithm=algorithm))
     problems = [p for p in settings.safety_problems() if "JWT__SECRET_KEY" in p]
     assert (problems == []) is safe
+
+
+def test_s3_1_12_session_limits_accept_asvs_level_2_durations() -> None:
+    """ISO 8601 durations, down to ASVS level 2: 30 minutes idle, 12 hours absolute."""
+    policy = AuthSettings.model_validate({"refresh_ttl": "PT30M", "session_max_age": "PT12H"})
+    assert (policy.refresh_ttl, policy.session_max_age) == (
+        timedelta(minutes=30),
+        timedelta(hours=12),
+    )
+    assert AuthSettings(refresh_ttl=timedelta(minutes=5)).refresh_ttl == timedelta(minutes=5)

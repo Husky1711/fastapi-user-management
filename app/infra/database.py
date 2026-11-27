@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import DatabaseSettings
+from app.core.logging import get_logger
+
+log = get_logger(__name__)
 
 
 def create_engine(settings: DatabaseSettings) -> AsyncEngine:
@@ -75,7 +78,8 @@ async def _end_after_failure(session: AsyncSession) -> None:
     loaded objects. If the connection itself failed, fall back to a rollback."""
     try:
         await session.commit()
-    except Exception:
+    except Exception as error:  # the block's own error is re-raised by the caller
+        log.warning("ending a failed unit of work failed; rolled back", error=type(error).__name__)
         await session.rollback()
 
 

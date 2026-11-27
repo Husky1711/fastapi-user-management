@@ -115,6 +115,12 @@ async def test_s3_4_02_signup_with_a_taken_email_looks_the_same_and_changes_noth
     ("body", "status", "code"),
     [
         ({"email": "new@example.com", "password": "short"}, 422, "user.password_weak"),
+        ({"email": "new@example.com", "password": "a" + " " * 11}, 422, "user.password_weak"),
+        (
+            {"email": "new@example.com", "password": "ab" + " " * 10 + "c"},
+            422,
+            "user.password_weak",
+        ),
         ({"email": "not-an-email", "password": PASSWORD}, 422, "user.email_invalid"),
         (
             {"email": "new@example.com", "password": PASSWORD, "is_platform_admin": True},
@@ -526,8 +532,14 @@ async def test_s3_4_22_token_and_account_answers_are_never_cached(
             await http.get("/api/v1/me/sessions", headers=bearer),
             await http.post("/api/v1/auth/logout", headers=bearer),
         ]
-    for answer in answers:
-        assert answer.is_success, answer.request.url
+        errors = [
+            await _login(http, email, "Wrong-Passw0rd-123"),  # 401
+            await http.post(SIGNUP, json={"email": "x"}),  # 422
+            await http.get("/api/v1/me"),  # 401 without a token
+        ]
+    assert all(answer.is_success for answer in answers)
+    assert [error.status_code for error in errors] == [401, 422, 401]
+    for answer in answers + errors:
         assert answer.headers["cache-control"] == "no-store", answer.request.url
         assert answer.headers["pragma"] == "no-cache"
 
@@ -544,6 +556,7 @@ async def test_s3_4_23_disabled_signup_is_not_advertised(db_connection: AsyncCon
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="Known gap, roadmap step 6: until email verification gates login, signing up "
     "with an email and then logging in with that password shows whether the email was free",
 )
@@ -552,6 +565,8 @@ async def test_s3_4_24_signup_then_login_does_not_reveal_whether_the_email_was_f
 ) -> None:
     async with api_client(db_connection) as http:
         email = _email()
-        await _registered(http, email)
+        signup = await http.post(SIGNUP, json={"email": email, "password": PASSWORD})
+        if signup.status_code != 202:  # not the known gap: fail for real, not as "expected"
+            pytest.fail(f"signup answered {signup.status_code}")
         response = await _login(http, email)
     assert response.status_code == 401  # refused until the address is verified (step 6)

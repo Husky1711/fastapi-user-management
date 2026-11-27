@@ -253,8 +253,8 @@ def _add_refresh_token(
     """Store the next refresh token of a family and issue both tokens. The refresh token's
     life is capped by the family's maximum age."""
     policy = settings.auth
-    max_end = family_started_at + timedelta(days=policy.session_max_age_days)
-    expires_at = min(now + timedelta(days=policy.refresh_ttl_days), max_end)
+    max_end = family_started_at + policy.session_max_age
+    expires_at = min(now + policy.refresh_ttl, max_end)
     refresh = new_opaque_token()
     SessionRepository(session).add(
         UserSession(
@@ -262,6 +262,9 @@ def _add_refresh_token(
             user_id=user_id,
             family_id=family_id,
             family_started_at=family_started_at,
+            # This instance's clock may be a little behind the one that started the family;
+            # never record the row as older than its family (CHECK family_started_first).
+            created_at=max(now, family_started_at),
             token_hash=hash_token(refresh),
             expires_at=expires_at,
             last_used_at=now,
@@ -330,7 +333,7 @@ async def _rotate(
             target=("session", row.family_id),
         )
         return None
-    max_age_end = row.family_started_at + timedelta(days=settings.auth.session_max_age_days)
+    max_age_end = row.family_started_at + settings.auth.session_max_age
     if row.revoked_at is not None or row.expires_at <= now or max_age_end <= now:
         return None
     if user.deleted_at is not None or user.status != UserStatus.ACTIVE:

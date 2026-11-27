@@ -178,6 +178,7 @@ async def test_s3_6_07_wrong_current_password_counts_toward_lockout(
     ("body", "code"),
     [
         ({"current_password": PASSWORD, "new_password": "short"}, "user.password_weak"),
+        ({"current_password": PASSWORD, "new_password": "a" + " " * 11}, "user.password_weak"),
         ({"current_password": PASSWORD, "new_password": PASSWORD}, "user.password_unchanged"),
         ({"current_password": PASSWORD}, "request.validation_failed"),
     ],

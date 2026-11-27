@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core import clock
 from app.core.client import USER_AGENT_MAX_LENGTH, ClientInfo
 from app.core.config import Settings
-from app.core.errors import Unauthorized
+from app.core.errors import NO_STORE_HEADERS, Unauthorized
 from app.services.auth import CurrentUser, authenticate
 
 
@@ -72,10 +72,10 @@ def _ip_or_none(host: str | None) -> str | None:
 
 
 def no_store(response: Response) -> None:
-    """API answers hold tokens or personal data: no browser or proxy may keep a copy
-    (RFC 6749 §5.1 for token responses; ASVS V8.2.1)."""
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Pragma"] = "no-cache"
+    """Successful API answers hold tokens or personal data: no browser or proxy may keep a
+    copy (RFC 6749 §5.1, ASVS V8.2.1). Error answers get the same headers from
+    `problem_response`."""
+    response.headers.update(NO_STORE_HEADERS)
 
 
 Authenticated = Annotated[CurrentUser, Depends(get_current_user)]

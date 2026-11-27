@@ -94,6 +94,16 @@ def test_s2_6_04_password_with_control_characters_is_refused(control: str) -> No
         check_password_rules(f"long-enough-{control}-password")
 
 
+@pytest.mark.parametrize(
+    "padded",
+    ["a" + " " * 11, "ab" + " " * 10 + "c", " " * 6 + "short" + " " * 6, "a\u3000" * 6],
+)
+def test_s2_6_04_spaces_dont_count_toward_the_minimum_length(padded: str) -> None:
+    """ASVS V2.1.1: 12 characters after runs of spaces are combined (step 3 review round 3)."""
+    with pytest.raises(WeakPassword, match="runs of spaces"):
+        check_password_rules(padded)
+
+
 def test_s2_6_04_spaces_inside_and_around_a_password_are_kept() -> None:
     check_password_rules("  spaces are fine here  ")
 

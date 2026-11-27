@@ -7,6 +7,7 @@ use at most `workers x 64 MiB` (ADR-0006, step 2 review R1-08).
 
 import asyncio
 import hashlib
+import re
 import secrets
 import unicodedata
 import uuid
@@ -55,16 +56,21 @@ def _normalize(password: str) -> str:
     return unicodedata.normalize("NFKC", password)
 
 
+_SPACE_RUNS = re.compile(r"\s+")
+
+
 def check_password_rules(password: str) -> None:
+    """ASVS V2.1: at least 12 characters once runs of spaces count as one (so padding with
+    spaces doesn't make a short password long enough), at most 128, no control characters."""
     normalized = _normalize(password)
-    if len(normalized) < PASSWORD_MIN_LENGTH:
-        msg = f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
+    if len(_SPACE_RUNS.sub(" ", normalized).strip()) < PASSWORD_MIN_LENGTH:
+        msg = (
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+            " (runs of spaces count as one)."
+        )
         raise WeakPassword(msg)
     if len(normalized) > PASSWORD_MAX_LENGTH:
         msg = f"Password must be at most {PASSWORD_MAX_LENGTH} characters."
-        raise WeakPassword(msg)
-    if not normalized.strip():
-        msg = "Password must not be only spaces."
         raise WeakPassword(msg)
     if any(unicodedata.category(char) == "Cc" for char in normalized):
         # NUL, escape, newline...: never typed on purpose, and they break forms and terminals.

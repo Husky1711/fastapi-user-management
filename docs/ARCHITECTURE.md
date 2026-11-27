@@ -268,8 +268,9 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 - **Access token**: JWT, 15 minutes (configurable), claims `sub`, `sid` (session id), `iat`,
   `exp`, `iss`, `aud`, `jti`. No role or org claims — permissions are read live, so a demotion
   takes effect immediately.
-- **Refresh token**: 256-bit random opaque string, stored only as SHA-256 hash, 14 days
-  (configurable). Rotated on every use.
+- **Refresh token**: 256-bit random opaque string, stored only as SHA-256 hash. Idle limit
+  `AUTH__REFRESH_TTL` (default 14 days), absolute limit `AUTH__SESSION_MAX_AGE` (default 30
+  days); both go down to ASVS level 2 values (30 min / 12 h, ADR-0010). Rotated on every use.
 - **Reuse detection**: each rotation stays in the same `family_id`. If an already-rotated
   refresh token is presented, the whole family is revoked (it was stolen).
 - **Lockout**: after N failed logins (default 5) the account is locked for M minutes

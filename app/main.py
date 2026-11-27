@@ -135,7 +135,7 @@ def create_app(
     app.include_router(build_api_router(*api_routers))
     # A switched-off signup answers 404; it isn't advertised either.
     hidden: frozenset[str] = (
-        frozenset() if settings.auth.signup_enabled else frozenset({"/api/v1/auth/signup"})
+        frozenset() if settings.auth.signup_enabled else frozenset({app.url_path_for("signup")})
     )
     _customise_schema(app, hidden_paths=hidden)
     return app
