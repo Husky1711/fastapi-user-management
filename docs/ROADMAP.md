@@ -62,6 +62,7 @@ listed below against the step where the new code makes it impossible, so nothing
 - [x] `docs/adr/` — the decisions agreed so far
 - [x] Pull request template
 - [x] Testing, logging and scoring process (`docs/milestones/README.md`, `SCORECARD.md`)
+- [x] Security audit skill vendored and pinned (`.claude/skills/security-audit/`)
 
 **Exit criteria:** reviewed and merged by the project owner.
 
@@ -144,6 +145,8 @@ delete; no migrations; lockout columns unused.
 current session; `settings` NameError; role/org trusted from JWT claims; hard-coded
 `expires_in`; 7 copies of the token-check block; unused refresh JWT.
 
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
+
 **Exit criteria:** ASVS V2/V3 items for these flows pass; coverage ≥ 90 % on auth services.
 
 ---
@@ -162,6 +165,8 @@ current session; `settings` NameError; role/org trusted from JWT claims; hard-co
 **Fixes from review:** same-second requests counted once; rejected requests recorded;
 swallowed per-user 429; O(n) memory per key; up to 8 Redis round trips per request; `KEYS`
 blocking Redis; wrong `Retry-After`.
+
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
 **Exit criteria:** a load test shows limits enforced within ±1 % at 500 req/s.
 
@@ -184,6 +189,8 @@ blocking Redis; wrong `Retry-After`.
 forcing org 1; `/users` returning a different shape per role; no pagination (limit 100);
 missing CRUD.
 
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
+
 **Exit criteria:** isolation suite passes for every org-scoped route; ASVS V4 items pass.
 
 ---
@@ -200,6 +207,8 @@ missing CRUD.
 - [ ] Setting `REQUIRE_VERIFIED_EMAIL` to block login until verified
 - [ ] Tests for expiry, reuse, enumeration resistance
 
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
+
 **Exit criteria:** every flow works end to end with the console backend in Docker Compose.
 
 ---
@@ -213,6 +222,8 @@ missing CRUD.
 - [ ] `GET /orgs/{id}/audit` (`audit:read`) and `GET /admin/audit` — filtered, paginated
 - [ ] `/admin/users` and `/admin/organizations`: list, search, disable, enable, delete (soft)
 - [ ] Every admin action audited with actor, target, IP
+
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
 **Exit criteria:** every state-changing endpoint produces exactly one audit entry (tested).
 
@@ -249,6 +260,8 @@ tokens never cleaned.
 - [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
+
+- [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
 **Exit criteria:** every ASVS item in scope is "pass" or has a documented, accepted reason.
 

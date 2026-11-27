@@ -101,6 +101,16 @@ session starts by reading the section log and continues from the first section t
 against the code and CI. Its output goes into the step report unchanged. Fix its Critical and
 High findings, then run it again until it returns PASS. Never edit its verdict.
 
+**Security audit (security-relevant steps).** At the end of steps 3, 4, 5, 6, 7 and 9, run the
+vendored `security-audit` skill (`.claude/skills/security-audit/`, Cloudflare, pinned) in full
+audit mode on the step's code, with audit output written outside the repository (its default).
+- Any **confirmed Critical or High** finding fails the gate; fix it and re-run the audit.
+- "Needs validation" findings must be validated or explained before merge.
+- This repository is public: record only findings that are **fixed or rejected** in
+  `docs/milestones/step-<n>.md` (summary, severity, fix, test). Never commit details of an
+  open vulnerability.
+- Never edit the vendored skill; update it only as `VENDORED.md` describes.
+
 **Scoring.** After each step, the **independent reviewer** (never the author) scores the nine
 review areas against the old code's baseline, one line of evidence per score, and updates
 `docs/milestones/SCORECARD.md`. Areas not built yet are marked "not built yet", not given a
