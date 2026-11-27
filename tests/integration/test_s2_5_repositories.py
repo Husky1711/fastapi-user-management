@@ -110,6 +110,24 @@ async def test_s2_5_06_membership_for_user_and_org_with_role(db: AsyncSession) -
     assert await repo.get(organization_id=org.id, user_id=uuid.uuid4()) is None
 
 
+async def test_s2_5_06_add_membership_and_list_a_users_own(db: AsyncSession) -> None:
+    org_a, org_b, user = new_org(), new_org(), new_user()
+    await add(db, org_a, org_b, user)
+    repo = MembershipRepository(db)
+    repo.add(new_membership(user, org_a, await system_role(db, "owner")))
+    repo.add(new_membership(user, org_b, await system_role(db, "member")))
+    await db.flush()
+    db.expunge_all()  # organization and role must come from the query itself
+    mine = await repo.list_for_user(user.id, PaginationParams())
+    assert mine.total == 2
+    assert {(m.organization.slug, m.role.key) for m in mine.items} == {
+        (org_a.slug, "owner"),
+        (org_b.slug, "member"),
+    }
+    nobody = await repo.list_for_user(uuid.uuid4(), PaginationParams())
+    assert (list(nobody.items), nobody.total) == ([], 0)
+
+
 async def test_s2_5_07_one_orgs_members_never_appear_in_another(db: AsyncSession) -> None:
     org_a, users_a = await _org_with_members(db, 2)
     org_b, users_b = await _org_with_members(db, 3)
