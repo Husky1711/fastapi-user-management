@@ -1,7 +1,7 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46046371009
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46047567713
 - Verdict: **IN PROGRESS**
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
@@ -13,12 +13,12 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | --- | --- | --- | --- | --- |
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
-| 3.3 | Request dependencies: `client_info`, `get_current_user` | ⬜ | 0 / 13 | |
+| 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
 | 3.4 | Signup and login: lockout, rehash, session strategies | ⬜ | 0 / 18 | |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ⬜ | 0 / 14 | |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ⬜ | 0 / 13 | |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ⬜ | 0 / 8 | |
-| | **Total** | | **23 / 89** | |
+| | **Total** | | **36 / 89** | |
 
 ## Design decisions for this step
 
@@ -88,19 +88,19 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 
 | Id | Cat. | Scenario | Expected | Evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| 3.3-01 | C1 | Valid bearer token for an active user and session | User loaded; the session id available to the route | test | ⬜ |
-| 3.3-02 | C4 | No `Authorization` header; wrong scheme; empty token | 401 `auth.not_authenticated`, `WWW-Authenticate: Bearer` | test | ⬜ |
-| 3.3-03 | C4 | Expired, forged or malformed token | 401 `auth.invalid_token`, same body for all | test | ⬜ |
-| 3.3-04 | C4 | Valid token, but its session was revoked or expired | 401 `auth.invalid_token` | test | ⬜ |
-| 3.3-05 | C4 | Valid token for a disabled, deleted or missing user | 401 `auth.invalid_token` | test | ⬜ |
-| 3.3-06 | C6 | Token whose `sid` belongs to another user | 401 | test | ⬜ |
-| 3.3-07 | C6 | Refresh token sent as a bearer token | 401 (wrong type) | test | ⬜ |
-| 3.3-08 | C1 | `client_info` | IP from `request.client`; user agent truncated to 256; missing values are `None` | test | ⬜ |
-| 3.3-09 | C6 | `X-Forwarded-For` from an untrusted client | Ignored | test + e2e | ⬜ |
-| 3.3-10 | C9 | Database down during the user lookup | Generic 500, no token in logs | test | ⬜ |
-| 3.3-11 | C1 | The lookup is one query (user + session check) | Query counter | test | ⬜ |
-| 3.3-12 | C6 | Token never logged | Not in access logs or error logs | test | ⬜ |
-| 3.3-13 | C12 | Earlier tests still pass | CI green | CI run | ⬜ |
+| 3.3-01 | C1 | Valid bearer token for an active user and session | User loaded; the session id available to the route | test | ✅ |
+| 3.3-02 | C4 | No `Authorization` header; wrong scheme; empty token | 401 `auth.not_authenticated`, `WWW-Authenticate: Bearer` | test | ✅ |
+| 3.3-03 | C4 | Expired, forged or malformed token | 401 `auth.invalid_token`, same body for all | test | ✅ |
+| 3.3-04 | C4 | Valid token, but its session was revoked or expired | 401 `auth.invalid_token` | test | ✅ |
+| 3.3-05 | C4 | Valid token for a disabled, deleted or missing user | 401 `auth.invalid_token` | test | ✅ |
+| 3.3-06 | C6 | Token whose `sid` belongs to another user | 401 | test | ✅ |
+| 3.3-07 | C6 | Refresh token sent as a bearer token | 401 (wrong type) | test | ✅ |
+| 3.3-08 | C1 | `client_info` | IP from `request.client`; user agent truncated to 256; missing values are `None` | test | ✅ |
+| 3.3-09 | C6 | `X-Forwarded-For` from an untrusted client | Ignored | test + e2e | ✅ |
+| 3.3-10 | C9 | Database down during the user lookup | Generic 500, no token in logs | test | ✅ |
+| 3.3-11 | C1 | The lookup is one query (user + session check) | Query counter | test | ✅ |
+| 3.3-12 | C6 | Token never logged | Not in access logs or error logs | test | ✅ |
+| 3.3-13 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
 | — | C5 | N/A here: authorization (permissions) is step 5 | | | |
 | — | C7, C8 | Covered by 3.5 (concurrent refresh / repeated logout) | | | |
 
@@ -191,7 +191,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | --- | --- | --- | --- | --- | --- |
 | F1 | CI test (runs 46043542631, 46044092198) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12; the step 1 test 1.2-04 expects the new message (run 46044092198 caught it) | Fixed (run 46044586029) |
 | F2 | CI test (run 46045405514) | 3.2-04 failed: `SADeprecationWarning` for `Result.tuples()` (warnings are errors) | SQLAlchemy 2.1 deprecates it; rows unpack directly | Rows unpacked directly (and a lint fix, run 46045889238) | Fixed (run 46046371009) |
-| F3 | CI test (run 46047067623) | 3.3-04 `[expired]` violated `ck_sessions_family_started_first` | Test computed `created_at` and `family_started_at` from two `clock.now()` calls microseconds apart | One shared value | Fixed |
+| F3 | CI test (run 46047067623) | 3.3-04 `[expired]` violated `ck_sessions_family_started_first` | Test computed `created_at` and `family_started_at` from two `clock.now()` calls microseconds apart | One shared value | Fixed (run 46047567713) |
 
 ## Gate (when all sections are ✅)
 
