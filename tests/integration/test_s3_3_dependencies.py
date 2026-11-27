@@ -102,13 +102,15 @@ async def test_s3_3_04_token_of_an_ended_session_is_refused(
     db: AsyncSession, db_connection: AsyncConnection, ended: str
 ) -> None:
     me = await signed_in(db)
+    now = clock.now()
+    day_ago = now - timedelta(days=1)  # one value: created and started at the same instant
     values: dict[str, object] = (
-        {"revoked_at": clock.now(), "revoked_reason": RevokeReason.LOGOUT}
+        {"revoked_at": now, "revoked_reason": RevokeReason.LOGOUT}
         if ended == "revoked"
         else {
-            "expires_at": clock.now() - timedelta(seconds=1),
-            "created_at": clock.now() - timedelta(days=1),
-            "family_started_at": clock.now() - timedelta(days=1),
+            "expires_at": now - timedelta(seconds=1),
+            "created_at": day_ago,
+            "family_started_at": day_ago,
         }
     )
     await db.execute(update(UserSession).where(UserSession.id == me.session.id).values(**values))

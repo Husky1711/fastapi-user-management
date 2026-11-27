@@ -191,6 +191,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | --- | --- | --- | --- | --- | --- |
 | F1 | CI test (runs 46043542631, 46044092198) | Test collection failed: PyJWT `InsecureKeyLengthWarning` (as an error) for an HS512 token signed with a 40-byte key | Real gap: the production safety check allowed HS384/HS512 with a 32-byte secret, below RFC 7518 §3.2 (key ≥ hash size) | Minimum secret length now follows the algorithm (32/48/64 bytes); test key is 64 bytes; boundary test added to 3.1-12; the step 1 test 1.2-04 expects the new message (run 46044092198 caught it) | Fixed (run 46044586029) |
 | F2 | CI test (run 46045405514) | 3.2-04 failed: `SADeprecationWarning` for `Result.tuples()` (warnings are errors) | SQLAlchemy 2.1 deprecates it; rows unpack directly | Rows unpacked directly (and a lint fix, run 46045889238) | Fixed (run 46046371009) |
+| F3 | CI test (run 46047067623) | 3.3-04 `[expired]` violated `ck_sessions_family_started_first` | Test computed `created_at` and `family_started_at` from two `clock.now()` calls microseconds apart | One shared value | Fixed |
 
 ## Gate (when all sections are ✅)
 
