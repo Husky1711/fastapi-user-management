@@ -67,6 +67,14 @@ async def transaction(session: AsyncSession) -> AsyncIterator[None]:
         session.info.pop(_IN_UNIT_OF_WORK, None)
 
 
+async def end_read(session: AsyncSession) -> None:
+    """Finish the current (read-only) transaction now, returning its connection to the pool,
+    before slow work such as password hashing (step 2 review R2-03). Loaded objects stay
+    readable (`expire_on_commit=False`)."""
+    if session.in_transaction():
+        await session.commit()
+
+
 async def ping_database(engine: AsyncEngine) -> None:
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
