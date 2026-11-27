@@ -10,7 +10,6 @@ from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, FastAPI
-from fastapi.routing import APIRoute
 
 from app import __version__
 from app.api import health
@@ -67,14 +66,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("shutdown")
 
 
-def _hide_from_schema(app: FastAPI, path: str) -> None:
-    for route in app.routes:
-        if isinstance(route, APIRoute) and route.path == path:
-            route.include_in_schema = False
-
-
-def _add_problem_schemas(app: FastAPI) -> None:
-    """Register the error schemas that the routes' error responses refer to."""
+def _customise_schema(app: FastAPI, *, hidden_paths: frozenset[str]) -> None:
+    """Register the error schemas that the routes' error responses refer to, and leave out
+    paths that are switched off by settings."""
     generate = app.openapi
 
     # Any: an OpenAPI document is arbitrary JSON.
@@ -82,6 +76,8 @@ def _add_problem_schemas(app: FastAPI) -> None:
         if app.openapi_schema is None:
             schema = generate()  # also caches it on app.openapi_schema
             schema.setdefault("components", {}).setdefault("schemas", {}).update(PROBLEM_SCHEMAS)
+            for path in hidden_paths:
+                schema.get("paths", {}).pop(path, None)
         return app.openapi_schema or {}
 
     # FastAPI's documented way to customise the schema is to replace this method.
@@ -137,7 +133,9 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(build_api_router(*api_routers))
-    if not settings.auth.signup_enabled:  # the route answers 404; don't advertise it either
-        _hide_from_schema(app, "/api/v1/auth/signup")
-    _add_problem_schemas(app)
+    # A switched-off signup answers 404; it isn't advertised either.
+    hidden: frozenset[str] = (
+        frozenset() if settings.auth.signup_enabled else frozenset({"/api/v1/auth/signup"})
+    )
+    _customise_schema(app, hidden_paths=hidden)
     return app

@@ -453,6 +453,16 @@ async def test_s3_4_03_any_other_integrity_error_at_signup_is_raised(
             )
 
 
+@pytest.fixture
+async def race_email(db_engine: AsyncEngine) -> AsyncIterator[str]:
+    email = _email()
+    yield email
+    async with AsyncSession(db_engine) as session, session.begin():
+        ids = list((await session.execute(select(User.id).where(User.email == email))).scalars())
+        await session.execute(delete(AuditLog).where(AuditLog.actor_user_id.in_(ids)))
+        await session.execute(delete(User).where(User.id.in_(ids)))
+
+
 async def test_s3_4_19_concurrent_signups_with_one_email_create_one_user(
     db_engine: AsyncEngine, race_email: str
 ) -> None:
