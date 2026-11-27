@@ -1,8 +1,8 @@
 # Milestone 3: Authentication core
 
 - PR: #5
-- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46052631869
-- Verdict: **IN PROGRESS**
+- Latest CI run (automatic report): https://github.com/Husky1711/fastapi-user-management/actions/runs/46053102591
+- Verdict: **GATE IN PROGRESS** (all sections ✅)
 
 Scenario plans below were written **before** the code (process rule). Ids map to test names
 `test_s3_<section>_<nn>_...`; *CI step* means a named step in the CI workflow.
@@ -14,7 +14,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.1 | Token and password primitives: JWT, opaque tokens, bounded hashing, dummy verify | ✅ | 14 / 14 | CI run 46044586029 |
 | 3.2 | Auth data: migration 0003, session and audit repositories | ✅ | 9 / 9 | CI run 46046371009 |
 | 3.3 | Request dependencies: `client_info`, `get_current_user` | ✅ | 13 / 13 | CI run 46047567713 (3.3-09 also on the real stack in 3.6-12) |
-| 3.4 | Signup and login: lockout, rehash, session strategies | 🔄 | 18 / 19 | CI run 46049595954; 3.4-17 in run 46051473324 |
+| 3.4 | Signup and login: lockout, rehash, session strategies | ✅ | 19 / 19 | CI run 46049595954; 3.4-17 in run 46051473324 |
 | 3.5 | Refresh rotation, reuse detection, logout, logout-all | ✅ | 14 / 14 | CI run 46050265813; 3.5-13 in run 46051473324 |
 | 3.6 | `/me`: profile, sessions, revoke, revoke-others, change password | ✅ | 13 / 13 | CI run 46051473324 |
 | 3.7 | Carried from step 1: 499 on client disconnect, broader log redaction | ✅ | 8 / 8 | CI run 46052631869 |
@@ -126,7 +126,7 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | 3.4-16 | C9 | Database down at login | Generic 500; password and email not logged | test | ✅ |
 | 3.4-17 | C11 | User signs up, logs in, calls `/me` (real stack) | Works end to end | CI step (Compose) | ✅ |
 | 3.4-18 | C12 | Earlier tests still pass | CI green | CI run | ✅ |
-| 3.4-19 | C7 | Two concurrent signups with one email (different case) over HTTP | Both 202, same body; exactly one user (added: step 2 carry-over) | test | ⬜ |
+| 3.4-19 | C7 | Two concurrent signups with one email (different case) over HTTP | Both 202, same body; exactly one user (added: step 2 carry-over) | test | ✅ |
 | — | C5 | N/A: signup and login are public | | | |
 | — | C8 | Covered by 3.4-02 (repeat signup) and 3.4-12 (repeat login) | | | |
 | — | C10 | Covered by 3.4-03 (nothing created) and 3.4-10 (counter exact) | | | |
@@ -198,9 +198,58 @@ Scenario plans below were written **before** the code (process rule). Ids map to
 | F6 | CI test (run 46050943060) | `GET /me/sessions` answered 500 (6 tests); the Compose check still passed because the error body's `ip` was `null`, which is "not the spoofed address" | asyncpg returns `inet` as `ipaddress` objects, not `str` (the model said `str`); test 3.2-06 missed it by reading back the cached object; the Compose check asserted only a negative | `IPAddress` column type returns `str`; 3.2-06 re-reads from the database; the Compose check also requires a real address | Fixed (run 46051473324) |
 | F7 | CI test (run 46052147559) | Step 1 test 1.5-20 expected `token=***` for `token = abc123`; 3.7-02 got a 500 | (1) Deliberate change: the broader redaction keeps the original spacing (`token = ***`), still fully redacted; (2) the test ran the app without its lifespan, so `get_db` had no session factory | (1) Expectation updated with a comment; (2) the test starts the lifespan | Fixed (run 46052631869) |
 
-## Gate (when all sections are ✅)
+## Gate
 
-Pending. Includes gate check 6 (security audit).
+### 1. Automated: PASS
+In the run linked at the top (counts and coverage are in its automatic report): lint,
+`mypy --strict`, the migration checks (now including the 0003 backfill), every test against
+real PostgreSQL 16 and Redis 7 above the 90 % coverage gate, and the Compose job (all earlier
+checks plus the auth journey: signup, login with a spoofed `X-Forwarded-For`, refresh replay,
+password change, no password or token in the container logs).
+
+### 2. Tester: PASS
+Every section covers C1–C12 or gives an N/A reason. Attack cases tested, not only happy
+paths: forged / `none` / wrong-algorithm / wrong-audience tokens (3.1-02, 3.1-03), a refresh
+token used as an access token (3.3-07), another user's `sid` (3.3-06), enumeration by signup,
+login and timing (3.4-02, 3.4-06, 3.4-07), lockout under concurrency and lock extension
+(3.4-09, 3.4-10), refresh replay and racing (3.5-02, 3.5-05), session max age (3.5-07),
+another user's session id (3.6-04), secrets and emails in logs and audit (3.2-07, 3.3-12,
+3.7-03..07).
+
+### 3. User: PASS
+Compose step "3.3-09, 3.4-17, 3.5-13, 3.6-12": a person signs up, logs in, sees their
+profile and devices (with their real address, not a spoofed one), refreshes, has a stolen
+refresh token replayed (everything revoked), logs in again and changes the password (old
+refused, new accepted).
+
+### 4. Cross-check vs old code (`main` @ `209a9bd`): PASS
+
+| Old | New | Decision | Reason |
+| --- | --- | --- | --- |
+| Passwords: unsalted SHA-256 (`utils/jwt_config.py`) | Argon2id (RFC 9106) on a bounded pool; dummy verify for unknown emails; rehash on login | Fixed | Old hashes crackable; timing revealed accounts |
+| Access token carried `role` and `organization_id`; `/users` trusted them | Token holds only `sub`, `sid`, `iat`, `exp`, `iss`, `aud`, `jti`, `typ`; user and live session re-read per request | Fixed | A demoted or removed user kept power until expiry |
+| `expires_in=300` hard-coded while settings said otherwise | From `JWT__ACCESS_TTL_SECONDS` | Fixed | Clients refreshed on the wrong schedule |
+| Refresh JWT and a stored refresh token (two mechanisms) | One opaque 256-bit refresh token, stored as SHA-256 | Simplified | The refresh JWT was never needed |
+| Rotation revoked the old token; replaying it was just "invalid" | Families; a replayed rotated token revokes the family, audited | Added | A stolen refresh token went unnoticed |
+| `revoke-others` passed session id `0`, so it also ended the current session | Keeps the current family (`sid`) | Fixed | Users signed themselves out |
+| Logout needed the refresh token; the access token stayed valid until expiry | Logout with the access token; access ends at once (family check) | Improved | "Logged out" tokens kept working for minutes |
+| `DELETE /sessions/{id}` by integer id | By family UUID, scoped to the user; others' ids are 404 | Improved | Guessable ids |
+| Session strategy chosen by the client per request (`login-with-session-control`) | Server setting `AUTH__SESSION_STRATEGY` | Fixed | Clients could pick the weakest policy |
+| `login_attempts` / `locked_until` never used | Lockout (5 / 15 min), atomic counter, lock not extended by more failures, audited | Added | No brute-force protection (rate limits: step 4) |
+| Signup answered "Email already exists" / "Username already exists" | Same 202 either way | Fixed | Account enumeration |
+| Signup and login logged full emails (`auth_logger.signup_attempt(email=…)`) | Emails masked in every log line and audit entry | Fixed | Personal data in logs |
+| `/debug-login`, `/debug-refresh` | Not recreated | Removed | Test-only routes in production |
+| Many routes repeated the token check (`HTTPBearer` + `verify_token`) | One `get_current_user` | Fixed | One place to get it right |
+| `request.client.host` stored as the IP | `client_info`; proxies trusted only via `FORWARDED_ALLOW_IPS` | Improved | Spoofable or wrong behind a proxy |
+| Role-based `GET /users` inside the auth router | Not in step 3 (admin endpoints: step 7) | Moved | Belongs to administration |
+
+### 5. Independent review
+
+Pending.
+
+### 6. Security audit
+
+Pending.
 
 ## Carried forward
 
