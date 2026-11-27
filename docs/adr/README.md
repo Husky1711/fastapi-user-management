@@ -14,6 +14,7 @@ ADR that supersedes the old one and update the old one's status line.
 | [0006](0006-auth-tokens-and-password-hashing.md) | Argon2id, PyJWT and rotating refresh tokens | Accepted |
 | [0007](0007-rebuild-beside-legacy.md) | Rebuild beside the legacy code; the API may change | Accepted |
 | [0008](0008-gcra-rate-limiting.md) | GCRA rate limiting in a Redis Lua script | Accepted |
+| [0009](0009-ascii-email-domains.md) | Email domains are ASCII only (no IDN) for now | Accepted |
 
 ## Template
 

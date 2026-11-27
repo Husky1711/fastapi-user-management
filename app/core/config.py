@@ -69,6 +69,39 @@ class JwtSettings(_Section):
     secret_key: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     # HMAC only: an asymmetric algorithm would need a key pair, and "none" must never be possible.
     algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    issuer: str = Field(default="user-management-api", min_length=1, max_length=200)
+    audience: str = Field(default="user-management-clients", min_length=1, max_length=200)
+    # Short-lived: revocation is also checked per request (session lookup), but a short TTL
+    # limits what a leaked token can do if that check is ever bypassed.
+    access_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    # Clock difference tolerated between servers when checking `exp` / `iat`.
+    leeway_seconds: int = Field(default=10, ge=0, le=60)
+
+
+class SessionStrategy(StrEnum):
+    ALLOW_MULTIPLE = "allow_multiple"  # every login adds a session
+    REPLACE_ALL = "replace_all"  # a login ends every other session
+    LIMIT_SESSIONS = "limit_sessions"  # at most `max_sessions`; the oldest is ended
+    REPLACE_SAME_DEVICE = "replace_same_device"  # a login ends sessions with the same user agent
+
+
+class AuthSettings(_Section):
+    signup_enabled: bool = True
+    refresh_ttl_days: int = Field(default=14, ge=1, le=90)
+    # A session can be refreshed for at most this long after its first login.
+    session_max_age_days: int = Field(default=30, ge=1, le=365)
+    lockout_threshold: int = Field(default=5, ge=3, le=20)
+    lockout_minutes: int = Field(default=15, ge=1, le=1440)
+    session_strategy: SessionStrategy = SessionStrategy.ALLOW_MULTIPLE
+    max_sessions: int = Field(default=5, ge=1, le=100)
+    # Argon2id uses 64 MiB per hash: at most this many run at once (memory = workers x 64 MiB).
+    password_hash_workers: int = Field(default=4, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def _max_age_covers_refresh_ttl(self) -> Self:
+        if self.session_max_age_days < self.refresh_ttl_days:
+            raise ValueError("AUTH__SESSION_MAX_AGE_DAYS must be at least AUTH__REFRESH_TTL_DAYS")
+        return self
 
 
 class CorsSettings(_Section):
@@ -122,6 +155,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     jwt: JwtSettings = Field(default_factory=JwtSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
     cors: CorsSettings = Field(default_factory=CorsSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     health: HealthSettings = Field(default_factory=HealthSettings)

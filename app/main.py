@@ -3,6 +3,7 @@
 Run with:  uvicorn app.main:create_app --factory
 """
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
@@ -21,6 +22,7 @@ from app.core.middleware import (
     ProblemCORSMiddleware,
     RequestContextMiddleware,
 )
+from app.core.security import start_password_hashing, stop_password_hashing
 from app.infra.database import create_engine, create_session_factory, ping_database
 from app.infra.redis import create_redis, ping_redis
 from app.schemas.errors import COMMON_ERROR_RESPONSES, PROBLEM_SCHEMAS
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.redis = redis
+    start_password_hashing(settings.auth.password_hash_workers)
     # Rebuilt on every start, so the checks always point at this lifespan's live resources.
     injected: Mapping[str, HealthCheck] | None = app.state.injected_health_checks
     checks = (
@@ -59,6 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await redis.aclose()
         await engine.dispose()
+        await asyncio.to_thread(stop_password_hashing)  # lets in-flight hashes finish
         log.info("shutdown")
 
 
