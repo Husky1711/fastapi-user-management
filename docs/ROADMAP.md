@@ -252,7 +252,7 @@ missing CRUD.
 - [ ] Meet the performance targets in `docs/VISION.md` §5
 - [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
 - [ ] Readiness reports not ready until the database is at the code's migration head (or a documented migration job runs first) (from step 2 review, R1-09)
-- [ ] Engine `hide_parameters=True` (no bound values in database errors); redaction also masks prefixed keys like `new_password=`/`old_token:` (from step 3 audit hardening notes)
+- [ ] Engine `hide_parameters=True` (no bound values in database errors) (from step 3 audit hardening notes)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
