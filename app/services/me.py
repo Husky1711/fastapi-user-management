@@ -56,17 +56,21 @@ async def end_session(
         verified = await verify_current_password(
             session, settings, current, current_password, client=client, now=now
         )
+    ended = 0
     async with transaction(session):
         _, refusal = await lock_and_recheck(session, current, verified, now)
         if refusal is None:
             ended = await SessionRepository(session).revoke_family(
                 user_id=current.user.id, family_id=session_id, reason=RevokeReason.REVOKED, now=now
             )
-            if ended == 0:
-                raise NotFound(code="session.not_found")
-        _audit_outcome(session, current, client, refusal, "auth.session_ended", session_id)
-    if refusal is not None:  # raised after the commit, so the refusal stays audited
+        if refusal is not None or ended:
+            _audit_outcome(session, current, client, refusal, "auth.session_ended", session_id)
+    # Raised after the commit: a refusal stays audited, and a right password re-entered for
+    # a session that is already gone still restores the budget (review round 6, H1).
+    if refusal is not None:
         raise refusal
+    if ended == 0:
+        raise NotFound(code="session.not_found")
 
 
 async def end_other_sessions(

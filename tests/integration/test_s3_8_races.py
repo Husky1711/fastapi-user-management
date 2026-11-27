@@ -16,13 +16,14 @@ from argon2 import PasswordHasher
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from sqlalchemy import delete, select, text, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.core import clock, security
 from app.core.client import ClientInfo
 from app.core.config import AuthSettings, SessionStrategy
 from app.main import create_app
-from app.models import AuditLog, User, UserSession, UserStatus
+from app.models import AuditLog, RevokeReason, User, UserSession, UserStatus
 from app.services import auth
 from tests.api import api_client, signed_in
 from tests.db import SERVICES, committed_user, service_database_settings
@@ -336,41 +337,52 @@ async def _pause_password_change_after_hashing(
 async def test_s3_8_06_a_burst_of_parallel_guesses_gets_three_verifications(
     db_engine: AsyncEngine, pooled_app: FastAPI, monkeypatch: pytest.MonkeyPatch, route: str
 ) -> None:
-    """Review round 5, H1: the budget is reserved under the user lock before Argon2 runs,
-    so twelve parallel guesses (the right one included) get at most three verifications,
-    and the session ends."""
+    """Review round 5, H1 (made deterministic in round 6): eleven parallel wrong guesses
+    with a stolen token; the three that reserved the budget are held inside Argon2, the other
+    eight are refused at once. The right password, sent now, is refused too, without being
+    checked. Released, the three fail and the session ends."""
     verified: list[str] = []
+    held = asyncio.Event()
+    release = asyncio.Event()
     real_verify = security.verify_password
 
-    async def counting_verify(stored_hash: str, password: str) -> bool:
+    async def holding_verify(stored_hash: str, password: str) -> bool:
         verified.append(password)
+        if len(verified) == 3:
+            held.set()
+        await release.wait()
         return await real_verify(stored_hash, password)
 
-    monkeypatch.setattr("app.services.auth.verify_password", counting_verify)
     password_hash = await security.hash_password(PASSWORD)
     async with committed_user(db_engine, password_hash) as email, client_for(pooled_app) as http:
         stolen = (await _login(http, email)).json()
-        guesses = [f"Wrong-Guess-Number-{n:02d}" for n in range(11)] + [PASSWORD]
-        verified.clear()  # the login above verified once
+        monkeypatch.setattr("app.services.auth.verify_password", holding_verify)
 
         def attempt(guess: str) -> Awaitable[Response]:
             if route == "password":
                 body = _change(guess, ATTACKER_PASSWORD)
                 return http.post(PASSWORD_ROUTE, json=body, headers=_bearer(stolen))
-            body = {"current_password": guess}
-            return http.post(LOGOUT_ALL, json=body, headers=_bearer(stolen))
+            return http.post(LOGOUT_ALL, json={"current_password": guess}, headers=_bearer(stolen))
 
-        answers = await asyncio.gather(*(attempt(guess) for guess in guesses))
+        async with asyncio.timeout(WAIT_LIMIT_SECONDS):
+            wrong = [asyncio.ensure_future(attempt(f"Wrong-Guess-{n:02d}")) for n in range(11)]
+            pending: set[asyncio.Future[Response]] = set(wrong)
+            while len(wrong) - len(pending) < 8:  # the eight without a slot answer at once
+                _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            await held.wait()  # ...and three are inside Argon2
+            right = await attempt(PASSWORD)
+            release.set()
+            answers = [await task for task in wrong]
         after = await http.get("/api/v1/me", headers=_bearer(stolen))
         async with AsyncSession(db_engine) as session:
             user = (await session.execute(select(User).where(User.email == email))).scalar_one()
-            still_password = await security.verify_password(user.password_hash, PASSWORD)
-    assert len(verified) <= 3
-    assert [a.status_code for a in answers].count(401) >= len(guesses) - 1
-    assert after.status_code == 401 or PASSWORD in verified  # ended, or the right guess won
-    if PASSWORD not in verified:  # the usual case: the right guess was never even checked
-        assert all(a.status_code == 401 for a in answers)
-        assert still_password
+            password_kept = await real_verify(user.password_hash, PASSWORD)
+    assert len(verified) == 3
+    assert PASSWORD not in verified
+    assert (right.status_code, right.json()["code"]) == (401, "auth.invalid_token")
+    assert all(answer.status_code == 401 for answer in answers)
+    assert after.status_code == 401  # the session ended
+    assert password_kept
 
 
 async def test_s3_8_07_an_account_disabled_while_the_change_is_hashing_refuses_it(
@@ -532,11 +544,20 @@ async def test_s3_8_14_a_user_removed_while_verifying_a_reentry_gets_401(
     )
 
 
-async def test_s3_8_14_an_account_disabled_before_reserving_is_refused(db: AsyncSession) -> None:
+async def test_s3_8_15_an_account_disabled_before_reserving_is_refused(
+    db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The reservation re-reads the account under the lock: one disabled after the request
     authenticated is refused (and audited) before any password is checked. Service level:
     over HTTP the request's read transaction is still open at that point on the test's
     shared connection."""
+    checked: list[str] = []
+
+    async def spy(stored_hash: str, password: str) -> bool:
+        checked.append(password)
+        return True
+
+    monkeypatch.setattr("app.services.auth.verify_password", spy)
     signed = await signed_in(db)
     current = auth.CurrentUser(user=signed.user, session_id=signed.session.family_id)
     await db.execute(
@@ -551,5 +572,78 @@ async def test_s3_8_14_an_account_disabled_before_reserving_is_refused(db: Async
             client=ClientInfo(ip=None, user_agent=None),
             now=clock.now(),
         )
+    assert checked == []  # refused before any password check
     refused = await db.execute(select(AuditLog).where(AuditLog.action == "auth.reauth_refused"))
     assert [row.actor_user_id for row in refused.scalars()] == [signed.user.id]
+
+
+async def _session_rows(db: AsyncSession, email: str) -> list[UserSession]:
+    db.expunge_all()
+    rows = await db.execute(
+        select(UserSession)
+        .join(User, User.id == UserSession.user_id)
+        .where(User.email == email)
+        .order_by(UserSession.created_at)
+    )
+    return list(rows.scalars())
+
+
+async def test_s3_8_16_refreshing_does_not_restore_the_budget(
+    db: AsyncSession, db_connection: AsyncConnection
+) -> None:
+    """Review round 6, H2: the budget is carried to each refreshed row, so a thief holding
+    the refresh token can't get three new guesses by rotating."""
+    async with api_client(db_connection) as http:
+        email, (stolen,) = await _account(http, devices=1)
+        for guess in ("Wrong-Guess-01", "Wrong-Guess-02"):
+            body = {"current_password": guess}
+            await http.post(LOGOUT_ALL, json=body, headers=_bearer(stolen))
+        rotated = (await http.post(REFRESH, json={"refresh_token": stolen["refresh_token"]})).json()
+        successor = [row for row in await _session_rows(db, email) if row.revoked_at is None]
+        third = await http.post(
+            LOGOUT_ALL, json={"current_password": "Wrong-Guess-03"}, headers=_bearer(rotated)
+        )
+        refresh_again = await http.post(REFRESH, json={"refresh_token": rotated["refresh_token"]})
+    assert [row.reauth_attempts for row in successor] == [2]
+    assert third.status_code == 401
+    assert refresh_again.status_code == 401
+    rows = await _session_rows(db, email)
+    assert rows[-1].revoked_reason == RevokeReason.REAUTH_FAILED
+
+
+@pytest.mark.parametrize("how", ["failure_not_recorded", "budget_already_used"])
+async def test_s3_8_17_a_used_up_budget_always_ends_the_session(
+    db: AsyncSession, db_connection: AsyncConnection, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    """Review round 6, M1: if a failure couldn't be recorded (the database failed, or the
+    task was cancelled during Argon2), or the counter is at the limit for any other reason,
+    the next re-entry ends the session instead of leaving it alive."""
+    async with api_client(db_connection) as http:
+        email, (stolen,) = await _account(http, devices=1)
+        if how == "failure_not_recorded":
+
+            async def lost(*_: object, **__: object) -> None:
+                raise OperationalError("UPDATE", {}, ConnectionResetError("connection lost"))
+
+            monkeypatch.setattr(auth, "_reauth_failed", lost)
+            for guess in ("Wrong-Guess-01", "Wrong-Guess-02", "Wrong-Guess-03"):
+                body = {"current_password": guess}
+                failed = await http.post(LOGOUT_ALL, json=body, headers=_bearer(stolen))
+                assert failed.status_code == 500
+            monkeypatch.undo()
+        else:
+            await db.execute(
+                update(UserSession)
+                .where(UserSession.user_id == (await _user(db, email)).id)
+                .values(reauth_attempts=3)
+            )
+            await db.flush()
+        alive = await http.get("/api/v1/me", headers=_bearer(stolen))
+        attempt = await http.post(
+            LOGOUT_ALL, json={"current_password": PASSWORD}, headers=_bearer(stolen)
+        )
+        after = await http.get("/api/v1/me", headers=_bearer(stolen))
+    assert alive.status_code == 200  # still alive until the next re-entry...
+    assert (attempt.status_code, attempt.json()["code"]) == (401, "auth.invalid_token")
+    assert after.status_code == 401  # ...which ends it
+    assert (await _session_rows(db, email))[-1].revoked_reason == RevokeReason.REAUTH_FAILED

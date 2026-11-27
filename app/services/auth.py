@@ -418,21 +418,41 @@ async def _reserve_reauth(
     now: datetime,
     refused_action: str,
 ) -> Refusal | None:
+    sessions = SessionRepository(session)
     async with transaction(session):
         user = await lock_user(session, current.user.id)
         refusal: Refusal | None = InvalidCredentials()
         if user is not None and is_active(user):
-            taken = await SessionRepository(session).take_reauth_attempt(
+            taken = await sessions.take_reauth_attempt(
                 user_id=user.id,
                 family_id=current.session_id,
                 now=now,
                 limit=policy.reauth_max_failures,
             )
-            refusal = InvalidToken() if taken is None else None  # ended, or budget used up
+            refusal = InvalidToken() if taken is None else None
+            if taken is None:  # ended already, or its budget is used up: then end it now
+                await _end_for_reauth_failures(session, user.id, current.session_id, client, now)
         if refusal is not None:
             actor = user.id if user is not None else None
             audit.record(session, action=refused_action, client=client, actor_user_id=actor)
     return refusal
+
+
+async def _end_for_reauth_failures(
+    session: AsyncSession, user_id: UUID, family_id: UUID, client: ClientInfo, now: datetime
+) -> None:
+    """End a session whose re-entry budget is used up (a no-op if it already ended)."""
+    ended = await SessionRepository(session).revoke_family(
+        user_id=user_id, family_id=family_id, reason=RevokeReason.REAUTH_FAILED, now=now
+    )
+    if ended:
+        audit.record(
+            session,
+            action="auth.session_ended_after_reauth_failures",
+            client=client,
+            actor_user_id=user_id,
+            target=("session", family_id),
+        )
 
 
 async def _reauth_failed(
@@ -458,19 +478,7 @@ async def _reauth_failed(
             session, action=failed_action, client=client, actor_user_id=user.id, details=details
         )
         if attempts is not None and attempts >= policy.reauth_max_failures:
-            await sessions.revoke_family(
-                user_id=user.id,
-                family_id=current.session_id,
-                reason=RevokeReason.REAUTH_FAILED,
-                now=now,
-            )
-            audit.record(
-                session,
-                action="auth.session_ended_after_reauth_failures",
-                client=client,
-                actor_user_id=user.id,
-                target=("session", current.session_id),
-            )
+            await _end_for_reauth_failures(session, user.id, current.session_id, client, now)
 
 
 async def lock_and_recheck(

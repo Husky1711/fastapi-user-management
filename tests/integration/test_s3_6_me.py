@@ -325,6 +325,31 @@ async def test_s3_6_16_ending_the_same_session_twice_is_404_the_second_time(
     assert second.json()["code"] == "session.not_found"
     ended = await db.execute(select(AuditLog).where(AuditLog.action == "auth.session_ended"))
     assert len(ended.scalars().all()) == 1
+    db.expunge_all()
+    budgets = await db.execute(
+        select(UserSession.reauth_attempts).where(UserSession.revoked_at.is_(None))
+    )
+    assert list(budgets.scalars()) == [0]  # the right password restored it, 404 or not
+
+
+async def test_s3_6_21_typos_and_a_double_clicked_end_device_keep_the_owner_signed_in(
+    db_connection: AsyncConnection,
+) -> None:
+    """Review round 6, H1: the owner's real flow. Two typos, then the right password on a
+    double-clicked "sign out that device": the second click is 404, and the owner stays."""
+    async with api_client(db_connection) as http:
+        _, (phone, laptop) = await _account(http, devices=2)
+        phone_id = await _session_id(http, phone)
+        path = f"/api/v1/me/sessions/{phone_id}/revoke"
+        for typo in ("Typo-Number-0001", "Typo-Number-0002"):
+            await http.post(path, json={"current_password": typo}, headers=_bearer(laptop))
+        clicks = [await _end(http, laptop, phone_id) for _ in range(2)]
+        typo = await http.post(
+            path, json={"current_password": "Typo-Number-0003"}, headers=_bearer(laptop)
+        )
+        still_in = await http.get("/api/v1/me", headers=_bearer(laptop))
+    assert [c.status_code for c in clicks] == [204, 404]
+    assert (typo.status_code, still_in.status_code) == (401, 200)
 
 
 @pytest.mark.parametrize("action", ["end_other_device", "revoke_others", "logout_all"])
@@ -332,7 +357,8 @@ async def test_s3_6_17_ending_other_sessions_needs_the_current_password(
     db: AsyncSession, db_connection: AsyncConnection, action: str
 ) -> None:
     """ASVS V3.3.4 (level 2): a stolen access token alone can't sign the owner out
-    elsewhere. Missing password: 422; wrong: 401, counted toward the lockout; right: 204."""
+    elsewhere. Missing password: 422; wrong: 401, counted against this session's re-entry
+    budget (ADR-0012), not the account lockout; right: 204."""
     async with api_client(db_connection) as http:
         email, (phone, stolen) = await _account(http, devices=2)
         phone_id = await _session_id(http, phone)
