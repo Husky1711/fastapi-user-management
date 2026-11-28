@@ -100,6 +100,17 @@ The report can't drift from reality because it is generated from the actual run.
   most useful part of the record;
 - the link to the CI run whose automatic report proves the numbers.
 
+**Accepted exceptions to the testing rules.**
+
+- *Polling PostgreSQL state in race tests* ("no sleeping in tests"). A test that must wait
+  until another connection is blocked on a lock can't be signalled by the database, so it
+  polls `pg_stat_activity` / `pg_locks` with a 10 ms pause, bounded by a timeout
+  (`tests/integration/test_s3_8_races.py`). The pause never decides the order; the lock does.
+- *A known gap pinned as a strict expected failure.* When a gap belongs to a later step, its
+  test may be marked `xfail(strict=True)` with the step named in the reason, and the report
+  counts it separately (not as passing). Strict means the run fails the moment the gap is
+  closed, so the mark can't be forgotten.
+
 ---
 
 ## 4. Step gate: five checks (six for security-relevant steps)

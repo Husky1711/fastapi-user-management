@@ -20,6 +20,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # a hung test fails the run instead of holding it for hours
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -34,6 +35,7 @@ jobs:
   typecheck:
     name: Type check
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # a hung test fails the run instead of holding it for hours
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -47,6 +49,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # a hung test fails the run instead of holding it for hours
     services:
       postgres:
         image: postgres:16-alpine
@@ -100,7 +103,8 @@ jobs:
           uv run alembic upgrade head > second.log 2>&1 & second=$!
           wait "$first"; wait "$second"
           cat first.log second.log
-          test "$(cat first.log second.log | grep -c 'Running upgrade')" = 2  # 0001 and 0002, once
+          migrations=$(ls migrations/versions/*.py | wc -l)
+          test "$(cat first.log second.log | grep -c 'Running upgrade')" = "$migrations"  # each once
           test "$(psql "$PSQL_URL" -tAc "SELECT count(*) FROM roles")" = 3
           echo "2.3-08: downgrading the seed is refused while a membership uses a system role"
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
@@ -110,11 +114,36 @@ jobs:
               SELECT gen_random_uuid(), u.id, o.id, r.id FROM users u, organizations o, roles r
               WHERE r.key = 'member' AND r.organization_id IS NULL"
           if uv run alembic downgrade 0001; then echo "downgrade should have been refused"; exit 1; fi
-          uv run alembic current | grep -q "0002 (head)"
+          uv run alembic current | tee /dev/stderr | grep -q "^0002"  # the seed is still there
           psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users; DELETE FROM organizations"
+          echo "3.2-01: migration 0003 backfills sessions written before it"
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO users (id, email, password_hash)
+              VALUES ('00000000-0000-4000-8000-000000000001', 'old@example.com', 'x');
+            INSERT INTO sessions (id, user_id, family_id, token_hash, created_at, expires_at, revoked_at)
+            SELECT gen_random_uuid(), '00000000-0000-4000-8000-000000000001',
+                   '00000000-0000-4000-8000-0000000000f1', sha256(v::bytea),
+                   now() - (v || ' hours')::interval, now() + interval '1 day',
+                   CASE WHEN v = 'x' THEN now() END
+            FROM unnest(ARRAY['3', '2', '1']) v;
+            -- 3.2-01b: two active rows of one family written in the same instant
+            INSERT INTO sessions (id, user_id, family_id, token_hash, created_at, expires_at)
+            SELECT gen_random_uuid(), '00000000-0000-4000-8000-000000000001',
+                   '00000000-0000-4000-8000-0000000000f2', sha256(('tie' || v)::bytea),
+                   timestamptz '2026-01-01 00:00:00+00', now() + interval '1 day'
+            FROM unnest(ARRAY['a', 'b']) v"
+          uv run alembic upgrade head
+          psql "$PSQL_URL" -tAc "
+            SELECT bool_and(active = 1 AND first_ok) AND sum(rotated) = 3 FROM (
+              SELECT count(*) FILTER (WHERE revoked_at IS NULL) AS active,
+                     count(*) FILTER (WHERE revoked_reason = 'rotated') AS rotated,
+                     bool_and(family_started_at = (SELECT min(created_at) FROM sessions m
+                                                   WHERE m.family_id = s.family_id)) AS first_ok
+              FROM sessions s GROUP BY family_id) f" | tee /dev/stderr | grep -qx t
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "DELETE FROM users"
           uv run alembic upgrade head 2>&1 | tee second-run.log
           if grep -q "Running upgrade" second-run.log; then echo "second upgrade did work"; exit 1; fi
-          uv run alembic current | tee /dev/stderr | grep -q "0002 (head)"
+          uv run alembic current | tee /dev/stderr | grep -q "(head)"
       - name: "2.3-10 Migration against an unresponsive host gives up after the connect timeout"
         run: |
           start=$(date +%s)
@@ -145,6 +174,7 @@ jobs:
   compose:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # a hung test fails the run instead of holding it for hours
     env:
       WAIT: scripts/ci/wait-for-status.sh
     steps:
@@ -194,6 +224,68 @@ jobs:
           set -e
           test "$code" -eq 1
           test "$(hash_of)" = "$before"
+      - name: "3.3-09, 3.4-17, 3.5-13, 3.6-12 A user signs up, logs in, refreshes and changes password on the stack"
+        run: |
+          api=http://localhost:8000/api/v1
+          post() { curl -s -o body.json -w '%{http_code}' -X POST "$api$1" -H 'Content-Type: application/json' "${@:3}" -d "$2"; }
+          email="stack-$(date +%s)@example.com"
+          test "$(post /auth/signup "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 202
+          # A spoofed X-Forwarded-For from an untrusted client must not become the session's IP.
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}" \
+            -H 'X-Forwarded-For: 198.51.100.66')" = 200
+          access=$(jq -r .access_token body.json); first_refresh=$(jq -r .refresh_token body.json)
+          auth=(-H "Authorization: Bearer $access")
+          test "$(curl -s -o me.json -w '%{http_code}' "${auth[@]}" $api/me)" = 200
+          test "$(jq -r .email me.json)" = "$email"
+          ip=$(curl -s "${auth[@]}" $api/me/sessions | jq -r '.items[0].ip')
+          echo "session ip: $ip"
+          echo "$ip" | grep -Eq '^[0-9a-f.:]+$'   # a real address was recorded...
+          test "$ip" != "198.51.100.66"           # ...and it isn't the spoofed one
+          test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 200
+          second_refresh=$(jq -r .refresh_token body.json)
+          test "$(post /auth/refresh "{\"refresh_token\":\"$first_refresh\"}")" = 401   # replay
+          test "$(post /auth/refresh "{\"refresh_token\":\"$second_refresh\"}")" = 401  # family revoked
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 200
+          access=$(jq -r .access_token body.json)
+          test "$(post /me/password '{"current_password":"Stack-Passw0rd-123","new_password":"Stack-Passw0rd-456"}' \
+            -H "Authorization: Bearer $access")" = 204
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-123\"}")" = 401
+          test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"Stack-Passw0rd-456\"}")" = 200
+          if docker compose logs app | grep -q "Stack-Passw0rd"; then echo "password in logs"; exit 1; fi
+          if docker compose logs app | grep -q "$first_refresh"; then echo "token in logs"; exit 1; fi
+      - name: "3.8-10, 3.6-17 Logout-all needs the password and ends a refreshed stolen token; a stolen token gets 3 guesses, then its session ends"
+        run: |
+          api=http://localhost:8000/api/v1
+          post() { curl -s -o body.json -w '%{http_code}' -X POST "$api$1" -H 'Content-Type: application/json' "${@:3}" -d "$2"; }
+          email="stolen-$(date +%s)@example.com"; pw=Stack-Passw0rd-789
+          login() { test "$(post /auth/login "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 200; }
+          test "$(post /auth/signup "{\"email\":\"$email\",\"password\":\"$pw\"}")" = 202
+          login; stolen_refresh=$(jq -r .refresh_token body.json)
+          login; owner=$(jq -r .access_token body.json)
+          test "$(post /auth/refresh "{\"refresh_token\":\"$stolen_refresh\"}")" = 200
+          rotated=$(jq -r .refresh_token body.json)
+          # Without the current password the owner's logout-all is refused (ASVS V3.3.4)...
+          test "$(post /auth/logout-all '{}' -H "Authorization: Bearer $owner")" = 422
+          # ...with it, every session ends, including the one refreshed with the stolen token.
+          test "$(post /auth/logout-all "{\"current_password\":\"$pw\"}" -H "Authorization: Bearer $owner")" = 204
+          test "$(post /auth/refresh "{\"refresh_token\":\"$rotated\"}")" = 401
+          docker compose exec -T db psql -U postgres -d usermgmt -tAc \
+            "SELECT count(*) FROM sessions s JOIN users u ON u.id = s.user_id
+             WHERE u.email = '$email' AND s.revoked_at IS NULL" | tee /dev/stderr | grep -qx 0
+          # A stolen access token guesses the current password: 3 wrong tries end that
+          # session (ADR-0012), so the right password then gets nowhere...
+          login; stolen=$(jq -r .access_token body.json); stolen_refresh=$(jq -r .refresh_token body.json)
+          for guess in 1 2 3; do
+            test "$(post /me/password "{\"current_password\":\"Wrong-Guess-0$guess\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
+              -H "Authorization: Bearer $stolen")" = 401
+          done
+          test "$(post /me/password "{\"current_password\":\"$pw\",\"new_password\":\"Attacker-Passw0rd-1\"}" \
+            -H "Authorization: Bearer $stolen")" = 401
+          test "$(jq -r .code body.json)" = auth.invalid_token
+          # The session really ended: its refresh token is dead too.
+          test "$(post /auth/refresh "{\"refresh_token\":\"$stolen_refresh\"}")" = 401
+          # ...and the owner is not locked out: the account still logs in with its password.
+          login
       - name: "1.6-02 Container runs as a non-root user"
         run: |
           uid=$(docker compose exec -T app id -u)

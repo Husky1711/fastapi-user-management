@@ -1,4 +1,6 @@
-"""Pagination inputs shared by every list. Lists are always bounded."""
+"""Pagination shared by every list: bounded inputs and one response shape."""
+
+from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,3 +14,12 @@ class PaginationParams(BaseModel):
 
     limit: int = Field(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
     offset: int = Field(default=0, ge=0, le=MAX_OFFSET)
+
+
+class Page[T](BaseModel):
+    """`{"items", "total", "limit", "offset"}` (ARCHITECTURE §7)."""
+
+    items: Sequence[T]
+    total: int = Field(ge=0)
+    limit: int
+    offset: int

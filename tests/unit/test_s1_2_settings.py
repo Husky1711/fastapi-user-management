@@ -55,7 +55,7 @@ def test_s1_2_03_default_jwt_secret_is_rejected(environment: Environment) -> Non
 def test_s1_2_04_jwt_secret_length_boundary(length: int, accepted: bool) -> None:
     varied = (string.ascii_letters + string.digits)[:length]
     settings = strict_settings(jwt=JwtSettings(secret_key=SecretStr(varied)))
-    expected = [] if accepted else ["JWT__SECRET_KEY must be at least 32 characters"]
+    expected = [] if accepted else ["JWT__SECRET_KEY must be at least 32 bytes for HS256"]
     assert settings.safety_problems() == expected
 
 

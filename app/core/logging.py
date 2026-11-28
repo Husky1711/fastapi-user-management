@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener
 
-from app.core.redaction import redact
+from app.core.redaction import REDACTED, is_secret_field, mask_emails, redact, redact_value
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
@@ -35,8 +35,9 @@ _REQUEST_ID_ATTR = "request_id"
 RESERVED_KEYS = frozenset({"timestamp", "level", "logger", "message", "request_id", "exception"})
 
 
-def _clean(value: object) -> object:
-    return redact(value) if isinstance(value, str) else value
+def _clean(text: str) -> str:
+    """Credentials and full email addresses never reach the output."""
+    return mask_emails(redact(text))
 
 
 class JsonFormatter(logging.Formatter):
@@ -45,7 +46,7 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": redact(record.getMessage()),
+            "message": _clean(record.getMessage()),
         }
         # Captured when the record was created (StructuredLogger, AppLogHandler), else read now.
         request_id = getattr(record, _REQUEST_ID_ATTR, None) or request_id_var.get()
@@ -54,12 +55,14 @@ class JsonFormatter(logging.Formatter):
         fields = getattr(record, _FIELDS_ATTR, None)
         if isinstance(fields, dict):
             for key, value in fields.items():
-                payload[f"field_{key}" if key in RESERVED_KEYS else key] = _clean(value)
+                name = f"field_{key}" if key in RESERVED_KEYS else key
+                # Secret-named fields are replaced whole, whatever the value's type.
+                payload[name] = REDACTED if is_secret_field(str(key)) else redact_value(value)
         exception = record.exc_text or (
             self.formatException(record.exc_info) if record.exc_info else None
         )
         if exception:
-            payload["exception"] = redact(exception)
+            payload["exception"] = _clean(exception)
         return json.dumps(payload, default=str)
 
 

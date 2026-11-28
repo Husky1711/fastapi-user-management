@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.emails import normalize_email
 from app.core.errors import Conflict
 from app.core.security import check_password_rules, hash_password
-from app.infra.database import transaction
+from app.infra.database import end_read, is_unique_violation, transaction
 from app.models import User
 from app.repositories import UserRepository
 
@@ -19,8 +19,7 @@ async def create_platform_admin(session: AsyncSession, *, email: str, password: 
     """
     email = normalize_email(email)
     check_password_rules(password)
-    # Before the unit of work: it's slow (on the CLI path nothing has read yet; for HTTP
-    # callers the connection stays checked out meanwhile, see ROADMAP step 3, R2-03).
+    await end_read(session)  # no pool connection is held while Argon2 runs (R2-03)
     password_hash = await hash_password(password)
     users = UserRepository(session)
     user = User(
@@ -31,6 +30,9 @@ async def create_platform_admin(session: AsyncSession, *, email: str, password: 
             if await users.get_by_email(email) is not None:
                 raise Conflict(code="user.email_taken")
             users.add(user)
-    except IntegrityError as error:  # taken by a deleted user, or by a concurrent create
+    except IntegrityError as error:
+        if not is_unique_violation(error, "uq_users_email"):
+            raise
+        # Taken by a deleted user, or by a concurrent create.
         raise Conflict(code="user.email_taken") from error
     return user

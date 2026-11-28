@@ -93,6 +93,11 @@ def _status_phrase(status: int) -> str:
         return "Error"
 
 
+# Answers that may concern one user (tokens, personal data, even an error about them) are
+# never stored by browsers or proxies (RFC 6749 §5.1, ASVS V8.2.1).
+NO_STORE_HEADERS: Mapping[str, str] = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+
+
 def problem_response(
     status: int,
     code: str,
@@ -111,7 +116,12 @@ def problem_response(
     }
     if extra:
         body.update(extra)
-    return JSONResponse(body, status_code=status, headers=headers, media_type=PROBLEM_CONTENT_TYPE)
+    return JSONResponse(
+        body,
+        status_code=status,
+        headers={**NO_STORE_HEADERS, **(headers or {})},
+        media_type=PROBLEM_CONTENT_TYPE,
+    )
 
 
 def internal_error_response() -> JSONResponse:

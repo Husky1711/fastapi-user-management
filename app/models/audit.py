@@ -8,10 +8,10 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Identity, Index, Text, func, text
-from sqlalchemy.dialects.postgresql import INET, JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, utc_now
+from app.models.base import Base, IPAddress, utc_now
 
 
 class AuditLog(Base):
@@ -36,6 +36,6 @@ class AuditLog(Base):
     details: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
-    ip: Mapped[str | None] = mapped_column(INET)
+    ip: Mapped[str | None] = mapped_column(IPAddress)
     request_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())

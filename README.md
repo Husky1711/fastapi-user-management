@@ -31,6 +31,18 @@ make check               # lint + type check + tests (what CI runs)
 make help                # all commands
 ```
 
+## Notes for API clients
+
+- **Refresh is single-flight per session.** Every refresh token works once. Sending the same
+  refresh token twice (a retry after a lost response, or two tabs refreshing at the same
+  time) is treated as theft: the whole session is ended and the user must log in again. Keep
+  one refresh in flight per session and share its result.
+- Responses under `/api/v1` carry `Cache-Control: no-store`; don't cache them.
+- By default a session ends after 30 minutes without a refresh, or 12 hours after login
+  (ASVS level 2). Ending another device's session, "sign out other devices" and logout-all
+  need the current password (`{"current_password": "..."}`). Three wrong passwords in a row
+  on these screens end that session; the user logs in again.
+
 ## Documentation
 
 | Document | What it covers |

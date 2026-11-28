@@ -18,7 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.emails import InvalidEmail
 from app.core.errors import Conflict
 from app.core.redaction import mask_email
-from app.core.security import WeakPassword
+from app.core.security import WeakPassword, start_password_hashing, stop_password_hashing
 from app.infra.database import create_engine, create_session_factory
 from app.services.admin import create_platform_admin
 
@@ -68,6 +68,7 @@ async def _create_admin(
     email: str, password: str, settings: Settings, out: TextIO, err: TextIO
 ) -> int:
     engine = create_engine(settings.database)
+    await asyncio.to_thread(start_password_hashing, settings.auth.password_hash_workers)
     try:
         async with create_session_factory(engine)() as session:
             user = await create_platform_admin(session, email=email, password=password)
@@ -82,6 +83,7 @@ async def _create_admin(
         return EXIT_FAILED
     finally:
         await engine.dispose()
+        await asyncio.to_thread(stop_password_hashing)
     print(f"Created platform admin {mask_email(user.email)} (id {user.id}).", file=out)
     return EXIT_OK
 

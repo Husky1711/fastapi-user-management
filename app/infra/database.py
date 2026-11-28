@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -12,6 +13,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import DatabaseSettings
+from app.core.logging import get_logger
+
+log = get_logger(__name__)
 
 
 def create_engine(settings: DatabaseSettings) -> AsyncEngine:
@@ -41,30 +45,62 @@ class NestedUnitOfWork(RuntimeError):
 
 @asynccontextmanager
 async def transaction(session: AsyncSession) -> AsyncIterator[None]:
-    """The service's unit of work: commit if the block succeeds, roll back if it raises.
+    """The service's unit of work: commit if the block succeeds, undo it if it raises.
 
-    Request dependencies (current user, permission checks) read through the same session
-    first, and those reads autobegin a transaction. The unit of work then runs in a SAVEPOINT
-    inside it: on failure only the savepoint is rolled back, which expires only the objects
-    changed in the block, so what the dependencies loaded stays readable. On success the
-    savepoint is released and the whole transaction committed, before the response is built.
+    The block always runs in a SAVEPOINT (inside the transaction the request's dependencies
+    may already have begun). On failure only the savepoint is rolled back, which expires only
+    the objects changed in the block, and the now-empty outer transaction is committed, so
+    what was loaded before (the current user) stays readable (step 2 reviews R2-02, R3-06).
+    On success everything is committed before the response is built.
 
-    Not reentrant: one unit of work per service call. A nested call raises instead of
-    committing the outer call's half-done work early.
+    All writes belong inside the block. Not reentrant: one unit of work per service call; a
+    nested call raises instead of committing the outer call's half-done work.
     """
     if session.info.get(_IN_UNIT_OF_WORK):
         raise NestedUnitOfWork("transaction() is already running on this session")
     session.info[_IN_UNIT_OF_WORK] = True
     try:
-        if session.in_transaction():
+        if not session.in_transaction():
+            await session.begin()
+        try:
             async with session.begin_nested():
                 yield
-            await session.commit()
-        else:
-            async with session.begin():
-                yield
+        except BaseException:
+            await _end_after_failure(session)
+            raise
+        await session.commit()
     finally:
         session.info.pop(_IN_UNIT_OF_WORK, None)
+
+
+async def _end_after_failure(session: AsyncSession) -> None:
+    """The savepoint is already rolled back; end the outer transaction without expiring
+    loaded objects. If the connection itself failed, fall back to a rollback."""
+    try:
+        await session.commit()
+    except Exception as error:  # the block's own error is re-raised by the caller
+        log.warning("ending a failed unit of work failed; rolled back", error=type(error).__name__)
+        await session.rollback()
+
+
+UNIQUE_VIOLATION = "23505"
+
+
+def is_unique_violation(error: IntegrityError, constraint: str) -> bool:
+    """True only for a violation of this unique constraint; every other integrity error is a
+    bug and must not be mistaken for "already exists". Decided by the driver's SQLSTATE
+    (23505) and exact constraint name, not by searching the message text."""
+    cause = error.orig.__cause__ if error.orig is not None else None  # the asyncpg error
+    sqlstate = getattr(cause, "sqlstate", None)
+    return sqlstate == UNIQUE_VIOLATION and getattr(cause, "constraint_name", None) == constraint
+
+
+async def end_read(session: AsyncSession) -> None:
+    """Finish the current (read-only) transaction now, returning its connection to the pool,
+    before slow work such as password hashing (step 2 review R2-03). Loaded objects stay
+    readable (`expire_on_commit=False`)."""
+    if session.in_transaction():
+        await session.commit()
 
 
 async def ping_database(engine: AsyncEngine) -> None:

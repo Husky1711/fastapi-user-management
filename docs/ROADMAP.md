@@ -126,30 +126,31 @@ delete; no migrations; lockout columns unused.
 
 **Goal:** secure sign-up, login, refresh, logout and session management.
 
-- [ ] `core/security.py`: PyJWT encode/decode with `iss`, `aud`, `jti`, `sid` (Argon2id hash/verify and `password_needs_rehash` already built in step 2)
-- [ ] Record `last_login_at` on users (new migration; the old code's `last_login`, deferred from step 2) and rehash on login when `password_needs_rehash`
-- [ ] Bound concurrent Argon2 work (a settings-sized semaphore around hash/verify, 64 MiB each), and don't hold a pool connection idle in a transaction while hashing (end the dependencies' read transaction first, or hash before any read), with tests (from step 2 review, R1-08, R2-03)
-- [ ] Scenarios for the unit of work under auth: the current user changed and then the block fails (e.g. a failed-login counter); two concurrent signups over HTTP where a dependency read first (savepoint branch) (from step 2 review, R3-06, R3)
-- [ ] Decide internationalised (IDN) email domains: IDNA-encode or keep refusing, and record it (from step 2 review, R1-18)
-- [ ] Dummy Argon2 verify for unknown emails (no timing leak)
-- [ ] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
-- [ ] `client_info` dependency — IP (trusted proxy aware) and user agent
-- [ ] `POST /auth/signup` (behind `FEATURE_SIGNUP`), `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`
-- [ ] Refresh rotation with `family_id` and reuse detection (reuse ⇒ revoke family + audit event)
-- [ ] Account lockout: failed counter, `locked_until`, reset on success
-- [ ] Session strategy from settings (`allow_multiple`, `replace_all`, `limit_sessions`, `replace_same_device`)
-- [ ] `GET /me`, `GET /me/sessions`, `DELETE /me/sessions/{id}`, `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
-- [ ] `POST /me/password` (change password; revokes other sessions)
-- [ ] Tests for every path, including reuse detection, lockout and expiry
-- [ ] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)
-- [ ] Log redaction also masks fields named like secrets (`password`, `token`, …), non-string values and `key: value` / `Authorization:` forms (from step 1 review, R5-03)
+- [x] `core/security.py`: PyJWT encode/decode with `iss`, `aud`, `jti`, `sid` (Argon2id hash/verify and `password_needs_rehash` already built in step 2)
+- [x] Record `last_login_at` on users (new migration; the old code's `last_login`, deferred from step 2) and rehash on login when `password_needs_rehash`
+- [x] Bound concurrent Argon2 work (a settings-sized semaphore around hash/verify, 64 MiB each), and don't hold a pool connection idle in a transaction while hashing (end the dependencies' read transaction first, or hash before any read), with tests (from step 2 review, R1-08, R2-03)
+- [x] Scenarios for the unit of work under auth: the current user changed and then the block fails (e.g. a failed-login counter); two concurrent signups over HTTP where a dependency read first (savepoint branch) (from step 2 review, R3-06, R3)
+- [x] Decide internationalised (IDN) email domains: IDNA-encode or keep refusing, and record it (from step 2 review, R1-18)
+- [x] Dummy Argon2 verify for unknown emails (no timing leak)
+- [x] `get_current_user` dependency — the **only** place a token is decoded and a user loaded
+- [x] `client_info` dependency — IP (trusted proxy aware) and user agent
+- [x] `POST /auth/signup` (behind `AUTH__SIGNUP_ENABLED`), `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`
+- [x] Refresh rotation with `family_id` and reuse detection (reuse ⇒ revoke family + audit event)
+- [x] Account lockout: failed counter, `locked_until`, reset on success
+- [x] Session strategy from settings (`allow_multiple`, `replace_all`, `limit_sessions`, `replace_same_device`)
+- [x] `GET /me`, `GET /me/sessions`, `POST /me/sessions/{id}/revoke` (current password for another device, ADR-0011), `POST /me/sessions/revoke-others` (keeps the current session via `sid`)
+- [x] `POST /me/password` (change password; revokes other sessions)
+- [x] Tests for every path, including reuse detection, lockout and expiry
+- [x] A client that disconnects while a Pydantic-body route reads its body is logged as 499, not 400 (from step 1 review, R3-03)
+- [x] Log redaction also masks fields named like secrets (`password`, `token`, …), non-string values and `key: value` / `Authorization:` forms (from step 1 review, R5-03)
 
 **Fixes from review:** unsalted SHA-256 passwords; `/debug-login` and `/debug-refresh`
 (not recreated); revocation that hashed the hash and revoked nothing; revoke-others killing the
 current session; `settings` NameError; role/org trusted from JWT claims; hard-coded
 `expires_in`; 7 copies of the token-check block; unused refresh JWT.
 
-- [ ] Security audit (gate check 6): no confirmed Critical/High findings
+- [x] Per-user lock order for session and credential changes; re-checks under the lock (security audit, F8)
+- [x] Security audit (gate check 6): no confirmed Critical/High findings (four found and fixed, see step 3 report)
 
 **Exit criteria:** ASVS V2/V3 items for these flows pass; coverage ≥ 90 % on auth services.
 
@@ -165,6 +166,8 @@ current session; `settings` NameError; role/org trusted from JWT claims; hard-co
 - [ ] Fail closed for auth routes, open for others (configurable); no per-request `PING`
 - [ ] Use `SCAN`/key sets, never `KEYS`
 - [ ] Tests with real Redis: burst, steady rate, reset, concurrency, Redis down
+- [ ] Limits on every password-checking route (`/auth/login`, `/me/password`, `/auth/logout-all`, `/me/sessions/revoke-others`, `/me/sessions/{id}/revoke`) and on `/auth/refresh`. Signed-in re-entries already have a per-session budget (ADR-0012); what's left is the anonymous login lockout used to keep an owner out of logging in: per-IP and per-IP-per-email limits checked before the account counter, so one source can't keep re-locking an account (from step 3 audit and review round 5, M1)
+- [ ] Per-IP limits on signup and login that make the signup-then-login account probe slow (from step 3 review round 2, M3; closed for good in step 6)
 
 **Fixes from review:** same-second requests counted once; rejected requests recorded;
 swallowed per-user 429; O(n) memory per key; up to 8 Redis round trips per request; `KEYS`
@@ -210,6 +213,8 @@ missing CRUD.
 - [ ] Invitations: create, list, revoke, accept (existing user or sign up through invite)
 - [ ] Setting `REQUIRE_VERIFIED_EMAIL` to block login until verified
 - [ ] Tests for expiry, reuse, enumeration resistance
+- [ ] Notify the user by email after a password change (ASVS V2.2.3, from step 3)
+- [ ] Close the signup-then-login account probe: login refused until the email is verified (decide the `REQUIRE_VERIFIED_EMAIL` default), or a sign-up for a taken email sends an "account exists" mail and creates nothing; test 3.4-24 then passes and loses its expected-failure mark (from step 3 review round 2, M3)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
@@ -226,6 +231,8 @@ missing CRUD.
 - [ ] `GET /orgs/{id}/audit` (`audit:read`) and `GET /admin/audit` — filtered, paginated
 - [ ] `/admin/users` and `/admin/organizations`: list, search, disable, enable, delete (soft)
 - [ ] Every admin action audited with actor, target, IP
+- [ ] Re-test a user hard-deleted between a login's read and its lock (3.8-09) once admin deletion exists (from step 3 review round 2, M3)
+- [ ] Audit or count failed logins for unknown emails, with the email masked, so credential stuffing is visible (from step 3 review round 2, L12)
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 
@@ -245,6 +252,7 @@ missing CRUD.
 - [ ] Meet the performance targets in `docs/VISION.md` §5
 - [ ] Log writer: shutdown and reconfigure never raise or hang when the queue is full or stdout is stuck (evict for the stop signal, bounded join); `prepare` works on a copy so other handlers keep `exc_info`; stuck-writer test cleans up in `finally` (from step 1 review, R5-01/02/05)
 - [ ] Readiness reports not ready until the database is at the code's migration head (or a documented migration job runs first) (from step 2 review, R1-09)
+- [ ] Engine `hide_parameters=True` (no bound values in database errors) (from step 3 audit hardening notes)
 
 **Fixes from review:** blocking calls inside `async` routes; duplicate DB lookups per request;
 120 DB connections per instance; client IP wrong behind a load balancer; no metrics; expired
@@ -265,6 +273,8 @@ tokens never cleaned.
 - [x] Stricter startup checks in staging/production: reject low-variety JWT secrets; require a password in `DATABASE__URL` and `REDIS__URL` (done early, in step 1)
 - [ ] Independent review pass (a fresh reviewer that did not write the code)
 - [ ] Well-known-password check compares percent-decoded, case-insensitive passwords (from step 1 review, R5-04)
+- [ ] Refuse breached passwords (ASVS V2.1.7, from step 3): offline list or k-anonymity range query; new dependency needs owner approval
+- [ ] Pepper password hashes (ASVS V2.4.5, from step 3): HMAC key from settings with a key id stored in the hash, rotation through rehash-on-login, documented loss/recovery; ADR first
 
 - [ ] Security audit (gate check 6): no confirmed Critical/High findings
 - [ ] Enforce append-only `audit_logs` in the database (trigger or revoked UPDATE/DELETE) (from step 2 review, R1-17)

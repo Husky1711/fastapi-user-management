@@ -1,7 +1,8 @@
 """Email address syntax rules (no sending; verification by email is roadmap step 6).
 
 Deliberately strict and simple: the subset of RFC 5321/5322 that real mailboxes use. No
-quoted local parts, no IP-literal domains, no comments.
+quoted local parts, no IP-literal domains, no comments, no internationalised (IDN) domains
+(ADR-0009).
 """
 
 import re

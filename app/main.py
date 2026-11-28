@@ -3,6 +3,7 @@
 Run with:  uvicorn app.main:create_app --factory
 """
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
@@ -21,6 +22,7 @@ from app.core.middleware import (
     ProblemCORSMiddleware,
     RequestContextMiddleware,
 )
+from app.core.security import start_password_hashing, stop_password_hashing
 from app.infra.database import create_engine, create_session_factory, ping_database
 from app.infra.redis import create_redis, ping_redis
 from app.schemas.errors import COMMON_ERROR_RESPONSES, PROBLEM_SCHEMAS
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.redis = redis
+    await asyncio.to_thread(start_password_hashing, settings.auth.password_hash_workers)
     # Rebuilt on every start, so the checks always point at this lifespan's live resources.
     injected: Mapping[str, HealthCheck] | None = app.state.injected_health_checks
     checks = (
@@ -59,11 +62,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await redis.aclose()
         await engine.dispose()
+        await asyncio.to_thread(stop_password_hashing)  # lets in-flight hashes finish
         log.info("shutdown")
 
 
-def _add_problem_schemas(app: FastAPI) -> None:
-    """Register the error schemas that the routes' error responses refer to."""
+def _customise_schema(app: FastAPI, *, hidden_paths: frozenset[str]) -> None:
+    """Register the error schemas that the routes' error responses refer to, and leave out
+    paths that are switched off by settings."""
     generate = app.openapi
 
     # Any: an OpenAPI document is arbitrary JSON.
@@ -71,6 +76,8 @@ def _add_problem_schemas(app: FastAPI) -> None:
         if app.openapi_schema is None:
             schema = generate()  # also caches it on app.openapi_schema
             schema.setdefault("components", {}).setdefault("schemas", {}).update(PROBLEM_SCHEMAS)
+            for path in hidden_paths:
+                schema.get("paths", {}).pop(path, None)
         return app.openapi_schema or {}
 
     # FastAPI's documented way to customise the schema is to replace this method.
@@ -126,5 +133,9 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(build_api_router(*api_routers))
-    _add_problem_schemas(app)
+    # A switched-off signup answers 404; it isn't advertised either.
+    hidden: frozenset[str] = (
+        frozenset() if settings.auth.signup_enabled else frozenset({app.url_path_for("signup")})
+    )
+    _customise_schema(app, hidden_paths=hidden)
     return app

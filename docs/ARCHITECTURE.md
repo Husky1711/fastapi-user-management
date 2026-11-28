@@ -49,12 +49,30 @@ flowchart TD
 
 **Transactions.** One request has one database session (`get_db`), shared by its dependencies
 and its one service call. Dependencies only read. The service method writes inside
-`async with transaction(session):` (`app/infra/database.py`). It runs as a SAVEPOINT inside
-the transaction the dependencies' reads began and commits everything before the response is
-built. On error only the savepoint is rolled back, so objects the dependencies loaded (the
-current user) stay readable, unless the failed block changed them: those are expired and must
-not be read afterwards (reload them in a new unit of work if needed). It is entered once per service call; a nested call raises
-`NestedUnitOfWork` instead of committing half-done work.
+`async with transaction(session):` (`app/infra/database.py`). The block always runs in a
+SAVEPOINT and everything is committed before the response is built. On error only the
+savepoint is rolled back and the (now empty) outer transaction is committed, so objects loaded
+earlier (the current user) stay readable, unless the failed block changed them: those are
+expired and must not be read afterwards. Before slow work (password hashing) a service calls
+`end_read(session)` so no pool connection is held idle. All writes go inside the block. It is
+entered once per service call; a nested call raises `NestedUnitOfWork` instead of committing
+half-done work.
+
+**Per-user lock order.** Every write that creates or ends sessions or changes credentials
+(login, refresh, logout, logout-all, ending sessions, password change) first locks the user
+row through `auth.lock_user` (the only entry point; `SELECT … FOR NO KEY UPDATE`, which
+doesn't block inserts that merely reference the user), then touches session rows. These
+flows therefore run one after another per user, so a revocation can't miss a token a
+concurrent refresh just issued, and the fixed order prevents deadlocks. Anything checked before
+`end_read` and slow hashing (the verified password hash, a live session, the account's
+status, and for logins the lockout) is checked again under that lock before the write:
+`auth.lock_and_recheck` for every write after a password re-entry, `_complete_login` for
+logins.
+
+**`core/deps.py` and services.** `get_current_user` in `core/deps.py` calls
+`services.auth.authenticate`, while services import other `core` modules. This one
+dependency from `core` to `services` is deliberate: `deps.py` is the FastAPI glue that turns
+a request into service inputs, and it is the only `core` module that imports a service.
 
 ## 3. Folder layout
 
@@ -129,6 +147,7 @@ erDiagram
         bool is_platform_admin
         int failed_login_count
         timestamptz locked_until
+        timestamptz last_login_at
         timestamptz created_at
         timestamptz deleted_at
     }
@@ -159,10 +178,12 @@ erDiagram
     SESSIONS {
         uuid id PK
         uuid user_id FK
-        uuid family_id "refresh rotation chain"
+        uuid family_id "refresh rotation chain = access token sid"
+        timestamptz family_started_at "caps refreshing"
         bytea token_hash UK "SHA-256, 32 bytes"
         timestamptz expires_at
         timestamptz revoked_at
+        text revoked_reason "rotated | logout | reuse_detected | ..."
         inet ip
         text user_agent
     }
@@ -249,12 +270,17 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 - **Access token**: JWT, 15 minutes (configurable), claims `sub`, `sid` (session id), `iat`,
   `exp`, `iss`, `aud`, `jti`. No role or org claims — permissions are read live, so a demotion
   takes effect immediately.
-- **Refresh token**: 256-bit random opaque string, stored only as SHA-256 hash, 14 days
-  (configurable). Rotated on every use.
+- **Refresh token**: 256-bit random opaque string, stored only as SHA-256 hash. Idle limit
+  `AUTH__REFRESH_TTL` (default 30 minutes) and absolute limit `AUTH__SESSION_MAX_AGE` (default
+  12 hours): ASVS level 2 by default, longer by choice (ADR-0011). Ending other sessions needs
+  the current password (`AUTH__REAUTH_TO_END_SESSIONS`). Rotated on every use.
 - **Reuse detection**: each rotation stays in the same `family_id`. If an already-rotated
   refresh token is presented, the whole family is revoked (it was stolen).
 - **Lockout**: after N failed logins (default 5) the account is locked for M minutes
-  (default 15), with an audit entry. Unknown emails still run a dummy Argon2 verify so
+  (default 15), with an audit entry. It applies to anonymous logins only.
+- **Re-entering the password** (password change, ending other sessions, logout-all) uses a
+  per-session budget (default 3) reserved under the user lock before Argon2 runs; using it
+  up with wrong passwords ends that session (ADR-0012). Unknown emails still run a dummy Argon2 verify so
   response time does not reveal which emails exist.
 - **Session strategies** (`allow_multiple`, `replace_all`, `limit_sessions`, …) are a
   config setting, not a query parameter clients can choose.
@@ -295,6 +321,6 @@ Mapping from the legacy roles: `super_admin` → platform admin, organization ad
 | Add fields to a user or org | A product-owned profile table with a 1:1 FK + its own migration |
 | Add endpoints | A new router in the product's own package, using the same `deps` |
 | Real email provider | Implement `EmailSender` |
-| Turn features off | Settings flags (e.g. `FEATURE_SIGNUP=false` for invite-only products) |
+| Turn features off | Settings flags (e.g. `AUTH__SIGNUP_ENABLED=false` for invite-only products) |
 
 These are documented with examples in `docs/EXTENDING.md` (written in the roadmap).

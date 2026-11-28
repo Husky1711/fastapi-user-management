@@ -8,6 +8,7 @@ every nested section, are immutable once loaded, so they can't be changed after 
 safety check has passed.
 """
 
+from datetime import timedelta
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
@@ -18,6 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "insecure-development-secret-change-me-before-production"  # noqa: S105
 MIN_JWT_SECRET_LENGTH = 32
+HMAC_KEY_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 MIN_JWT_SECRET_DISTINCT_CHARS = 10  # rejects "aaaa…" or "abababab…" style secrets
 DEV_REDIS_PASSWORD = "redis-dev-password"  # noqa: S105 - published in .env.example and Compose
 # Passwords published in this repository or used as image defaults. Never allowed in strict
@@ -69,6 +71,55 @@ class JwtSettings(_Section):
     secret_key: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     # HMAC only: an asymmetric algorithm would need a key pair, and "none" must never be possible.
     algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    issuer: str = Field(default="user-management-api", min_length=1, max_length=200)
+    audience: str = Field(default="user-management-clients", min_length=1, max_length=200)
+    # Short-lived: revocation is also checked per request (session lookup), but a short TTL
+    # limits what a leaked token can do if that check is ever bypassed.
+    access_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    # Clock difference tolerated between servers when checking `exp` / `iat`.
+    leeway_seconds: int = Field(default=10, ge=0, le=60)
+
+
+class SessionStrategy(StrEnum):
+    ALLOW_MULTIPLE = "allow_multiple"  # every login adds a session
+    REPLACE_ALL = "replace_all"  # a login ends every other session
+    LIMIT_SESSIONS = "limit_sessions"  # at most `max_sessions`; the oldest is ended
+    REPLACE_SAME_DEVICE = "replace_same_device"  # a login ends sessions with the same user agent
+
+
+MIN_REFRESH_TTL = timedelta(minutes=5)
+MAX_REFRESH_TTL = timedelta(days=90)
+MAX_SESSION_AGE = timedelta(days=365)
+
+
+class AuthSettings(_Section):
+    signup_enabled: bool = True
+    # Session limits, ISO 8601 durations (PT30M) or seconds. The defaults are ASVS level 2
+    # (V3.3.2): 30 minutes idle (each refresh issues a token that lives this long) and
+    # 12 hours from the first login, whatever the use. Longer is a product decision (ADR-0011).
+    refresh_ttl: timedelta = timedelta(minutes=30)
+    session_max_age: timedelta = timedelta(hours=12)
+    # ASVS V3.3.4 (level 2): ending other sessions (one other device, revoke-others,
+    # logout-all) needs the current password again.
+    reauth_to_end_sessions: bool = True
+    # Wrong password re-entries allowed per session before that session is ended (ADR-0012).
+    reauth_max_failures: int = Field(default=3, ge=1, le=10)
+    lockout_threshold: int = Field(default=5, ge=3, le=20)
+    lockout_minutes: int = Field(default=15, ge=1, le=1440)
+    session_strategy: SessionStrategy = SessionStrategy.ALLOW_MULTIPLE
+    max_sessions: int = Field(default=5, ge=1, le=100)
+    # Argon2id uses 64 MiB per hash: at most this many run at once (memory = workers x 64 MiB).
+    password_hash_workers: int = Field(default=4, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def _session_limits_are_sane(self) -> Self:
+        if not MIN_REFRESH_TTL <= self.refresh_ttl <= MAX_REFRESH_TTL:
+            raise ValueError("AUTH__REFRESH_TTL must be between 5 minutes and 90 days")
+        if not self.refresh_ttl <= self.session_max_age <= MAX_SESSION_AGE:
+            raise ValueError(
+                "AUTH__SESSION_MAX_AGE must be at least AUTH__REFRESH_TTL and at most 365 days"
+            )
+        return self
 
 
 class CorsSettings(_Section):
@@ -122,9 +173,19 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     jwt: JwtSettings = Field(default_factory=JwtSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
     cors: CorsSettings = Field(default_factory=CorsSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     health: HealthSettings = Field(default_factory=HealthSettings)
+
+    @model_validator(mode="after")
+    def _refresh_outlives_access(self) -> Self:
+        """A client refreshes when its access token expires: the refresh token must still be
+        alive then, with room to spare, or every session ends at the first refresh."""
+        access = timedelta(seconds=self.jwt.access_ttl_seconds)
+        if self.auth.refresh_ttl < 2 * access:
+            raise ValueError("AUTH__REFRESH_TTL must be at least twice JWT__ACCESS_TTL_SECONDS")
+        return self
 
     @property
     def is_strict(self) -> bool:
@@ -140,7 +201,7 @@ class Settings(BaseSettings):
         """Every reason these settings are unsafe for a strict environment (empty if safe)."""
         if not self.is_strict:
             return []
-        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value())
+        problems = _jwt_secret_problems(self.jwt.secret_key.get_secret_value(), self.jwt.algorithm)
         if self.debug:
             problems.append("DEBUG must be false")
         problems += _url_password_problems("DATABASE__URL", self.database.url)
@@ -153,11 +214,13 @@ class Settings(BaseSettings):
             raise UnsafeConfigurationError(self.environment, problems)
 
 
-def _jwt_secret_problems(secret: str) -> list[str]:
+def _jwt_secret_problems(secret: str, algorithm: str = "HS256") -> list[str]:
     if secret == DEFAULT_JWT_SECRET:
         return ["JWT__SECRET_KEY is the development default"]
-    if len(secret) < MIN_JWT_SECRET_LENGTH:
-        return [f"JWT__SECRET_KEY must be at least {MIN_JWT_SECRET_LENGTH} characters"]
+    # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output.
+    minimum = max(MIN_JWT_SECRET_LENGTH, HMAC_KEY_BYTES.get(algorithm, MIN_JWT_SECRET_LENGTH))
+    if len(secret.encode()) < minimum:
+        return [f"JWT__SECRET_KEY must be at least {minimum} bytes for {algorithm}"]
     if len(set(secret)) < MIN_JWT_SECRET_DISTINCT_CHARS:
         return ["JWT__SECRET_KEY is too repetitive; generate a random one"]
     return []

@@ -62,3 +62,12 @@ API_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     **COMMON_ERROR_RESPONSES,
     422: _problem(ValidationProblemOut, "The request body or parameters are invalid"),
 }
+
+
+# Per-route additions (merged with API_ERROR_RESPONSES by the router).
+UNAUTHORIZED_RESPONSE: dict[int | str, dict[str, Any]] = {
+    401: _problem(ProblemOut, "Not authenticated, or credentials / token not accepted"),
+}
+NOT_FOUND_RESPONSE: dict[int | str, dict[str, Any]] = {
+    404: _problem(ProblemOut, "Not found (or not visible to you)"),
+}
