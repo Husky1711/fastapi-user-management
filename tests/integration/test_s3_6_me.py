@@ -344,12 +344,12 @@ async def test_s3_6_21_typos_and_a_double_clicked_end_device_keep_the_owner_sign
         for typo in ("Typo-Number-0001", "Typo-Number-0002"):
             await http.post(path, json={"current_password": typo}, headers=_bearer(laptop))
         clicks = [await _end(http, laptop, phone_id) for _ in range(2)]
-        typo = await http.post(
+        third_typo = await http.post(
             path, json={"current_password": "Typo-Number-0003"}, headers=_bearer(laptop)
         )
         still_in = await http.get("/api/v1/me", headers=_bearer(laptop))
     assert [c.status_code for c in clicks] == [204, 404]
-    assert (typo.status_code, still_in.status_code) == (401, 200)
+    assert (third_typo.status_code, still_in.status_code) == (401, 200)
 
 
 @pytest.mark.parametrize("action", ["end_other_device", "revoke_others", "logout_all"])
